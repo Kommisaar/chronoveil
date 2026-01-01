@@ -3,4 +3,7 @@ name = "chronoveil"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "openai>=2.14.0",
+    "pyside6-fluent-widgets[full]>=1.10.5",
+]

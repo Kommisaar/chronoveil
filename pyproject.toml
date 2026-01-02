@@ -7,3 +7,26 @@ dependencies = [
     "openai>=2.14.0",
     "pyside6-fluent-widgets[full]>=1.10.5",
 ]
+[tool.chronoveil.compiler]
+resource_paths = [
+    "chronoveil/resources",
+]
+resource_extensions = [
+    "ts",
+    "png",
+]
+qrc_file = "chronoveil/resources/resources.qrc"
+compiled_file = "chronoveil/resources/resources.py"
+
+[tool.chronoveil.translations]
+source_paths = [
+    "main.py",
+    "chronoveil",
+]
+[[tool.chronoveil.translations.locale]]
+language = "en_US"
+file = "chronoveil/resources/translations/en_US.ts"
+
+[[tool.chronoveil.translations.locale]]
+language = "zh_CN"
+file = "chronoveil/resources/translations/zh_CN.ts"

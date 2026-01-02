@@ -1,1 +1,4 @@
 .idea
+chronoveil/resources/translations/*.qm
+chronoveil/resources/resources.qrc
+chronoveil/resources/resources.py

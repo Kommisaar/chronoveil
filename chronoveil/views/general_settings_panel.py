@@ -10,7 +10,7 @@ from chronoveil.core.enums import Language
 from chronoveil.core.enums.theme import Theme
 
 
-class GeneralSettingPanel(GroupHeaderCardWidget):
+class GeneralSettingsPanel(GroupHeaderCardWidget):
     language_selected = Signal(Language)
     language_changed = Signal()
 
@@ -98,4 +98,4 @@ class GeneralSettingPanel(GroupHeaderCardWidget):
 
     @Slot()
     def on_theme_changed(self):
-        self.theme_changed.emit()
+        pass

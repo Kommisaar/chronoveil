@@ -2,6 +2,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtCore import QSettings
 
 from chronoveil.core.enums import Setting
+from chronoveil.core.models import LLMSettings
 from chronoveil.utils import get_logger
 
 LLM_SETTING = {Setting.LLM_API_FORMAT, Setting.LLM_BASE_URL, Setting.LLM_API_KEY, Setting.LLM_MODEL_NAME}
@@ -21,7 +22,7 @@ class SettingsManager(QObject):
             application="Chronoveil",
         )
 
-    def set_value(self, setting: Setting, value: str | int | float | bool) -> None:
+    def set_value(self, setting: Setting, value: any) -> None:
         old_value = self.get_value(setting)
         if str(old_value) == str(value):
             return
@@ -29,7 +30,7 @@ class SettingsManager(QObject):
         self._settings.setValue(setting, value)
         self._settings.sync()
 
-    def get_value(self, setting: Setting) -> str | int | float | bool | None:
+    def get_value(self, setting: Setting) -> any:
         try:
             value: str | None = self._settings.value(setting)
             if value is None:
@@ -44,3 +45,17 @@ class SettingsManager(QObject):
             self._logger.error(f"Failed to parse value for setting {setting}")
             self._settings.remove(setting)
             return None
+
+    def get_llm_setting(self) -> LLMSettings:
+        return LLMSettings(
+            api_format=self.get_value(Setting.LLM_API_FORMAT),
+            base_url=self.get_value(Setting.LLM_BASE_URL),
+            api_key=self.get_value(Setting.LLM_API_KEY),
+            model_name=self.get_value(Setting.LLM_MODEL_NAME),
+        )
+
+    def set_llm_setting(self, llm_settings: LLMSettings) -> None:
+        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format)
+        self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url)
+        self.set_value(Setting.LLM_API_KEY, llm_settings.api_key)
+        self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name)

@@ -19,7 +19,7 @@ class LanguageManager(QObject):
 
         self._setup_translator()
 
-    def _setup_translator(self):
+    def _setup_translator(self)-> None:
         sys_language = QLocale.system().name()
         try:
             if self._current_language is not None:
@@ -35,7 +35,7 @@ class LanguageManager(QObject):
             self.switch_translator(language)
             self._current_language = language
 
-    def switch_translator(self, language: Language):
+    def switch_translator(self, language: Language)-> None:
         self._app.removeTranslator(self._translator)
         self._current_language = language
         self._translator.load(f":/translations/{language.value}.qm")

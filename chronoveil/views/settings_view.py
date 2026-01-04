@@ -4,14 +4,11 @@ from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 
-from chronoveil.core.models import LLMSettings
 from chronoveil.views.general_settings_panel import GeneralSettingsPanel
 from chronoveil.views.llm_settings_panel import LLMSettingsPanel
 
 
 class SettingsView(QWidget):
-    llm_settings_changed = Signal()
-
     language_changed = Signal()
     theme_changed = Signal()
 
@@ -25,7 +22,7 @@ class SettingsView(QWidget):
         self._setup_ui()
         self._setup_connections()
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         layout = QHBoxLayout()
 
         left_layout = QVBoxLayout()
@@ -41,29 +38,25 @@ class SettingsView(QWidget):
 
         self.setLayout(layout)
 
-    def _setup_connections(self):
+    def _setup_connections(self) -> None:
         self.language_changed.connect(self._general_setting_panel.on_language_changed)
         self.language_changed.connect(self._llm_setting_panel.on_language_changed)
 
         self.theme_changed.connect(self._general_setting_panel.on_theme_changed)
         self.theme_changed.connect(self._llm_setting_panel.on_theme_changed)
 
-    @Slot(LLMSettings)
-    def on_llm_settings_changed(self):
-        self.llm_settings_changed.emit()
-
     @Slot()
-    def on_language_changed(self):
+    def on_language_changed(self) -> None:
         self.language_changed.emit()
 
     @Slot()
-    def on_theme_changed(self):
+    def on_theme_changed(self) -> None:
         self.theme_changed.emit()
 
     @property
-    def llm_setting_panel(self):
+    def llm_setting_panel(self) -> LLMSettingsPanel:
         return self._llm_setting_panel
 
     @property
-    def general_setting_panel(self):
+    def general_setting_panel(self) -> GeneralSettingsPanel:
         return self._general_setting_panel

@@ -19,7 +19,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
         self._setup_ui()
         self._setup_connections()
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         self.setTitle(self.tr("LLM Settings"))
         self.setBorderRadius(8)
 
@@ -29,7 +29,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
         self._setup_api_key_setting()
         self._setup_test_setting()
 
-    def _setup_api_format_setting(self):
+    def _setup_api_format_setting(self) -> None:
         self._api_format_setting = ComboBox(self)
         self._api_format_setting.setMinimumWidth(150)
         for llm_format in LLMAPIFormat:
@@ -42,7 +42,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
             widget=self._api_format_setting,
         )
 
-    def _setup_base_url_setting(self):
+    def _setup_base_url_setting(self) -> None:
         self._base_url_setting = LineEdit(self)
         self._base_url_setting.setMinimumWidth(300)
 
@@ -53,7 +53,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
             widget=self._base_url_setting,
         )
 
-    def _setup_model_name_setting(self):
+    def _setup_model_name_setting(self) -> None:
         self._model_name_setting = LineEdit(self)
         self._model_name_setting.setMinimumWidth(300)
 
@@ -64,7 +64,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
             widget=self._model_name_setting,
         )
 
-    def _setup_api_key_setting(self):
+    def _setup_api_key_setting(self) -> None:
         self._api_key_setting = PasswordLineEdit(self)
         self._api_key_setting.setMinimumWidth(300)
 
@@ -75,7 +75,7 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
             widget=self._api_key_setting,
         )
 
-    def _setup_test_setting(self):
+    def _setup_test_setting(self) -> None:
         self._test_setting = PushButton(self)
         self._test_setting.setMinimumWidth(150)
         self._test_setting.setText(self.tr("Test Connection"))
@@ -87,13 +87,13 @@ class LLMSettingsPanel(GroupHeaderCardWidget):
             widget=self._test_setting,
         )
 
-    def _setup_connections(self):
+    def _setup_connections(self) -> None:
         self._api_format_setting.currentIndexChanged.connect(self.on_llm_settings_changed)
         self._base_url_setting.textEdited.connect(self.on_llm_settings_changed)
         self._model_name_setting.textEdited.connect(self.on_llm_settings_changed)
         self._api_key_setting.textEdited.connect(self.on_llm_settings_changed)
 
-    def set_llm_api_settings(self, llm_settings: LLMSettings):
+    def set_llm_api_settings(self, llm_settings: LLMSettings) -> None:
         if llm_settings.api_format is not None:
             self._api_format_setting.setCurrentIndex(self._api_format_setting.findData(llm_settings.api_format))
 

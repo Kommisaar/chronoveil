@@ -33,11 +33,11 @@ class SettingsController(QObject):
         self._restore_llm_settings()
         self._restore_general_settings()
 
-    def _restore_llm_settings(self):
+    def _restore_llm_settings(self)-> None:
         llm_settings = self._settings_manager.get_llm_setting()
         self._settings_view.llm_setting_panel.set_llm_api_settings(llm_settings)
 
-    def _restore_general_settings(self):
+    def _restore_general_settings(self)-> None:
         language = self._settings_manager.get_value(Setting.GENERAL_LANGUAGE)
         if language is not None:
             self._settings_view.general_setting_panel.set_language(language)
@@ -46,7 +46,7 @@ class SettingsController(QObject):
         if theme is not None:
             self._settings_view.general_setting_panel.set_theme(theme)
 
-    def _setup_connections(self):
+    def _setup_connections(self)-> None:
         self._settings_view.llm_setting_panel.llm_settings_changed.connect(self.on_llm_settings_changed)
 
         self._settings_view.general_setting_panel.language_selected.connect(self.on_language_selected)

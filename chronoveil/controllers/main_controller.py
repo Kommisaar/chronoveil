@@ -28,18 +28,19 @@ class MainController(QObject):
         self._settings_manager = settings_manager
         self._language_manager = language_manager
 
-        self._settings_controller = SettingsController(
-            settings_view=self._main_window.setting_view,
-            settings_manager=self._settings_manager,
-            parent=self
-        )
-
+        self._setup_controllers()
         self._setup_connections()
 
     def run(self):
         self._main_window.show()
 
-    def _setup_connections(self):
+    def _setup_controllers(self)-> None:
+        self._settings_controller = SettingsController(
+            settings_view=self._main_window.setting_view,
+            settings_manager=self._settings_manager,
+            parent=self
+        )
+    def _setup_connections(self)-> None:
         self._settings_controller.llm_settings_changed.connect(self.on_llm_settings_changed)
 
         self.language_changed.connect(self._main_window.on_language_changed)
@@ -49,16 +50,16 @@ class MainController(QObject):
         self._settings_controller.theme_selected.connect(self.on_theme_selected)
 
     @Slot(LLMSettings)
-    def on_llm_settings_changed(self, llm_settings: LLMSettings):
+    def on_llm_settings_changed(self, llm_settings: LLMSettings)-> None:
         self._settings_manager.set_llm_setting(llm_settings)
 
     @Slot(Language)
-    def on_language_selected(self, language: Language):
+    def on_language_selected(self, language: Language)-> None:
         self._settings_manager.set_value(Setting.GENERAL_LANGUAGE, language)
         self._language_manager.switch_translator(language)
         self.language_changed.emit()
 
     @Slot(Theme)
-    def on_theme_selected(self, theme: Theme):
+    def on_theme_selected(self, theme: Theme)-> None:
         self._settings_manager.set_value(Setting.GENERAL_THEME, theme)
         self.theme_changed.emit()

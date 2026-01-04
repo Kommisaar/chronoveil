@@ -20,7 +20,7 @@ class MainWindow(MSFluentWindow):
         self._setup_ui()
         self._setup_connections()
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         screen = QGuiApplication.primaryScreen()
         size = screen.size()
         screen_width, screen_height = size.width(), size.height()
@@ -34,7 +34,7 @@ class MainWindow(MSFluentWindow):
         self._setup_chat_view()
         self._setup_setting_view()
 
-    def _setup_chat_view(self):
+    def _setup_chat_view(self) -> None:
         self._chat_view = ChatView()
         self._chat_view_button = self.addSubInterface(
             interface=self._chat_view,
@@ -44,7 +44,7 @@ class MainWindow(MSFluentWindow):
             position=NavigationItemPosition.TOP
         )
 
-    def _setup_setting_view(self):
+    def _setup_setting_view(self) -> None:
         self._settings_view = SettingsView()
         self._setting_view_button = self.addSubInterface(
             interface=self._settings_view,
@@ -54,27 +54,27 @@ class MainWindow(MSFluentWindow):
             position=NavigationItemPosition.BOTTOM
         )
 
-    def _setup_connections(self):
+    def _setup_connections(self) -> None:
         # self.language_changed.connect(self._chat_view.language_changed)
         self.language_changed.connect(self._settings_view.on_language_changed)
 
         self.theme_changed.connect(self._settings_view.on_theme_changed)
 
     @Slot()
-    def on_language_changed(self):
+    def on_language_changed(self) -> None:
         self._chat_view_button.setText(self.tr("Chat"))
         self._setting_view_button.setText(self.tr("Settings"))
 
         self.language_changed.emit()
 
     @Slot()
-    def on_theme_changed(self):
+    def on_theme_changed(self) -> None:
         self.theme_changed.emit()
 
     @property
-    def chat_view(self):
+    def chat_view(self) -> None:
         return self._chat_view
 
     @property
-    def setting_view(self):
+    def setting_view(self) -> None:
         return self._settings_view

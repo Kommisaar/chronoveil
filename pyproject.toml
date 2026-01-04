@@ -7,7 +7,32 @@ dependencies = [
     "openai>=2.14.0",
     "pyside6-fluent-widgets[full]>=1.10.5",
     "sqlalchemy>=2.0.45",
+    "pytest>=9.0.2",
+    "pytest-cov",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--cov=chronoveil",
+    "--cov-report=term-missing"
+]
+
+
+[tool.coverage.run]
+source = ["chronoveil"]  # 指定源码目录
+omit = [
+    "chronoveil/resources/*",      # 排除整个 resources 目录
+    "chronoveil/core/orm/base.py", # 排除 ORM 基类
+    "**/__init__.py",
+    "*/migrations/*",              # 如果有数据库迁移文件
+    "*/__pycache__/*",
+]
+
+
 [tool.chronoveil.compiler]
 resource_paths = [
     "chronoveil/resources",

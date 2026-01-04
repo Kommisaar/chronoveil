@@ -2,9 +2,9 @@ from datetime import datetime
 
 import pytest
 
-from chronoveil.core.models.database_items import SessionMessageItem
-from chronoveil.core.models.database_items import UserItem
-from chronoveil.core.models.database_items import UserSessionItem
+from chronoveil.core.models import SessionMessageItem
+from chronoveil.core.models import UserItem
+from chronoveil.core.models import UserSessionItem
 from chronoveil.core.orm import SessionMessage
 from chronoveil.core.orm import User
 from chronoveil.core.orm import UserSession

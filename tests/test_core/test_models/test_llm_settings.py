@@ -1,7 +1,7 @@
 import pytest
 
-from chronoveil.core.enums.api_format import LLMAPIFormat
-from chronoveil.core.models.llm_settings import LLMSettings
+from chronoveil.core.enums import LLMAPIFormat
+from chronoveil.core.models import LLMSettings
 
 
 def test_llm_settings_creation():

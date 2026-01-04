@@ -3,19 +3,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from chronoveil.core.orm import BaseORM
-from chronoveil.core.services.database_services import add_session_message
-from chronoveil.core.services.database_services import add_user
-from chronoveil.core.services.database_services import add_user_session
-from chronoveil.core.services.database_services import delete_session_message
-from chronoveil.core.services.database_services import delete_user
-from chronoveil.core.services.database_services import delete_user_session
-from chronoveil.core.services.database_services import get_all_users
-from chronoveil.core.services.database_services import get_session_message_by_session_id
-from chronoveil.core.services.database_services import get_user
-from chronoveil.core.services.database_services import get_user_session_by_user_id
-from chronoveil.core.services.database_services import update_session_message
-from chronoveil.core.services.database_services import update_user
-from chronoveil.core.services.database_services import update_user_session
+from chronoveil.core.services import add_session_message
+from chronoveil.core.services import add_user
+from chronoveil.core.services import add_user_session
+from chronoveil.core.services import delete_session_message
+from chronoveil.core.services import delete_user
+from chronoveil.core.services import delete_user_session
+from chronoveil.core.services import get_all_users
+from chronoveil.core.services import get_session_message_by_session_id
+from chronoveil.core.services import get_user
+from chronoveil.core.services import get_user_session_by_user_id
+from chronoveil.core.services import update_session_message
+from chronoveil.core.services import update_user
+from chronoveil.core.services import update_user_session
 
 
 @pytest.fixture

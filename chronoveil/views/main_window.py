@@ -72,9 +72,9 @@ class MainWindow(MSFluentWindow):
         self.theme_changed.emit()
 
     @property
-    def chat_view(self) -> None:
+    def chat_view(self) -> ChatView:
         return self._chat_view
 
     @property
-    def setting_view(self) -> None:
+    def setting_view(self) -> SettingsView:
         return self._settings_view

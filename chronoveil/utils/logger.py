@@ -4,6 +4,8 @@ import logging
 def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
     logger = logging.getLogger(name)
 
+    logger.setLevel(level)
+
     if not logger.handlers:
         handler = logging.StreamHandler()
         handler.setLevel(level)
@@ -13,8 +15,6 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
             datefmt="%Y-%m-%d %H:%M:%S"
         )
         handler.setFormatter(formatter)
-
         logger.addHandler(handler)
-        logger.setLevel(level)
 
     return logger

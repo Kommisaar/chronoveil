@@ -29,7 +29,6 @@ class SessionCard(CardWidget):
         self.setFixedHeight(60)
         self.setLayout(layout)
         self.setContentsMargins(0, 0, 0, 0)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
     def _normalBackgroundColor(self):
         return QColor(0, 0, 0, 0)

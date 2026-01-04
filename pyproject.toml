@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "openai>=2.14.0",
     "pyside6-fluent-widgets[full]>=1.10.5",
+    "sqlalchemy>=2.0.45",
 ]
 [tool.chronoveil.compiler]
 resource_paths = [

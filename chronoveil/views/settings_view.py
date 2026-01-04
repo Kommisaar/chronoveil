@@ -4,16 +4,16 @@ from PySide6.QtWidgets import QHBoxLayout
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QWidget
 
-from chronoveil.views.general_settings_panel import GeneralSettingsPanel
-from chronoveil.views.llm_settings_panel import LLMSettingsPanel
+from chronoveil.views.panels import GeneralSettingsPanel
+from chronoveil.views.panels import LLMSettingsPanel
 
 
 class SettingsView(QWidget):
     language_changed = Signal()
     theme_changed = Signal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent=parent)
         self.setObjectName("SettingView")
 
         self._llm_setting_panel = LLMSettingsPanel()

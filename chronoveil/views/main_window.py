@@ -35,7 +35,7 @@ class MainWindow(MSFluentWindow):
         self._setup_setting_view()
 
     def _setup_chat_view(self) -> None:
-        self._chat_view = ChatView()
+        self._chat_view = ChatView(parent=self)
         self._chat_view_button = self.addSubInterface(
             interface=self._chat_view,
             icon=FluentIcon.MESSAGE,
@@ -45,7 +45,7 @@ class MainWindow(MSFluentWindow):
         )
 
     def _setup_setting_view(self) -> None:
-        self._settings_view = SettingsView()
+        self._settings_view = SettingsView(parent=self)
         self._setting_view_button = self.addSubInterface(
             interface=self._settings_view,
             icon=FluentIcon.SETTING,

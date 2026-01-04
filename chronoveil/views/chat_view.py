@@ -16,14 +16,7 @@ class ChatView(QWidget):
         self._sessions_panel = SessionsPanel()
         self._session_panel = SessionPanel()
 
-        layout = QHBoxLayout()
+        layout = QHBoxLayout(self)
         layout.addWidget(self._sessions_panel, 1)
         layout.addWidget(self._session_panel, 4)
-        self.setLayout(layout)
-
-
-
-
-
-
-
+        layout.setContentsMargins(0, 0, 0, 0)

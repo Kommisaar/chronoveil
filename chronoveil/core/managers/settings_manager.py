@@ -22,13 +22,14 @@ class SettingsManager(QObject):
             application="Chronoveil",
         )
 
-    def set_value(self, setting: Setting, value: any) -> None:
+    def set_value(self, setting: Setting, value: any, sync: bool = True) -> None:
         old_value = self.get_value(setting)
         if str(old_value) == str(value):
             return
 
         self._settings.setValue(setting, value)
-        self._settings.sync()
+        if sync:
+            self._settings.sync()
 
     def get_value(self, setting: Setting) -> any:
         try:
@@ -55,7 +56,8 @@ class SettingsManager(QObject):
         )
 
     def set_llm_setting(self, llm_settings: LLMSettings) -> None:
-        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format)
-        self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url)
-        self.set_value(Setting.LLM_API_KEY, llm_settings.api_key)
-        self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name)
+        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format, sync=False)
+        self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url, sync=False)
+        self.set_value(Setting.LLM_API_KEY, llm_settings.api_key, sync=False)
+        self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name, sync=False)
+        self._settings.sync()

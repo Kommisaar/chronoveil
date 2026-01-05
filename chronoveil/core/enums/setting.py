@@ -1,5 +1,6 @@
 from enum import StrEnum
 
+from chronoveil.core.enums import LLMAPIFormat
 from chronoveil.core.enums.language import Language
 from chronoveil.core.enums.theme import Theme
 
@@ -12,7 +13,7 @@ class Setting(StrEnum):
         return obj
 
     # LLM Setting
-    LLM_API_FORMAT = "llm/api_format", str
+    LLM_API_FORMAT = "llm/api_format", LLMAPIFormat
     LLM_BASE_URL = "llm/base_url", str
     LLM_API_KEY = "llm/api_key", str
     LLM_MODEL_NAME = "llm/model_name", str

@@ -47,6 +47,13 @@ class SettingsManager(QObject):
             self._settings.remove(setting)
             return None
 
+    def set_llm_setting(self, llm_settings: LLMSettings) -> None:
+        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format, sync=False)
+        self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url, sync=False)
+        self.set_value(Setting.LLM_API_KEY, llm_settings.api_key, sync=False)
+        self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name, sync=False)
+        self._settings.sync()
+
     def get_llm_setting(self) -> LLMSettings:
         return LLMSettings(
             api_format=self.get_value(Setting.LLM_API_FORMAT),
@@ -55,9 +62,6 @@ class SettingsManager(QObject):
             model_name=self.get_value(Setting.LLM_MODEL_NAME),
         )
 
-    def set_llm_setting(self, llm_settings: LLMSettings) -> None:
-        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format, sync=False)
-        self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url, sync=False)
-        self.set_value(Setting.LLM_API_KEY, llm_settings.api_key, sync=False)
-        self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name, sync=False)
-        self._settings.sync()
+
+    def get_settings_file(self) -> str:
+        return self._settings.fileName()

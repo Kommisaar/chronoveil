@@ -1,10 +1,8 @@
-from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QObject
 from sqlalchemy import create_engine
 from sqlalchemy import event
-from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
 from chronoveil.core.orm import BaseORM
@@ -30,7 +28,5 @@ class DatabaseManager(QObject):
         self._session_maker = sessionmaker(bind=self._engine)
         BaseORM.metadata.create_all(self._engine)
 
-
-class DatabaseWorker:
-    def __init__(self, session_maker: Callable[[], Session]):
-        self._session_maker = session_maker
+    def get_session_maker(self) -> sessionmaker:
+        return self._session_maker

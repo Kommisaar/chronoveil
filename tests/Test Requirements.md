@@ -15,6 +15,7 @@
 - ✅ **异常输入**（触发异常的条件）  
   *示例：* `income=-1000, rate=0.1 → ValueError`
 - ✅ **参数化测试**（对相似场景使用 `@pytest.mark.parametrize`）
+- ✅ **确保QApplication实例必要时存在**（在测试pyside、qt等框架中，需要创建QApplication实例）
 
 #### **3. 测试代码要求**
 - **结构规范**：

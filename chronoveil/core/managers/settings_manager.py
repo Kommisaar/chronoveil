@@ -5,8 +5,6 @@ from chronoveil.core.enums import Setting
 from chronoveil.core.models import LLMSettings
 from chronoveil.utils import get_logger
 
-LLM_SETTING = {Setting.LLM_API_FORMAT, Setting.LLM_BASE_URL, Setting.LLM_API_KEY, Setting.LLM_MODEL_NAME}
-
 
 class SettingsManager(QObject):
 
@@ -48,7 +46,7 @@ class SettingsManager(QObject):
             return None
 
     def set_llm_setting(self, llm_settings: LLMSettings) -> None:
-        self.set_value(Setting.LLM_API_FORMAT, llm_settings.api_format, sync=False)
+        self.set_value(Setting.LLM_PROVIDER, llm_settings.provider, sync=False)
         self.set_value(Setting.LLM_BASE_URL, llm_settings.base_url, sync=False)
         self.set_value(Setting.LLM_API_KEY, llm_settings.api_key, sync=False)
         self.set_value(Setting.LLM_MODEL_NAME, llm_settings.model_name, sync=False)
@@ -56,12 +54,11 @@ class SettingsManager(QObject):
 
     def get_llm_setting(self) -> LLMSettings:
         return LLMSettings(
-            api_format=self.get_value(Setting.LLM_API_FORMAT),
+            provider=self.get_value(Setting.LLM_PROVIDER),
             base_url=self.get_value(Setting.LLM_BASE_URL),
             api_key=self.get_value(Setting.LLM_API_KEY),
             model_name=self.get_value(Setting.LLM_MODEL_NAME),
         )
-
 
     def get_settings_file(self) -> str:
         return self._settings.fileName()

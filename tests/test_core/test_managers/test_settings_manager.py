@@ -4,7 +4,7 @@ import unittest
 from PySide6.QtCore import QSettings
 from unittest.mock import patch
 
-from chronoveil.core.enums import Setting, LLMAPIFormat
+from chronoveil.core.enums import Setting, LLMProvider
 from chronoveil.core.managers import SettingsManager
 from chronoveil.core.models import LLMSettings
 
@@ -31,12 +31,12 @@ class TestSettingsManager(unittest.TestCase):
         retrieved_value = self.settings_manager.get_value(Setting.LLM_BASE_URL)
         self.assertEqual(retrieved_value, test_url)
 
-    def test_set_and_get_api_format_value(self):
-        api_format = LLMAPIFormat.OPENAI
-        self.settings_manager.set_value(Setting.LLM_API_FORMAT, api_format)
+    def test_set_and_get_provider_value(self):
+        provider = LLMProvider.OPENAI
+        self.settings_manager.set_value(Setting.LLM_PROVIDER, provider)
         
-        retrieved_value = self.settings_manager.get_value(Setting.LLM_API_FORMAT)
-        self.assertEqual(retrieved_value, api_format)
+        retrieved_value = self.settings_manager.get_value(Setting.LLM_PROVIDER)
+        self.assertEqual(retrieved_value, provider)
 
     def test_set_and_get_none_value(self):
         retrieved_value = self.settings_manager.get_value(Setting.LLM_BASE_URL)
@@ -67,14 +67,14 @@ class TestSettingsManager(unittest.TestCase):
     def test_get_llm_setting_default(self):
         llm_settings = self.settings_manager.get_llm_setting()
         
-        self.assertIsNone(llm_settings.api_format)
+        self.assertIsNone(llm_settings.provider)
         self.assertIsNone(llm_settings.base_url)
         self.assertIsNone(llm_settings.model_name)
         self.assertIsNone(llm_settings.api_key)
 
     def test_set_and_get_llm_setting(self):
         expected_settings = LLMSettings(
-            api_format=LLMAPIFormat.OPENAI,
+            provider=LLMProvider.OPENAI,
             base_url="https://api.openai.com/v1",
             model_name="gpt-4",
             api_key="test-api-key"
@@ -83,7 +83,7 @@ class TestSettingsManager(unittest.TestCase):
         self.settings_manager.set_llm_setting(expected_settings)
         actual_settings = self.settings_manager.get_llm_setting()
         
-        self.assertEqual(actual_settings.api_format, expected_settings.api_format)
+        self.assertEqual(actual_settings.provider, expected_settings.provider)
         self.assertEqual(actual_settings.base_url, expected_settings.base_url)
         self.assertEqual(actual_settings.model_name, expected_settings.model_name)
         self.assertEqual(actual_settings.api_key, expected_settings.api_key)
@@ -95,7 +95,7 @@ class TestSettingsManager(unittest.TestCase):
 
     def test_parse_error_handling(self):
         with patch.object(self.settings_manager._settings, 'value', return_value="invalid_enum_value"):
-            result = self.settings_manager.get_value(Setting.LLM_API_FORMAT)
+            result = self.settings_manager.get_value(Setting.LLM_PROVIDER)
             self.assertIsNone(result)
 
 

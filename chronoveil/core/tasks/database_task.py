@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal
 from sqlalchemy.orm.session import sessionmaker
 
 
-class DataBaseSignal(QObject):
+class DataBaseSignals(QObject):
     finished = Signal(object, str)  # (result, error_message)
 
 
@@ -22,7 +22,7 @@ class DatabaseTask(QRunnable):
         self.session_maker = session_maker
         self.func = func
         self.kwargs = kwargs
-        self.signals = DataBaseSignal()
+        self.signals = DataBaseSignals()
 
     def run(self):
         try:

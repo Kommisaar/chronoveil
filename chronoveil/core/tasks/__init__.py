@@ -1,2 +1,2 @@
-from .database_tasks import DataBaseSignal
-from .database_tasks import DatabaseTask
+from .database_task import DataBaseSignal
+from .database_task import DatabaseTask

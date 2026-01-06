@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from chronoveil.core.tasks import DataBaseSignal
+from chronoveil.core.tasks import DataBaseSignals
 from chronoveil.core.tasks import DatabaseTask
 
 
@@ -27,7 +27,7 @@ class TestDatabaseTask:
         assert task.session_maker == session_maker
         assert task.func == mock_success_function
         assert task.kwargs == {'value': 100}
-        assert isinstance(task.signals, DataBaseSignal)
+        assert isinstance(task.signals, DataBaseSignals)
 
     def test_database_task_run_success(self):
         """测试 DatabaseTask 成功执行"""
@@ -148,6 +148,6 @@ class TestDatabaseTask:
 class TestDatabaseSignal:
     def test_database_signal_initialization(self):
         """测试 DataBaseSignal 初始化"""
-        signal = DataBaseSignal()
+        signal = DataBaseSignals()
         assert hasattr(signal, 'finished')
         # 验证 finished 信号的参数类型 (object, str)

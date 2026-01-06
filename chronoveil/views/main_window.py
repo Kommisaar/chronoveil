@@ -7,6 +7,7 @@ from qfluentwidgets import MSFluentWindow
 from qfluentwidgets import NavigationItemPosition
 
 from chronoveil.views.chat_view import ChatView
+from chronoveil.views.dashboard_view import DashboardView
 from chronoveil.views.settings_view import SettingsView
 
 
@@ -31,8 +32,19 @@ class MainWindow(MSFluentWindow):
         self.setWindowTitle("Chronoveil")
         self.setWindowIcon(QIcon(":/icons/bot.png"))
 
+        self._setup_dashboard_view()
         self._setup_chat_view()
         self._setup_setting_view()
+
+    def _setup_dashboard_view(self) -> None:
+        self._dashboard_view = DashboardView(parent=self)
+        self._dashboard_view_button = self.addSubInterface(
+            interface=self._dashboard_view,
+            icon=FluentIcon.HOME,
+            selectedIcon=FluentIcon.HOME,
+            text=self.tr("Dashboard"),
+            position=NavigationItemPosition.TOP
+        )
 
     def _setup_chat_view(self) -> None:
         self._chat_view = ChatView(parent=self)
@@ -55,7 +67,8 @@ class MainWindow(MSFluentWindow):
         )
 
     def _setup_connections(self) -> None:
-        # self.language_changed.connect(self._chat_view.language_changed)
+        self.language_changed.connect(self._dashboard_view.on_language_changed)
+        # self.language_changed.connect(self._chat_view.)
         self.language_changed.connect(self._settings_view.on_language_changed)
 
         self.theme_changed.connect(self._settings_view.on_theme_changed)

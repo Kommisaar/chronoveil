@@ -1,12 +1,12 @@
 from PySide6.QtCore import Signal
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtGui import QIcon
 from qfluentwidgets import FluentIcon
 from qfluentwidgets import MSFluentWindow
 from qfluentwidgets import NavigationItemPosition
 
 from chronoveil.views.chat_view import ChatView
+from chronoveil.views.components import StartSplashScreen
 from chronoveil.views.dashboard_view import DashboardView
 from chronoveil.views.settings_view import SettingsView
 
@@ -30,11 +30,15 @@ class MainWindow(MSFluentWindow):
         self.move((screen_width - window_width) / 2, (screen_height - window_height) / 2)
 
         self.setWindowTitle("Chronoveil")
-        self.setWindowIcon(QIcon(":/icons/bot.png"))
 
+        self._setup_splash_screen()
         self._setup_dashboard_view()
         self._setup_chat_view()
         self._setup_setting_view()
+
+    def _setup_splash_screen(self):
+        self._splash_screen = StartSplashScreen(self)
+
 
     def _setup_dashboard_view(self) -> None:
         self._dashboard_view = DashboardView(parent=self)

@@ -85,7 +85,7 @@ def update_translation_files(source_files: list[Path], locales: list[dict[str, s
         if not file_path.parent.exists():
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        cmd = ["pyside6-lupdate"] + ["-target-language", language] + source_paths + ["-ts", ts_file]
+        cmd = ["pyside6-lupdate"] + ["-target-language", language, "-no-obsolete"] + source_paths + ["-ts", ts_file]
         try:
             subprocess.run(cmd, check=True)
             logger.info(f"Successfully updated: {ts_file}")

@@ -35,7 +35,9 @@ class MainController(QObject):
         self._setup_connections()
 
     def run(self):
-        self._main_window.show()
+        username = self._settings_manager.get_value(Setting.CURRENT_USER)
+        self._main_window.set_username(username)
+        self._main_window.start()
 
     def _setup_controllers(self) -> None:
         self._settings_controller = SettingsController(

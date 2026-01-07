@@ -11,7 +11,6 @@ class Setting(StrEnum):
         obj._value_ = value
         obj.value_type = value_type
         return obj
-
     # LLM Setting
     LLM_PROVIDER = "llm/provider", LLMProvider
     LLM_BASE_URL = "llm/base_url", str
@@ -19,5 +18,6 @@ class Setting(StrEnum):
     LLM_MODEL_NAME = "llm/model_name", str
 
     # General Setting
+    CURRENT_USER = "general/current_user", str
     GENERAL_LANGUAGE = "general/language", Language
     GENERAL_THEME = "general/theme", Theme

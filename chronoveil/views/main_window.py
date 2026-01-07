@@ -6,7 +6,7 @@ from qfluentwidgets import MSFluentWindow
 from qfluentwidgets import NavigationItemPosition
 
 from chronoveil.views.chat_view import ChatView
-from chronoveil.views.components import StartSplashScreen
+from chronoveil.views.components import SplashScreen
 from chronoveil.views.dashboard_view import DashboardView
 from chronoveil.views.settings_view import SettingsView
 
@@ -17,9 +17,16 @@ class MainWindow(MSFluentWindow):
 
     def __init__(self):
         super().__init__()
-        self._window_scale = 0.8
+        self._window_scale = 0.5
         self._setup_ui()
         self._setup_connections()
+
+    def set_username(self, username: str) -> None:
+        self._splash_screen.set_username(username)
+
+    def start(self) -> None:
+        self._splash_screen.start()
+        self.show()
 
     def _setup_ui(self) -> None:
         screen = QGuiApplication.primaryScreen()
@@ -29,16 +36,11 @@ class MainWindow(MSFluentWindow):
         self.setFixedSize(window_width, window_height)
         self.move((screen_width - window_width) / 2, (screen_height - window_height) / 2)
 
+        self._splash_screen = SplashScreen(self)
         self.setWindowTitle("Chronoveil")
-
-        self._setup_splash_screen()
         self._setup_dashboard_view()
         self._setup_chat_view()
         self._setup_setting_view()
-
-    def _setup_splash_screen(self):
-        self._splash_screen = StartSplashScreen(self)
-
 
     def _setup_dashboard_view(self) -> None:
         self._dashboard_view = DashboardView(parent=self)

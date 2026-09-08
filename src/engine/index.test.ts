@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TICK_MS } from './clock';
 import { createRenderer, type Renderer } from './index';
+import { THINK_PHASE } from './think';
 
 function mount(): { container: HTMLDivElement; r: Renderer } {
   const container = document.createElement('div');
@@ -204,5 +206,76 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     r.enqueue('新');
     r.finish();
     await vi.waitFor(() => expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['新']));
+  });
+});
+
+describe('流式思考与积压回放（TASK-006 / FR-003 / ADR-007）', () => {
+  afterEach(() => {
+    for (const r of renderers) r.cancel();
+    renderers.length = 0;
+    document.body.textContent = '';
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('thinkStreaming + appendThink + finishThinking：增量思考快滚、显式收拢后自动开演正文', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // 起手 550ms、每跳 3 字
+    const { container, r } = mount();
+
+    r.thinkStreaming();
+    expect(r.runId).toBe(1);
+    vi.advanceTimersByTime(600); // 起手完成
+    expect(container.querySelector('.think')).not.toBeNull();
+    expect(container.querySelector('.think-body')?.textContent).toBe('');
+
+    r.appendThink('第一段思考');
+    vi.advanceTimersByTime(THINK_PHASE.stepIntervalMs * 12);
+    expect(container.querySelector('.think-body')?.textContent).toBe('第一段思考');
+
+    // 追平后悬停：流式模式不自动收拢，等正文到达的显式 finishThinking
+    vi.advanceTimersByTime(5000);
+    expect(container.querySelector('.think')?.classList.contains('done')).toBe(false);
+
+    r.appendThink('，第二段');
+    r.finishThinking();
+    vi.advanceTimersByTime(THINK_PHASE.settlePauseMs);
+    expect(container.querySelector('.think.done')).not.toBeNull();
+    vi.advanceTimersByTime(THINK_PHASE.beginAfterCollapseMs);
+    expect(container.querySelector('.think.done.collapsed')).not.toBeNull();
+
+    // 正文开演：增量 token 走队列，finish 后收尾
+    r.enqueue('正文');
+    r.finish();
+    vi.advanceTimersByTime(TICK_MS * 8);
+    expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['正文']);
+    expect(container.querySelector('.stream-cursor')).toBeNull();
+  });
+
+  it('replayInstant：积压正文立即上屏（不经节奏队列），后续 enqueue 正常续播', async () => {
+    const { container, r } = mount();
+    r.beginTurn();
+    r.replayInstant('积压的段落\n\n立即上屏');
+    // 同步渲染：不等待 16ms tick
+    expect(container.querySelectorAll('.para')).toHaveLength(2);
+    const replayed = [...container.querySelectorAll('.tok')].map((t) => t.textContent).join('');
+    expect(replayed).toBe('积压的段落立即上屏');
+
+    r.enqueue('新');
+    r.finish();
+    await vi.waitFor(() => {
+      const all = [...container.querySelectorAll('.tok')].map((t) => t.textContent).join('');
+      expect(all).toBe('积压的段落立即上屏新');
+    });
+  });
+
+  it('replayInstant 空串与分段封存：不炸、推进 sealer', () => {
+    const { container, r } = mount();
+    r.beginTurn();
+    r.replayInstant('');
+    expect(container.querySelectorAll('.tok')).toHaveLength(0);
+    r.replayInstant('一\n\n二');
+    expect(container.querySelectorAll('.para')).toHaveLength(2);
+    r.cancel();
   });
 });

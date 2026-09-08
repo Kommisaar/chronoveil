@@ -12,8 +12,9 @@ use crate::domain::models::{
     Character, Message, NewCharacter, NewMessage, NewSession, Session, UpdateCharacter,
 };
 
-/// SQLite 持久化端口（CMP-003）。实现必须线程安全（&self 即可调用）。
-pub trait StoragePort {
+/// SQLite 持久化端口（CMP-003）。实现必须线程安全（&self 即可调用）；
+/// `Send + Sync` 上界供生成编排（TASK-006）把 `Arc<dyn StoragePort>` 带入后台任务。
+pub trait StoragePort: Send + Sync {
     // ---- characters（FR-006：人设卡 CRUD） ----
     fn create_character(&self, new: &NewCharacter) -> Result<Character, StorageError>;
     /// 在世角色卡列表（不含墓碑行），按创建顺序。

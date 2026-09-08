@@ -17,14 +17,15 @@
 //! - 最终失败经 `EventSink` 上报一次 `error`（含 reason/interrupted），并以
 //!   `StreamFailure` 返回错误与最后尝试的半条内容。
 
-// 骨架期：本模块 API 的消费方在 TASK-005（IPC 事件通道）与 TASK-006（生成编排）接线后出现。
+// 本模块 API 的消费方：TASK-005（IPC 事件通道）与 TASK-006（生成编排）已接线。
+// 保留 dead_code 豁免：complete_json / extract_json 的消费方在导演服务（阶段 5）。
 #![allow(dead_code)]
 
 pub mod sse;
 pub mod think;
 
 #[cfg(test)]
-mod mock;
+pub(crate) mod mock;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

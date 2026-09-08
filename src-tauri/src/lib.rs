@@ -10,6 +10,7 @@ pub mod services;
 pub mod state;
 
 use state::AppState;
+use tauri::Manager;
 
 pub fn run() {
     // 组合根装配：~/.chronoveil/ 主目录（ADR-012）+ chronoveil.db 迁移打开（CMP-003）。
@@ -38,6 +39,10 @@ pub fn run() {
         .setup(move |app| {
             // 挂载事件注册表（INT-001：StreamEvent 经 TauriEventSink 广播）。
             specta_builder.mount_events(app);
+            // 注入流式事件通道（TASK-006 / FR-001）：生成编排经 AppState::sink 取用。
+            app.state::<AppState>().set_sink(std::sync::Arc::new(
+                interfaces::events::TauriEventSink::new(app.handle().clone()),
+            ));
             Ok(())
         })
         .run(tauri::generate_context!())

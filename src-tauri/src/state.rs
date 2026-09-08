@@ -2,11 +2,13 @@
 //! config.json（TASK-003）。
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::domain::error::StorageError;
 use crate::infra::config::{ConfigError, ConfigStore};
+use crate::infra::llm::EventSink;
 use crate::infra::storage::Storage;
+use crate::services::generation::GenerationRegistry;
 
 /// 应用主目录下的固定布局（ADR-012）。
 pub const APP_DIR_NAME: &str = ".chronoveil";
@@ -20,6 +22,12 @@ pub struct AppState {
     /// config.json 存取句柄（ADR-012）。只持路径不持内容——读取路径每次
     /// `load()` 取当次值，改完即生效（含外部手改），不长期缓存。
     pub config: ConfigStore,
+    /// 活跃生成注册表（TASK-006 / FR-007 / ADR-007）：同会话互斥、跨会话并发、
+    /// 取消按 session_id 精确打断。
+    pub generation: Arc<GenerationRegistry>,
+    /// 流式事件通道（INT-001）：`setup` 中以 `TauriEventSink` 注入（AppHandle 在
+    /// setup 才可用）；命令层经 [`AppState::sink`] 取用，测试可直接注入替身。
+    sink: OnceLock<Arc<dyn EventSink>>,
 }
 
 #[derive(Debug)]
@@ -89,7 +97,19 @@ impl AppState {
             storage: Arc::new(storage),
             app_home,
             config,
+            generation: Arc::new(GenerationRegistry::new()),
+            sink: OnceLock::new(),
         })
+    }
+
+    /// 注入流式事件通道（`lib.rs` setup 中调用一次；重复注入忽略首个之后的值）。
+    pub fn set_sink(&self, sink: Arc<dyn EventSink>) {
+        let _ = self.sink.set(sink);
+    }
+
+    /// 取流式事件通道（命令层构造生成任务时使用；未注入即装配顺序错误，快速失败）。
+    pub fn sink(&self) -> Arc<dyn EventSink> {
+        self.sink.get().cloned().expect("流式事件通道未初始化：lib.rs setup 应先于任何命令执行")
     }
 }
 

@@ -81,8 +81,8 @@ pub struct TauriEventSink {
 }
 
 impl TauriEventSink {
-    /// `setup` 中用 AppHandle 构造；生成编排（TASK-006）持有并传给网关。
-    #[allow(dead_code)] // 消费方在 TASK-006（生成编排）接线后出现
+    /// `setup` 中用 AppHandle 构造并注入 `AppState`（组合根装配，state.rs）；生成编排（TASK-006）
+    /// 经 `AppState::sink` 取用并传给网关。
     pub fn new(handle: tauri::AppHandle) -> Self {
         Self { handle }
     }

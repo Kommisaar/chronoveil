@@ -10,10 +10,13 @@
 //! - 错误统一 [`IpcError`]：`Serialize` + `std::error::Error`，前端拿到可判别的结构化错误；
 //! - 新增命令必须同步登记 `config/ipc-command-whitelist.json`（ADR-010 守卫）。
 //!
-//! 生成编排边界：`send_message` / `regenerate_last` 的生成闭环（prompt 装配 → LLM 流式 →
-//! 终态落库）由 services/generation（TASK-006）接线，本层只校验入参并给出类型化错误；
-//! `cancel_generation` 在无活跃生成时为幂等 no-op（返回 false），TASK-006 接入注册表后
-//! 返回是否真正取消。
+//! 生成编排边界（TASK-006 已接线）：`send_message` / `regenerate_last` 校验入参、落库用户条
+//! （重新生成为软删旧条 + 新条从零演出，FR-008）、装配生成任务交异步运行时 spawn；
+//! 生成闭环本体（prompt 装配 → LLM 流式 → 终态落库）在 services/generation。
+//! 事件经 `AppState::sink`（setup 注入的 `TauriEventSink`）广播；`cancel_generation`
+//! 经生成注册表取消，无活跃生成时为幂等 no-op（返回 false）。
+
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -23,7 +26,12 @@ use crate::domain::models;
 use crate::domain::ports::StoragePort;
 use crate::infra::config::Config as FileConfig;
 use crate::infra::config::ProviderConfig as FileProvider;
+use crate::infra::llm::{EventSink, LlmClient};
+use crate::services::generation::{self, GenerationDeps, PendingGeneration};
 use crate::state::AppState;
+
+/// 生成任务驱动器：命令层传 `tauri::async_runtime::spawn`，测试传 no-op（不经运行时）。
+pub(crate) type GenerationSpawner = Arc<dyn Fn(PendingGeneration) + Send + Sync>;
 
 // ---------------------------------------------------------------------------
 // 错误（验收 4：命令错误可序列化）
@@ -391,18 +399,75 @@ pub fn list_messages(
     list_messages_impl(&state, session_id)
 }
 
-// ---- 生成命令（闭环接线属 TASK-006：services/generation + ChatView）----
+// ---- 生成（TASK-006 闭环接线：FR-001 / FR-007 / FR-008 / SEQ-001）----
 
-fn send_message_impl(app: &AppState, session_id: i64, content: String) -> Result<ChatMessage, IpcError> {
-    let _ = app.storage.get_session(session_id)?;
-    if content.trim().is_empty() {
+/// 命令层生成任务驱动：交给 Tauri 异步运行时（fire-and-forget；终态经事件通道回传）。
+fn tauri_spawner() -> GenerationSpawner {
+    Arc::new(|pending: PendingGeneration| {
+        tauri::async_runtime::spawn(pending.run());
+    })
+}
+
+fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> GenerationDeps {
+    GenerationDeps { storage: app.storage.clone(), sink, llm: Arc::new(llm) }
+}
+
+/// 两级模型配置解析（INT-002 / 验收 4）：config.json 全局默认 ← Character.model_config 覆写。
+fn resolve_llm(app: &AppState, session: &models::Session) -> Result<LlmClient, IpcError> {
+    let character = app.storage.get_character(session.character_id)?;
+    let config = app.config.load()?;
+    let llm_config = generation::resolve_effective_llm(&config, &character)
+        .map_err(|message| IpcError::Config { message })?;
+    LlmClient::new(llm_config).map_err(|e| IpcError::Config { message: e.to_string() })
+}
+
+fn send_message_impl(
+    app: &AppState,
+    sink: Arc<dyn EventSink>,
+    spawner: &GenerationSpawner,
+    session_id: i64,
+    content: String,
+) -> Result<ChatMessage, IpcError> {
+    let session = app.storage.get_session(session_id)?;
+    let trimmed = content.trim().to_string();
+    if trimmed.is_empty() {
         return Err(IpcError::Conflict { message: "消息内容为空".into() });
     }
-    // TASK-006 接线点：用户条落库 → prompt 装配 → LLM 流式（经 events::TauriEventSink）
-    // → 终态落库（done/error/cancel，ADR-001）。服务层就绪前返回类型化错误。
-    Err(IpcError::Unavailable {
-        message: "生成闭环尚未接线（TASK-006）".into(),
-    })
+    let llm = resolve_llm(app, &session)?;
+    // 同会话互斥（FR-007 多路并发为跨会话并发；同会话重复触发拒绝，FR-008）。
+    let ticket = app
+        .generation
+        .begin(session_id)
+        .map_err(|_| IpcError::Conflict { message: "该会话已有进行中的生成".into() })?;
+    // 用户条先落库（FR-001 / SEQ-001：RS->RS 落库用户消息）。
+    let user_message = match app.storage.insert_message(&models::NewMessage::new(
+        session_id,
+        models::MessageRole::User,
+        trimmed.clone(),
+    )) {
+        Ok(m) => m,
+        Err(e) => {
+            app.generation.finish(session_id);
+            return Err(e.into());
+        }
+    };
+    // FR-007：会话标题缺省取首条用户消息截断。
+    if session.title.is_empty() {
+        if let Err(e) = app
+            .storage
+            .update_session_title(session_id, &generation::default_title(&trimmed))
+        {
+            app.generation.finish(session_id);
+            return Err(e.into());
+        }
+    }
+    spawner(PendingGeneration {
+        deps: generation_deps(app, sink, llm),
+        registry: app.generation.clone(),
+        ticket,
+        regenerate: false,
+    });
+    Ok(to_chat_message(user_message, None))
 }
 
 #[tauri::command]
@@ -412,12 +477,13 @@ pub fn send_message(
     session_id: i64,
     content: String,
 ) -> Result<ChatMessage, IpcError> {
-    send_message_impl(&state, session_id, content)
+    send_message_impl(&state, state.sink(), &tauri_spawner(), session_id, content)
 }
 
-fn cancel_generation_impl(_app: &AppState, _session_id: i64) -> Result<bool, IpcError> {
-    // 无活跃生成即幂等 no-op；TASK-006 接入生成注册表后返回是否真正取消。
-    Ok(false)
+fn cancel_generation_impl(app: &AppState, session_id: i64) -> Result<bool, IpcError> {
+    // 无活跃生成即幂等 no-op（返回 false）；有则瞬时取消（FR-001 / NFR-004），
+    // 半条按 cancel 终态落库并经 error 事件收尾（services/generation）。
+    Ok(app.generation.cancel(session_id))
 }
 
 #[tauri::command]
@@ -426,18 +492,37 @@ pub fn cancel_generation(state: State<'_, AppState>, session_id: i64) -> Result<
     cancel_generation_impl(&state, session_id)
 }
 
-fn regenerate_last_impl(app: &AppState, session_id: i64) -> Result<ChatMessage, IpcError> {
-    let _ = app.storage.get_session(session_id)?;
-    // TASK-006 接线点：replace_last_assistant_message + 从零走完整演出（FR-008）。
-    Err(IpcError::Unavailable {
-        message: "生成闭环尚未接线（TASK-006）".into(),
-    })
+fn regenerate_last_impl(
+    app: &AppState,
+    sink: Arc<dyn EventSink>,
+    spawner: &GenerationSpawner,
+    session_id: i64,
+) -> Result<ChatMessage, IpcError> {
+    let session = app.storage.get_session(session_id)?;
+    let llm = resolve_llm(app, &session)?;
+    // FR-008：只对最后一条 assistant 消息提供重新生成。
+    let old = app
+        .storage
+        .latest_assistant_message(session_id)?
+        .ok_or_else(|| IpcError::Conflict { message: "会话没有可重新生成的回复".into() })?;
+    let ticket = app
+        .generation
+        .begin(session_id)
+        .map_err(|_| IpcError::Conflict { message: "该会话已有进行中的生成".into() })?;
+    spawner(PendingGeneration {
+        deps: generation_deps(app, sink, llm),
+        registry: app.generation.clone(),
+        ticket,
+        regenerate: true,
+    });
+    // 返回被替换的旧条：前端据此将其从界面移除（旧条软删发生在终态落库时，FR-008）。
+    Ok(to_chat_message(old, Some(session.character_id)))
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn regenerate_last(state: State<'_, AppState>, session_id: i64) -> Result<ChatMessage, IpcError> {
-    regenerate_last_impl(&state, session_id)
+    regenerate_last_impl(&state, state.sink(), &tauri_spawner(), session_id)
 }
 
 // ---- 角色 CRUD（FR-006，含 avatar）----
@@ -590,6 +675,24 @@ mod tests {
                 ..Default::default()
             })
             .unwrap()
+    }
+
+    // ---- 生成命令测试替身（不经 Tauri 运行时 / 事件通道）----
+
+    struct DropSink;
+
+    impl crate::infra::llm::EventSink for DropSink {
+        fn emit(&self, _event: crate::infra::llm::LlmEvent) {}
+    }
+
+    fn noop_sink() -> Arc<dyn crate::infra::llm::EventSink> {
+        Arc::new(DropSink)
+    }
+
+    fn noop_spawner() -> GenerationSpawner {
+        Arc::new(|_pending: PendingGeneration| {
+            // 测试不驱动生成任务（闭环集成见 services/generation 的 mock 网关测试）。
+        })
     }
 
     // ---- wire 契约（camelCase 对应 types.ts；验收 2/4 的测试兜底）----
@@ -773,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn generation_commands_expose_typed_unavailable_seam() {
+    fn generation_commands_wire_send_cancel_and_regenerate() {
         let (app, dir) = temp_state("generation");
         let character = sample_character(&app, "苏鸢");
         let session = app
@@ -781,25 +884,73 @@ mod tests {
             .create_session(&NewSession { character_id: character.id, title: String::new() })
             .unwrap();
 
-        // TASK-006 接线前的类型化缝隙：错误可序列化、可判别。
-        let err = send_message_impl(&app, session.id, "你好".into()).unwrap_err();
-        assert!(matches!(err, IpcError::Unavailable { .. }));
+        // Provider 未配置 → 类型化 Config 错误；用户条与注册表零副作用。
+        let err = send_message_impl(&app, noop_sink(), &noop_spawner(), session.id, "你好".into())
+            .unwrap_err();
+        assert!(matches!(err, IpcError::Config { .. }));
+        assert!(app.storage.list_messages(session.id).unwrap().is_empty());
 
-        // 空内容与不存在的会话先被边界校验拦下。
+        // 配置全局默认 Provider（两级配置的底层，FR-009）。
+        let mut config = crate::infra::config::Config::new_with_defaults();
+        config.providers = vec![crate::infra::config::ProviderConfig {
+            id: "p1".into(),
+            name: "测试".into(),
+            base_url: "http://127.0.0.1:9/v1".into(),
+            api_key: "k".into(),
+            model: "m".into(),
+        }];
+        config.active_provider_id = Some("p1".into());
+        app.config.save(&config).unwrap();
+
+        // 发送：用户条立即落库返回（SEQ-001），生成任务交 spawner（测试 no-op 不驱动）。
+        let user = send_message_impl(&app, noop_sink(), &noop_spawner(), session.id, "你好".into())
+            .unwrap();
+        assert_eq!(user.role, MessageRole::User);
+        assert!(user.character_id.is_none(), "用户消息 speaker 为 null");
+        assert_eq!(app.storage.list_messages(session.id).unwrap().len(), 1);
+        // FR-007：标题缺省取首条用户消息截断。
+        assert_eq!(app.storage.get_session(session.id).unwrap().title, "你好");
+
+        // 注册表已占用：同会话重复发送 / 重新生成被拒（FR-007 / FR-008）。
         assert!(matches!(
-            send_message_impl(&app, session.id, "   ".into()),
+            send_message_impl(&app, noop_sink(), &noop_spawner(), session.id, "第二条".into()),
             Err(IpcError::Conflict { .. })
         ));
         assert!(matches!(
-            send_message_impl(&app, 999_999, "你好".into()),
+            regenerate_last_impl(&app, noop_sink(), &noop_spawner(), session.id),
+            Err(IpcError::Conflict { .. })
+        ));
+        // 取消活跃生成：返回 true；随后无活跃生成时取消为幂等 no-op（false）。
+        assert!(cancel_generation_impl(&app, session.id).unwrap());
+        assert!(!cancel_generation_impl(&app, session.id).unwrap());
+
+        // 边界校验：空内容 Conflict、不存在会话 NotFound、无 assistant 条不可重新生成。
+        assert!(matches!(
+            send_message_impl(&app, noop_sink(), &noop_spawner(), session.id, "   ".into()),
+            Err(IpcError::Conflict { .. })
+        ));
+        assert!(matches!(
+            send_message_impl(&app, noop_sink(), &noop_spawner(), 999_999, "你好".into()),
             Err(IpcError::NotFound { .. })
         ));
         assert!(matches!(
-            regenerate_last_impl(&app, session.id),
-            Err(IpcError::Unavailable { .. })
+            regenerate_last_impl(&app, noop_sink(), &noop_spawner(), 999_999),
+            Err(IpcError::NotFound { .. })
         ));
-        // 取消在无活跃生成时是幂等 no-op。
-        assert!(!cancel_generation_impl(&app, session.id).unwrap());
+        assert!(matches!(
+            regenerate_last_impl(&app, noop_sink(), &noop_spawner(), session.id),
+            Err(IpcError::Conflict { .. })
+        ));
+
+        // 有 assistant 条后重新生成：返回旧条（前端据以从界面移除），注册表占用。
+        app.storage
+            .insert_message(&NewMessage::new(session.id, models::MessageRole::Assistant, "旧回复"))
+            .unwrap();
+        let old = regenerate_last_impl(&app, noop_sink(), &noop_spawner(), session.id).unwrap();
+        assert_eq!(old.role, MessageRole::Assistant);
+        assert_eq!(old.content, "旧回复");
+        assert_eq!(old.character_id, Some(character.id));
+        assert!(cancel_generation_impl(&app, session.id).unwrap());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }

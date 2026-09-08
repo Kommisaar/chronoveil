@@ -188,3 +188,61 @@ describe('visMs 只计页面可见时长（FR-003）', () => {
     ch.cancel();
   });
 });
+
+describe('ThinkChannel 流式模式（TASK-006，FR-003 接通真实 LLM）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // 起手 550ms、每跳 3 字
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    document.body.textContent = '';
+  });
+
+  it('appendText 增量喂入：追平不自动收拢，finish 后走落定→收拢→开演', () => {
+    const root = mount();
+    const onDone = vi.fn();
+    const ch = new ThinkChannel(root, { text: '', streaming: true, isCurrent: () => true, onDone });
+    ch.start();
+
+    vi.advanceTimersByTime(600); // 起手完成（首跳空文本）
+    expect(root.querySelector('.think')!.classList.contains('done')).toBe(false);
+
+    ch.appendText('夜色渐深');
+    vi.advanceTimersByTime(THINK_PHASE.stepIntervalMs * 12);
+    expect(root.querySelector('.think-body')?.textContent).toBe('夜色渐深');
+
+    vi.advanceTimersByTime(5000); // 追平悬停：流式模式等显式 finish
+    expect(root.querySelector('.think')!.classList.contains('done')).toBe(false);
+
+    ch.appendText('，雨更大了');
+    ch.finish();
+    vi.advanceTimersByTime(THINK_PHASE.settlePauseMs);
+    const box = root.querySelector('.think')!;
+    expect(box.classList.contains('done')).toBe(true);
+    expect(box.classList.contains('collapsed')).toBe(true);
+    expect(root.querySelector('.tk-time')?.textContent).toContain('s');
+    vi.advanceTimersByTime(THINK_PHASE.beginAfterCollapseMs);
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    // 收拢后到达的迟到增量：不再驱动任何回调
+    ch.appendText('迟到增量');
+    vi.advanceTimersByTime(3000);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('finish 幂等：显式 finish 与快滚追平触发的收拢竞争只走一次（demo 模式）', () => {
+    const root = mount();
+    const onDone = vi.fn();
+    const ch = new ThinkChannel(root, { text: '短', isCurrent: () => true, onDone });
+    ch.start();
+    ch.finish(); // 与追平收揽竞争
+    vi.advanceTimersByTime(10000);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    ch.appendText('迟到');
+    vi.advanceTimersByTime(1000);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});

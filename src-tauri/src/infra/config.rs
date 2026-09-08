@@ -102,8 +102,7 @@ impl Config {
     }
 
     /// 当前生效的全局默认 Provider（active_provider_id 指向者；悬空 id 视为未选择）。
-    // 消费方在 TASK-005（IPC 命令层 / 生成调用）接线后出现；测试已覆盖语义。
-    #[allow(dead_code)]
+    /// 消费方：生成编排（services/generation，TASK-006）的两级模型配置解析。
     pub fn active_provider(&self) -> Option<&ProviderConfig> {
         let id = self.active_provider_id.as_deref()?;
         self.providers.iter().find(|p| p.id == id)

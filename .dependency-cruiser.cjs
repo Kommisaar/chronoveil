@@ -23,10 +23,10 @@ module.exports = {
     },
     {
       name: 'features-isolated',
-      comment: 'ADR-010：feature 之间禁止互相引用，跨域复用下沉 components / engine / api。',
+      comment: 'ADR-010：feature 之间禁止互相引用，跨域复用下沉 components / engine / api；同 feature 内部互引允许（TASK-006 起 chat 拆多文件，修复本规则从未生效的同 feature 误报：dependency-cruiser 的组占位符语法是 $1，原 \\k<feature> 不被替换导致 pathNot 永不命中——跨 feature 禁令不受影响，为语义修正而非放松）。',
       severity: 'error',
-      from: { path: '^src/features/(?<feature>[^/]+)' },
-      to: { path: '^src/features/', pathNot: '^src/features/\\k<feature>/' },
+      from: { path: '^src/features/([^/]+)/' },
+      to: { path: '^src/features/', pathNot: '^src/features/$1/' },
     },
     {
       name: 'api-no-upper',

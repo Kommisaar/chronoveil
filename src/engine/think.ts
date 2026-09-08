@@ -65,6 +65,12 @@ export interface ThinkChannelOptions {
   isCurrent: () => boolean;
   /** 收拢动画走完后开演正文（+520ms） */
   onDone: () => void;
+  /**
+   * 流式模式（TASK-006，FR-003 接通真实 LLM 用）：reasoning 增量经 `appendText`
+   * 持续喂入，快滚追平后**不**自动收拢，等显式 `finish()`。默认 false（demo 语义：
+   * 全文已知，追平即收拢）。
+   */
+  streaming?: boolean;
 }
 
 export class ThinkChannel {
@@ -80,12 +86,36 @@ export class ThinkChannel {
   private shown = 0;
   private tipIndex = 0;
   private settled = false;
+  /** finishScroll 幂等闸（流式 finish 与快滚追平竞争时只走一次） */
+  private finishRequested = false;
+  /** 思考文本：流式模式下经 appendText 增长（opts.text 只作初值） */
+  private text: string;
+  private readonly streaming: boolean;
 
   constructor(
     private readonly root: HTMLElement,
     private readonly opts: ThinkChannelOptions,
   ) {
     this.tips = [...(opts.tips ?? DEFAULT_THINK_TIPS)].sort(() => Math.random() - 0.5);
+    this.text = opts.text;
+    this.streaming = opts.streaming ?? false;
+  }
+
+  /**
+   * 增量喂入思考文本（流式模式）：快滚逐步追上。已收拢（settled）后到达的迟到增量
+   * 只累积不展示（正文已开演，完整 reasoning 以落库为准）。
+   */
+  appendText(delta: string): void {
+    if (!delta) return;
+    this.text += delta;
+  }
+
+  /**
+   * 显式收拢（流式模式用）：思考流结束（首条正文到达 / done），提前走「落定 → 收拢
+   * 胶囊 → 开演正文」。与快滚追平触发的收拢同一路径，幂等。
+   */
+  finish(): void {
+    this.finishScroll();
   }
 
   start(): void {
@@ -168,13 +198,16 @@ export class ThinkChannel {
     const now = performance.now();
     if (!document.hidden) this.visMs += now - this.lastMark;
     this.lastMark = now;
-    this.shown = Math.min(this.opts.text.length, this.shown + THINK_PHASE.stepCharMin + Math.floor(Math.random() * THINK_PHASE.stepCharRange));
-    this.body.textContent = this.opts.text.slice(0, this.shown);
+    this.shown = Math.min(this.text.length, this.shown + THINK_PHASE.stepCharMin + Math.floor(Math.random() * THINK_PHASE.stepCharRange));
+    this.body.textContent = this.text.slice(0, this.shown);
     this.time.textContent = formatThinkDuration(this.visMs / 1000);
-    if (this.shown >= this.opts.text.length) this.finishScroll();
+    // 流式模式：追平不收拢（增量还在路上），等显式 finish()；demo 模式：追平即收拢
+    if (!this.streaming && this.shown >= this.text.length) this.finishScroll();
   }
 
   private finishScroll(): void {
+    if (this.finishRequested) return; // 幂等：追平触发与显式 finish 只走一次
+    this.finishRequested = true;
     this.disarm();
     const total = formatThinkDuration(this.visMs / 1000);
     this.delay(() => {

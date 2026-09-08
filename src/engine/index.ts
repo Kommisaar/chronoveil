@@ -80,6 +80,21 @@ export interface Renderer {
   beginTurn(): void;
   /** 开新回合并进入思考阶段：快滚 → 收拢胶囊，随后自动开演正文 */
   think(text: string): void;
+  /**
+   * 开新回合并进入思考阶段（流式变体，TASK-006）：思考文本随后经 `appendThink`
+   * 增量喂入、`finishThinking` 显式收拢（FR-003 接通真实 LLM——reasoning 增量到达时
+   * 快滚逐字追上，追平不收拢）。
+   */
+  thinkStreaming(): void;
+  /** 增量喂入思考文本（`thinkStreaming` 回合内有效） */
+  appendThink(delta: string): void;
+  /** 思考流结束：提前收拢（落定 → 收拢胶囊 → 自动开演正文），幂等 */
+  finishThinking(): void;
+  /**
+   * 立即（不经节奏队列）把已累积正文渲染上屏：会话切回重挂时回放积压
+   * （ADR-007 降级渲染——不在场会话只入队不渲染，回到前台一次性补齐）。
+   */
+  replayInstant(chunk: string): void;
   /** 生产者完毕：解析器尾巴落队，队列排空后收尾定格 */
   finish(): void;
   /** 立即中止当前回合：停一切计时/乱码，清队列（保留已上屏内容） */
@@ -163,9 +178,36 @@ class StreamRenderer implements Renderer {
 
   think(text: string): void {
     this.newTurn();
+    this.startThinkChannel(text, false);
+  }
+
+  thinkStreaming(): void {
+    this.newTurn();
+    this.startThinkChannel('', true);
+  }
+
+  appendThink(delta: string): void {
+    // 过气回合（runId 已换代）不喂：ThinkChannel 已被 cancel 置空
+    this.thinkChannel?.appendText(delta);
+  }
+
+  finishThinking(): void {
+    this.thinkChannel?.finish();
+  }
+
+  replayInstant(chunk: string): void {
+    if (!chunk) return;
+    for (const unit of this.parser.push(chunk)) {
+      this.renderUnit(unit);
+    }
+  }
+
+  /** 开思考通道（demo 全文模式 / 流式增量模式共用），收拢后自动开演正文 */
+  private startThinkChannel(text: string, streaming: boolean): void {
     const id = this.runIdN;
     this.thinkChannel = new ThinkChannel(this.root, {
       text,
+      streaming,
       tips: this.thinkTips,
       isCurrent: () => this.runIdN === id,
       onDone: () => {

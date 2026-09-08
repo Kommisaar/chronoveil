@@ -10,13 +10,15 @@
 ## 开发
 
 ```bash
-npm install
-npm run dev      # 纯浏览器开发（mock 数据，无需 Rust 工具链）
-npm run check    # 依赖守卫 + IPC 登记 + Rust 边界 + 单测
-npm run build
+pnpm install
+pnpm run dev      # 纯浏览器开发（mock 数据，无需 Rust 工具链）
+pnpm run check    # 依赖守卫 + IPC 登记 + Rust 边界 + 单测
+pnpm run build
 ```
 
-桌面壳（`src-tauri/`，`npm run tauri dev`）在阶段 3 接入后端时启用。
+包管理用 pnpm（不再使用 npm 与 package-lock.json）。多工作树开发：依赖未变更时在 worktree 内用 `cmd /c mklink /J node_modules <主仓>\node_modules` 复用主仓依赖，瞬时就绪；依赖有变更时用 `pnpm install --frozen-lockfile`（首次约 3 分钟，对比 npm 的 7–8 分钟）。
+
+桌面壳（`src-tauri/`，`pnpm run tauri dev`）在阶段 3 接入后端时启用。
 
 ## 结构
 

@@ -1,0 +1,22 @@
+{
+  "dependencies": [
+    "@fluentui/react-components",
+    "@fluentui/react-icons",
+    "i18next",
+    "react",
+    "react-dom",
+    "react-i18next",
+    "zustand"
+  ],
+  "devDependencies": [
+    "@testing-library/react",
+    "@types/react",
+    "@types/react-dom",
+    "@vitejs/plugin-react",
+    "dependency-cruiser",
+    "jsdom",
+    "typescript",
+    "vite",
+    "vitest"
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "$comment": "Tauri IPC 命令登记表（ADR-010）：src/api/commands.ts 中新增 invoke 命令必须同步登记，防止与 specta collect_commands 漂移。",
+  "commands": []
+}

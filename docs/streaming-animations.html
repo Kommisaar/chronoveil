@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>流式动画选片厅</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#0e1014;color:#d6dae3;
+    font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    max-width:920px;margin:0 auto;padding:28px 20px 60px;
+    --dur:.45s; /* 动效时长基准：拉长可遮盖网络突发之间的空档 */
+  }
+  header h1{font-size:20px;letter-spacing:.5px}
+  header h1 em{font-style:normal;color:#e8b06a}
+  header p{color:#7c8496;font-size:13px;margin-top:5px}
+
+  .controls{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    margin:18px 0;padding:12px 14px;
+    background:#161922;border:1px solid #232836;border-radius:12px;
+  }
+  .chips{display:flex;flex-wrap:wrap;gap:8px;flex:1 1 100%}
+  .chip{
+    padding:6px 13px;border-radius:999px;cursor:pointer;font-size:13px;
+    border:1px solid #2a3040;background:#1b1f2a;color:#aab3c5;
+    transition:border-color .15s,color .15s,background .15s;
+  }
+  .chip:hover{border-color:#3a4358;color:#d6dae3}
+  .chip.on{border-color:#e8b06a;color:#e8b06a;background:rgba(232,176,106,.08)}
+  .ctrl{display:flex;align-items:center;gap:8px;font-size:13px;color:#8b93a5}
+  .ctrl label{white-space:nowrap}
+  input[type=range]{accent-color:#e8b06a;width:140px}
+  select,input[type=checkbox]{accent-color:#e8b06a;background:#1b1f2a;color:#c8cede;border:1px solid #2a3040;border-radius:6px;padding:4px 8px;font-size:13px}
+  .btn{
+    padding:7px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;
+    background:#e8b06a;color:#191408;font-weight:600;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .speedv{color:#e8b06a;min-width:38px;display:inline-block}
+
+  .chat{display:flex;flex-direction:column;gap:16px}
+  .msg-user{
+    align-self:flex-end;max-width:78%;
+    background:#2a2f3d;border-radius:14px 14px 4px 14px;
+    padding:10px 14px;color:#dfe3ec;
+  }
+  .a-row{display:flex;gap:12px;max-width:92%}
+  .avatar{
+    flex:none;width:38px;height:38px;border-radius:50%;
+    background:linear-gradient(135deg,#8a6a3f,#e8b06a);
+    display:flex;align-items:center;justify-content:center;
+    color:#191408;font-weight:700;font-size:15px;
+  }
+  .bubble{
+    flex:1;background:#141822;border:1px solid #212736;
+    border-radius:4px 14px 14px 14px;padding:14px 18px;
+    white-space:pre-wrap;overflow-wrap:anywhere;min-height:52px;
+  }
+  #stats{color:#7c8496;font-size:12px;margin-top:10px;text-align:right;min-height:16px}
+  #stats b{color:#e8b06a;font-weight:600}
+
+  /* ---------- 六种动画 ---------- */
+  .tok{display:inline;border-radius:2px}
+
+  /* 1 平滑浮现（ChatGPT 系）：成块淡入 */
+  [data-anim=fade] .tok{opacity:0;transition:opacity var(--dur) ease-out}
+  [data-anim=fade] .tok.show{opacity:1}
+
+  /* 2 光标随行（Claude 系）：词块微淡 + 常驻光标（保持利落，取短比例） */
+  [data-anim=caret] .tok{opacity:0;transition:opacity calc(var(--dur)*.45) linear}
+  [data-anim=caret] .tok.show{opacity:1}
+
+  /* 3 打字机：瞬时出现，节奏靠引擎逐字 */
+  [data-anim=type] .tok{transition:none}
+
+  /* 4 浮现上移：淡入 + 轻微上浮（transform 需要盒子，inline-block） */
+  [data-anim=rise] .tok{display:inline-block;opacity:0;transform:translateY(.35em);transition:opacity calc(var(--dur)*1.3) ease,transform calc(var(--dur)*1.3) cubic-bezier(.22,.7,.3,1)}
+  [data-anim=rise] .tok.show{opacity:1;transform:none}
+
+  /* 5 聚焦显影：从模糊到清晰（过渡最长，遮盖效果最强） */
+  [data-anim=blur] .tok{opacity:0;filter:blur(6px);transition:opacity calc(var(--dur)*1.5) ease,filter calc(var(--dur)*1.5) ease}
+  [data-anim=blur] .tok.show{opacity:1;filter:blur(0)}
+
+  /* 6 思考点 + 平滑（国产系首字加载）：正文同 fade，加载态由 JS 插入 */
+  [data-anim=dots] .tok{opacity:0;transition:opacity var(--dur) ease-out}
+  [data-anim=dots] .tok.show{opacity:1}
+
+  /* ---------- 脑洞区 ---------- */
+
+  /* 7 霓虹通电：灯管闪烁几下再稳定发光 */
+  [data-anim=neon] .tok{opacity:0}
+  [data-anim=neon] .tok.show{opacity:1;animation:neonOn calc(var(--dur)*1.4) steps(1,end) both}
+  @keyframes neonOn{
+    0%{opacity:0}8%{opacity:1;text-shadow:0 0 10px #e8b06a}
+    16%{opacity:.15;text-shadow:none}24%{opacity:1;text-shadow:0 0 4px #e8b06a}
+    36%{opacity:.35;text-shadow:none}48%{opacity:1;text-shadow:0 0 12px #e8b06a}
+    62%{opacity:.7;text-shadow:0 0 2px #e8b06a}
+    100%{opacity:1;text-shadow:0 0 6px rgba(232,176,106,.45)}
+  }
+
+  /* 8 字符解码：先闪乱码再定格（轮换由 JS 驱动） */
+  [data-anim=decode] .tok{opacity:1;color:#e8b06a}
+  [data-anim=decode] .tok.settled{color:inherit;transition:color .35s ease}
+  [data-anim=decode] .action.settled{color:#93a5c8}
+
+  /* 9 翻牌登场：绕底边翻立起来，机场翻牌感 */
+  [data-anim=flip] #stream{perspective:340px}
+  [data-anim=flip] .tok{display:inline-block;opacity:0;transform:rotateX(-92deg);transform-origin:50% 100%;transition:opacity calc(var(--dur)*.6) ease,transform calc(var(--dur)*.8) cubic-bezier(.2,.85,.3,1.12)}
+  [data-anim=flip] .tok.show{opacity:1;transform:none}
+
+  /* 10 坠落弹跳：从上方掉落，着地回弹 */
+  [data-anim=drop] .tok{display:inline-block;opacity:0;transform:translateY(-.9em) scaleY(1.35);transform-origin:50% 0;transition:opacity calc(var(--dur)*.4) ease-out,transform calc(var(--dur)*.95) cubic-bezier(.2,1.45,.35,1)}
+  [data-anim=drop] .tok.show{opacity:1;transform:none}
+
+  /* 11 光束扫描：从左向右扫出，扫过处亮一下再褪去 */
+  [data-anim=scan] .tok{clip-path:inset(-30% 100% -30% 0);transition:clip-path calc(var(--dur)*.85) ease-out}
+  [data-anim=scan] .tok.show{clip-path:inset(-30% 0% -30% 0);animation:scanGlow calc(var(--dur)*1.1) ease-out}
+  @keyframes scanGlow{0%{text-shadow:0 0 14px rgba(232,176,106,.95)}100%{text-shadow:0 0 14px rgba(232,176,106,0)}}
+
+  /* 12 墨晕沉淀：又大又糊的淡影收束成字 */
+  [data-anim=ink] .tok{display:inline-block;opacity:0;filter:blur(5px);transform:scale(1.5);color:#57607a;transition:opacity calc(var(--dur)*1.3) ease,filter calc(var(--dur)*1.3) ease,transform calc(var(--dur)*1.3) ease,color calc(var(--dur)*1.3) ease}
+  [data-anim=ink] .tok.show{opacity:1;filter:blur(0);transform:none;color:inherit}
+  [data-anim=ink] .action.show{color:#93a5c8}
+
+  /* ---------- 脑洞区 II ---------- */
+
+  /* 13 信号撕裂：RGB 分离抖动几下，信号稳定后归位 */
+  [data-anim=glitch] .tok{display:inline-block;opacity:0}
+  [data-anim=glitch] .tok.show{opacity:1;animation:glitchOn calc(var(--dur)*.9) steps(1,end) both}
+  @keyframes glitchOn{
+    0%{opacity:0;text-shadow:none;transform:none}
+    12%{opacity:1;text-shadow:-2px 0 #ff5566,2px 0 #4dd2ff;transform:translateX(1px)}
+    26%{text-shadow:2px 0 #ff5566,-2px 0 #4dd2ff;transform:translateX(-1px)}
+    40%{text-shadow:-1px 0 #ff5566,1px 0 #4dd2ff;transform:translateX(1px)}
+    54%{text-shadow:1px 0 #ff5566,-1px 0 #4dd2ff;transform:none}
+    68%{text-shadow:none;transform:none}
+    100%{text-shadow:none;transform:none}
+  }
+
+  /* 14 笔迹生长：从左侧被"写"出来，宽度伸展落定 */
+  [data-anim=write] .tok{display:inline-block;opacity:0;transform:scaleX(0);transform-origin:0% 60%;transition:opacity calc(var(--dur)*.35) linear,transform calc(var(--dur)*.75) cubic-bezier(.25,.9,.3,1)}
+  [data-anim=write] .tok.show{opacity:1;transform:scaleX(1)}
+
+  /* 15 星尘落定：每个字从随机方向、带随机旋转飘落归位（落点由 JS 注入） */
+  [data-anim=dust] .tok{display:inline-block;opacity:0;filter:blur(4px);transform:translate(var(--dx,0em),var(--dy,0em)) rotate(var(--rot,0deg)) scale(.7);transition:opacity calc(var(--dur)*1.1) ease,filter calc(var(--dur)*1.1) ease,transform calc(var(--dur)*1.1) cubic-bezier(.2,.8,.25,1)}
+  [data-anim=dust] .tok.show{opacity:1;filter:blur(0);transform:none}
+
+  /* 16 心跳脉冲：lub-dub 双跳，情绪激动的段落 */
+  [data-anim=pulse] .tok{display:inline-block;opacity:0}
+  [data-anim=pulse] .tok.show{opacity:1;animation:pulseOn calc(var(--dur)*1.6) ease-out both}
+  @keyframes pulseOn{
+    0%{opacity:0;transform:scale(.6)}
+    28%{transform:scale(1.12)}
+    42%{transform:scale(1)}
+    58%{transform:scale(1.08)}
+    100%{transform:scale(1)}
+  }
+
+  /* 17 收拢凝字：松散的字距带着微糊收拢成紧凑的字 */
+  [data-anim=condense] .tok{display:inline-block;opacity:0;letter-spacing:.45em;filter:blur(2px);transition:opacity calc(var(--dur)*.9) ease,letter-spacing calc(var(--dur)*.9) ease,filter calc(var(--dur)*.9) ease}
+  [data-anim=condense] .tok.show{opacity:1;letter-spacing:0;filter:blur(0)}
+
+  /* 18 聚光点亮：暗场轮廓瞬间可见，暖光晕亮起再褪去，字色缓缓升温 */
+  [data-anim=spot] .tok{opacity:1;color:#5d5a52;transition:color calc(var(--dur)*1.2) ease}
+  [data-anim=spot] .tok.show{color:inherit;animation:spotGlow calc(var(--dur)*1.6) ease-out}
+  [data-anim=spot] .action.show{color:#93a5c8}
+  @keyframes spotGlow{
+    0%{text-shadow:0 0 16px rgba(232,176,106,0)}
+    35%{text-shadow:0 0 18px rgba(232,176,106,.75),0 0 4px rgba(232,176,106,.4)}
+    70%{text-shadow:0 0 10px rgba(232,176,106,.35)}
+    100%{text-shadow:0 0 6px rgba(232,176,106,0)}
+  }
+
+  .action{font-style:italic;color:#93a5c8}
+  .tok.bold{font-weight:700;color:#f2e7d8}
+
+  /* Markdown-lite：段落与场景线 */
+  .para + .para, hr.scene + .para, .para + hr.scene{margin-top:.65em}
+  hr.scene{
+    border:none;height:1px;margin:1.05em 18%;position:relative;
+    background:linear-gradient(90deg,transparent,#39415a 22%,#39415a 78%,transparent);
+  }
+  hr.scene::after{
+    content:"✦";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:#141822;padding:0 9px;color:#7c8496;font-size:10px;
+  }
+
+  /* 光标 */
+  #cursor{
+    display:inline-block;width:2px;height:1.05em;vertical-align:text-bottom;
+    background:#e8b06a;margin-left:2px;border-radius:1px;
+    animation:blink 1.05s steps(1) infinite;
+  }
+  [data-anim=type] #cursor{width:.55em;margin-left:1px}
+  @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
+
+  /* 思考阶段：独立后台通道——快滚直出，结束后收拢成一行，点开可回看 */
+  .think{margin:0 0 .55em;font-size:12.5px}
+  .think-head{
+    display:inline-flex;align-items:center;gap:7px;padding:2px 0;
+    border:none;background:none;cursor:default;
+    font-family:inherit;font-size:12.5px;letter-spacing:.3px;color:#8b93a5;
+  }
+  .think.done .think-head{
+    cursor:pointer;padding:3px 11px;margin-left:-11px;border-radius:999px;
+    background:rgba(148,157,178,.07);transition:background .2s ease,color .2s ease;
+  }
+  .think.done .think-head:hover{background:rgba(148,157,178,.13);color:#aab3c5}
+  .tk-dot{width:7px;height:7px;border-radius:50%;background:#e8b06a;animation:tkPulse 1.1s ease-in-out infinite}
+  .think.done .tk-dot{animation:none;background:#565d70}
+  @keyframes tkPulse{0%,100%{opacity:.3;transform:scale(.75)}50%{opacity:1;transform:scale(1.1)}}
+  .tk-label{
+    background:linear-gradient(90deg,#8b93a5 45%,#e0e4ee 50%,#8b93a5 55%);
+    background-size:200% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;
+    animation:tkShimmer 1.5s linear infinite;
+    transition:opacity .3s ease;
+  }
+  .think.done .tk-label{animation:none;background:none;background-clip:border-box;-webkit-background-clip:border-box;color:#8b93a5}
+  @keyframes tkShimmer{to{background-position:-200% 0}}
+  .tk-time{color:#6b7288;font-variant-numeric:tabular-nums}
+  .tk-chev{font-size:10px;color:#6b7288;transition:transform .3s ease}
+  .think.collapsed .tk-chev{transform:rotate(-90deg)}
+  .think-body{
+    max-height:36em;overflow:hidden;
+    color:#7d8394;line-height:1.72;
+    border-left:2px solid #262c3c;margin-top:7px;padding:1px 0 1px 12px;
+    transition:max-height .45s ease,opacity .4s ease,margin .45s ease,padding .45s ease,border-color .45s ease;
+  }
+  .think.collapsed .think-body{max-height:0;opacity:0;margin-top:0;padding-top:0;padding-bottom:0;border-color:transparent}
+
+  /* 思考点 */
+  .dots{display:inline-flex;gap:5px;align-items:center;height:1.2em}
+  .dot{width:6px;height:6px;border-radius:50%;background:#8b93a5;animation:bnc 1.15s infinite}
+  .dot:nth-child(2){animation-delay:.15s}
+  .dot:nth-child(3){animation-delay:.3s}
+  @keyframes bnc{0%,60%,100%{transform:translateY(0);opacity:.35}30%{transform:translateY(-5px);opacity:1}}
+</style>
+</head>
+<body data-anim="fade">
+
+<header>
+  <h1>流式动画<em>选片厅</em></h1>
+  <p>十八种文字浮现风格（经典六种 + 脑洞十二种）· 输出缓冲平滑吐字 · 模拟思考阶段：暗色快滚 → 收拢 → 开演 · 支持流式中途切换风格</p>
+</header>
+
+<div class="controls">
+  <div class="chips" id="chips">
+    <button class="chip on" data-anim="fade"  title="成块淡入，几乎无打字机感">平滑浮现 · ChatGPT 系</button>
+    <button class="chip"    data-anim="caret" title="词块快速淡入 + 常驻闪烁光标">光标随行 · Claude 系</button>
+    <button class="chip"    data-anim="type"  title="逐字出现，经典节奏">打字机 · 经典</button>
+    <button class="chip"    data-anim="rise"  title="淡入并轻微上浮">浮现上移</button>
+    <button class="chip"    data-anim="blur"  title="从模糊到清晰聚焦">聚焦显影</button>
+    <button class="chip"    data-anim="dots"  title="首字前加载点，正文平滑浮现">思考点 + 平滑 · 国产系</button>
+    <button class="chip"    data-anim="neon"  title="灯管闪烁几下再稳定发光">霓虹通电 · 赛博</button>
+    <button class="chip"    data-anim="decode" title="先闪乱码再定格，黑客解码感">字符解码 · 黑客</button>
+    <button class="chip"    data-anim="flip"  title="绕底边翻转立起，机场翻牌">翻牌登场 · 翻牌</button>
+    <button class="chip"    data-anim="drop"  title="从上方掉落，着地回弹">坠落弹跳 · 落石</button>
+    <button class="chip"    data-anim="scan"  title="光束从左向右扫出">光束扫描 · 扫描仪</button>
+    <button class="chip"    data-anim="ink"   title="又大又糊的淡影收束成字">墨晕沉淀 · 水墨</button>
+    <button class="chip"    data-anim="glitch" title="RGB 分离抖动，信号不良后归位">信号撕裂 · Glitch</button>
+    <button class="chip"    data-anim="write" title="从左往右被写出来">笔迹生长 · 书写</button>
+    <button class="chip"    data-anim="dust"  title="每个字从随机方向飘落归位">星尘落定 · 尘埃</button>
+    <button class="chip"    data-anim="pulse" title="lub-dub 双跳，情绪激动">心跳脉冲 · 悸动</button>
+    <button class="chip"    data-anim="condense" title="松散字距收拢成紧凑的字">收拢凝字 · 凝聚</button>
+    <button class="chip"    data-anim="spot"  title="从暗场无色被灯光点亮">聚光点亮 · 舞台</button>
+  </div>
+
+  <div class="ctrl"><label>输出</label>
+    <select id="mode">
+      <option value="buffer" selected>缓冲平滑（柔和）</option>
+      <option value="direct">直出（卡顿对比）</option>
+    </select>
+  </div>
+  <div class="ctrl"><label>抖动</label><input type="range" id="jitter" min="0" max="100" value="35"><span class="speedv" id="jitv">35</span></div>
+  <div class="ctrl"><label>节奏</label><input type="range" id="speed" min="10" max="160" value="45"><span class="speedv" id="speedv">45</span></div>
+  <div class="ctrl"><label>动效</label><input type="range" id="dur" min="150" max="1200" value="450" step="10"><span class="speedv" id="durv" style="min-width:52px">450ms</span></div>
+  <div class="ctrl"><label>粒度</label>
+    <select id="gran">
+      <option value="1">逐字</option>
+      <option value="2" selected>逐词（2字块）</option>
+      <option value="4">成块（4字块）</option>
+    </select>
+  </div>
+  <div class="ctrl"><label>文本</label>
+    <select id="sample">
+      <option value="rp" selected>剧本体（含*动作*）</option>
+      <option value="md">Markdown 体（分段/加粗）</option>
+      <option value="plain">说明文</option>
+    </select>
+  </div>
+  <div class="ctrl"><label>思考阶段</label><input type="checkbox" id="thinkOn" checked></div>
+  <div class="ctrl"><label>标点微停</label><input type="checkbox" id="softPunct" checked></div>
+  <div class="ctrl"><label>光标</label><input type="checkbox" id="cursorOn" checked></div>
+  <button class="btn" id="replay">↻ 重新播放</button>
+</div>
+
+<main class="chat">
+  <div class="msg-user" id="userMsg"></div>
+  <div class="a-row">
+    <div class="avatar">林</div>
+    <div style="flex:1">
+      <div class="bubble" id="stream"></div>
+      <div id="stats"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const SAMPLES = {
+  rp: {
+    user: "周五我来帮搬书的事……你还记得吧？还有，上次那本诗集找到了吗？",
+    think: "一次问了两件事：搬书和诗集。搬书是周五的既定约定，确认即可。诗集上次铺垫过「找了很久」，这次该给结果，但不能给得太顺——冷淡的外壳要在，在意只能从动作缝里漏出来。设计动作链：敲书脊（掩饰犹豫）、牛皮纸包书推过去（关键道具）、别过脸（情绪泄露）。结尾用「带杯热的」做交换式台阶，不说破。",
+    text: "*她从书架后面抬起眼，扫了你一眼，又低下头去* ……又来了。*指尖在柜台的书脊上敲了两下* 搬书的事我记得，谁让你上次答应得那么痛快。*她顿了顿，从柜台下面取出一本用牛皮纸包好的书，推到你面前* 诗集在这，托人从旧库房翻出来的——边角有点磨损，你自己看要不要。*她别过脸去，声音轻了半分* ……道谢就免了，下次带杯热的来就行。"
+  },
+  plain: {
+    user: "介绍一下这个页面是干什么的",
+    think: "用户要页面介绍。先说这是什么：流式输出动画演示页，十八种文字浮现风格。再讲核心机制：网络字符是突发成块到达的，直接渲染会卡顿；缓冲层先积压再平稳吐出，积压越多吐字越快。最后给行动引导：切到「直出」模式对比观感差异。语气保持说明文的平实。",
+    text: "好的。这是一个流式输出动画的演示，收录了十余种文字浮现风格，并内置一层输出缓冲。网络返回的字符其实是一阵一阵到达的，直接渲染就会一顿一顿；缓冲机制先把它们积压在队列里，再以平稳的速率逐字吐出，积压越多吐字越快，兼顾流畅与延迟。你可以切换到「直出」模式，对比两种模式的观感差异。"
+  },
+  md: {
+    user: "那后来呢？那本诗集后来去哪了？",
+    think: "承接诗集下落的追问，需要一个有分量但不煽情的结局。倒叙结构：先给坏消息（雨季渗水、字迹晕开），再给残存的部分（重新包皮、收进抽屉），把「你要，就拿去」作为情绪顶点加粗。中段用场景线切到次日清晨，扉页铅笔字收尾——点题，但把最后一步留给用户自己走。",
+    text: "*她沉默了几秒，用抹布擦着并不存在的灰。* 后来雨季，店里后墙渗水，纸箱在角落里泡了半个月。\n\n*等我想起来的时候，字迹已经晕成一团墨了。* 还能翻的几页，我重新包了皮，搁在柜台下面第二个抽屉——**你要，就拿去。** 放在我这儿也是喂蠹虫。\n\n---\n\n*第二天清晨，你在抽屉里找到了它。* 扉页上有一行很淡的铅笔字：\n\n**「给每个周五都来的人。」**"
+  }
+};
+
+/* 思考小贴士池：思考流式期间轮换展示，随时往里加新的即可 */
+const THINK_TIPS = [
+  '正在回忆……',
+  '正在判断情势……',
+  '正在揣摩你的心思……',
+  '正在翻人设小卡片……',
+  '正在斟酌措辞……',
+  '正在酝酿情绪……',
+  '脑内小剧场开演中……',
+  '正在检索记忆碎片……',
+  '正在和另一个自己吵架……',
+  '灵感排队进场中……',
+  '正在校准语气……',
+  '偷偷瞄了一眼剧本……'
+];
+
+/* 秒数格式：<10s 一位小数；≥10s 取整；≥60s 走 m:ss */
+const fmtDur = s => s < 10 ? s.toFixed(1) + 's'
+  : s < 60 ? Math.round(s) + 's'
+  : Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
+
+const stream = document.getElementById('stream');
+const statsEl = document.getElementById('stats');
+const userMsg = document.getElementById('userMsg');
+const speedEl = document.getElementById('speed');
+const granSel = document.getElementById('gran');
+const sampleSel = document.getElementById('sample');
+const modeSel = document.getElementById('mode');
+const cursor = document.createElement('span');
+cursor.id = 'cursor';
+
+/* ---------- 引擎状态 ----------
+   生产者（模拟网络，突发成块到达）
+     → 缓冲队列 queue（字符级）
+       → 消费者（固定节拍逐字吐出，积压越多节奏越快） */
+let tokens = [], queue = [];
+let producerTimer = null, consumerTimer = null;
+let playing = false, producerDone = false;
+let chars = 0, t0 = 0, started = false;
+let credit = 0, lastTick = 0, dotsEl = null;
+let scrambles = [];                                       /* 解码风格进行中的乱码轮换 */
+let thinkTimer = null, runId = 0;                         /* 思考通道计时器 + 回合代号（防跨回合同调） */
+
+/* ---------- 分词：先按 *动作* 切段，段内按粒度成块 ---------- */
+function splitChunks(s, n){
+  const res = []; let buf = '';
+  const isCJK = c => /[\u3000-\u9fff\uff00-\uffef]/.test(c);
+  const isPunct = c => /[，。！？；：、…—）】》”’]/.test(c);
+  let i = 0;
+  while (i < s.length){
+    if (/\s/.test(s[i])) { buf += s[i++]; continue; }
+    if (isCJK(s[i])){
+      let cnt = 0;
+      while (i < s.length && isCJK(s[i]) && !isPunct(s[i]) && cnt < n){ buf += s[i++]; cnt++; }
+    } else {
+      while (i < s.length && !isCJK(s[i]) && !/\s/.test(s[i])){ buf += s[i++]; }
+    }
+    while (i < s.length && (isPunct(s[i]) || /\s/.test(s[i]))){ buf += s[i++]; }
+    if (buf){ res.push(buf); buf = ''; }
+  }
+  if (buf) res.push(buf);
+  return res;
+}
+/* ---------- 分词：先按空行分段（--- 为场景线），段内再分 *动作* / **加粗** / 普通 ---------- */
+function tokenize(text, n){
+  const out = [];
+  text.split(/\n{2,}/).forEach((blk, bi) => {
+    if (bi > 0) out.push({t:'', para:true});
+    if (/^\s*(-{3,}|={3,}|—{2,})\s*$/.test(blk)){ out.push({t:'', hr:true}); return; }
+    const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    let last = 0, m;
+    while ((m = re.exec(blk))){
+      if (m.index > last) for (const g of splitChunks(blk.slice(last, m.index), n)) out.push({t:g, a:false});
+      if (m[1].startsWith('**')) for (const g of splitChunks(m[1].slice(2,-2), n)) out.push({t:g, a:false, b:true});
+      else for (const g of splitChunks(m[1].slice(1,-1), n)) out.push({t:g, a:true});
+      last = m.index + m[1].length;
+    }
+    if (last < blk.length) for (const g of splitChunks(blk.slice(last), n)) out.push({t:g, a:false});
+  });
+  return out;
+}
+
+/* ---------- 渲染一个单元（两种模式共用）；段落/场景线为结构单元 ---------- */
+let paraEl = null;
+function curPara(){
+  if (!paraEl){
+    paraEl = document.createElement('div');
+    paraEl.className = 'para';
+    stream.appendChild(paraEl);
+  }
+  return paraEl;
+}
+function renderTok(u){
+  if (u.para){ paraEl = null; return; }                  /* 段落封存，后续进新容器 */
+  if (u.hr){
+    paraEl = null;
+    const h = document.createElement('hr');
+    h.className = 'scene';
+    stream.appendChild(h);
+    return;
+  }
+  if (dotsEl){ dotsEl.remove(); dotsEl = null; }
+  const s = document.createElement('span');
+  s.className = 'tok' + (u.a ? ' action' : '') + (u.b ? ' bold' : '');
+  s.textContent = u.t;
+  /* 随机落点：星尘落定等风格用，其余风格无视 */
+  s.style.setProperty('--dx', (Math.random() - .5) * 1.4 + 'em');
+  s.style.setProperty('--dy', (Math.random() - .5) * 1.2 + 'em');
+  s.style.setProperty('--rot', (Math.random() - .5) * 24 + 'deg');
+  const p = curPara();
+  p.insertBefore(s, cursor.parentNode === p ? cursor : null);
+  if (document.getElementById('cursorOn').checked) p.appendChild(cursor);
+  if (document.body.dataset.anim === 'decode' && u.t.trim()){
+    /* 解码：乱码快速轮换后定格，像破译一行密文 */
+    s.dataset.real = u.t;
+    const glyphs = 'ｱｲｳｴｵｶｷｸｹｺ0123456789#$%&';
+    let n = 0;
+    const total = 7 + Math.floor(Math.random() * 6);
+    const iv = setInterval(() => {
+      n++;
+      if (n >= total){
+        s.textContent = u.t; s.classList.add('settled');
+        clearInterval(iv);
+        scrambles = scrambles.filter(x => x.iv !== iv);
+        return;
+      }
+      s.textContent = [...u.t].map(ch => /\s/.test(ch) ? ch : glyphs[Math.floor(Math.random() * glyphs.length)]).join('');
+    }, 42);
+    scrambles.push({iv, el: s});
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => s.classList.add('show')));
+  if (!started){ started = true; t0 = performance.now(); }
+  chars += u.t.trim().length;
+}
+
+/* ---------- 网络抖动模型：0 = 稳定匀速，100 = 长卡顿 + 连珠炮补发 ---------- */
+let burstLeft = 0;
+function netDelay(){
+  const j = +document.getElementById('jitter').value / 100;
+  if (burstLeft > 0){
+    burstLeft--;
+    return 15 + Math.random() * 30;                        /* 卡顿后积压的数据连珠炮到达 */
+  }
+  if (Math.random() < j * .30){
+    burstLeft = 2 + Math.floor(Math.random() * 3);
+    return 400 + j * 900 + Math.random() * 600;            /* 长卡顿，抖动越大越频繁越久 */
+  }
+  const lo = 50 + j * 50, hi = 90 + j * 220;
+  return lo + Math.random() * (hi - lo);                   /* 平时到达间隔的波动范围 */
+}
+
+/* ---------- 生产者：模拟网络突发到达 ---------- */
+function startProducer(firstDelay){
+  const flat = [];
+  for (const tok of tokens){
+    if (tok.para){ flat.push({para:true}); continue; }
+    if (tok.hr){ flat.push({hr:true}); continue; }
+    for (const ch of tok.t) flat.push({t: ch, a: tok.a, b: tok.b});
+  }
+  let i = 0;
+  function deliver(){
+    if (i >= flat.length){
+      producerDone = true;
+      if (modeSel.value === 'direct') finish();
+      return;
+    }
+    const n = 2 + Math.floor(Math.random() * 6);           /* 2~7 字一个网络包 */
+    const slice = flat.slice(i, i + n); i += n;
+    if (modeSel.value === 'direct'){
+      /* 直出：到达即整块上屏，观感一阵一阵 */
+      let buf = '', a = false, b = false, has = false;
+      const flush = () => { if (has){ renderTok({t: buf, a, b}); buf = ''; has = false; } };
+      for (const c of slice){
+        if (c.para){ flush(); renderTok({t:'', para:true}); continue; }
+        if (c.hr){ flush(); renderTok({t:'', hr:true}); continue; }
+        if (has && (c.a !== a || c.b !== b)) flush();
+        if (!has){ a = c.a; b = c.b; has = true; }
+        buf += c.t;
+      }
+      flush();
+      statsEl.innerHTML = `已输出 <b>${chars}</b> 字 · 直出（无缓冲）`;
+    } else {
+      queue.push(...slice);                                 /* 缓冲：只入队 */
+    }
+    producerTimer = setTimeout(deliver, netDelay());
+  }
+  producerTimer = setTimeout(deliver, firstDelay + Math.random() * 350);
+}
+
+/* ---------- 消费者：平稳节拍逐字吐出，积压越多越快 ---------- */
+function takeUnit(){
+  const n = +granSel.value;
+  if (queue[0].para || queue[0].hr) return queue.shift();  /* 结构单元不可拆分 */
+  let text = '', a = queue[0].a, b = queue[0].b;
+  while (queue.length && !queue[0].para && !queue[0].hr && queue[0].a === a && queue[0].b === b && text.length < n) text += queue.shift().t;
+  return {t: text, a, b};
+}
+/* 标点微停：轻微的呼吸感，不是打字机式的大停顿 */
+function pauseAfter(u){
+  if (u.para || u.hr) return 260 + +speedEl.value;        /* 段落/场景切换，深呼吸 */
+  if (!document.getElementById('softPunct').checked) return 0;
+  const c = u.t.slice(-1);
+  if (/[。！？…\n]/.test(c))    return 150 + +speedEl.value * .8;
+  if (/[，、；：）】》”’—]/.test(c)) return 55  + +speedEl.value * .4;
+  return 0;
+}
+function tick(){
+  const now = performance.now();
+  const dt = Math.min(100, now - lastTick); lastTick = now;
+
+  if (!queue.length){
+    credit = 0;                                            /* 空转不攒速度 */
+    if (producerDone){ finish(); return; }
+    if (started) statsEl.innerHTML = `已输出 <b>${chars}</b> 字 · 等待网络…`;
+    return;
+  }
+
+  const base = +speedEl.value;
+  const backlog = queue.length;
+  const k = Math.max(.25, 1 / (1 + backlog / 45));         /* 积压 45 字 → 2 倍速，封顶 4 倍 */
+  const interval = Math.max(10, base * k);
+
+  credit += dt / interval;
+  if (credit > 3) credit = 3;
+  while (credit >= 1 && queue.length){
+    const u = takeUnit();
+    renderTok(u);
+    credit -= 1;
+    const p = pauseAfter(u);
+    if (p) credit -= p / interval;                          /* 微停 = 负信用 */
+  }
+  statsEl.innerHTML = `已输出 <b>${chars}</b> 字 · 缓冲 ${backlog} · ×${(1 / k).toFixed(1)} 速`;
+}
+
+/* ---------- 思考阶段：独立的后台通道，不走「节奏」 ----------
+   快滚（约 10 倍于正文速度）+ 头部计时 → 结束后收拢成一行，点开可回看 */
+function playThinking(id, done){
+  const box = document.createElement('div');
+  box.className = 'think';
+  box.innerHTML = '<button class="think-head" type="button">'
+    + '<span class="tk-dot"></span><span class="tk-label">思考中</span>'
+    + '<span class="tk-time"></span><span class="tk-chev">▾</span>'
+    + '</button><div class="think-body"></div>';
+  stream.appendChild(box);
+  const label = box.querySelector('.tk-label');
+  const timeEl = box.querySelector('.tk-time');
+  const body = box.querySelector('.think-body');
+  box.querySelector('.think-head').addEventListener('click', () => {
+    if (box.classList.contains('done')) box.classList.toggle('collapsed');
+  });
+  const text = SAMPLES[sampleSel.value].think;
+
+  /* 计时只累计页面可见的时长：后台标签被浏览器节流的挂钟时间不计入"思考用时" */
+  let visMs = 0, lastMark = performance.now();
+  const visFn = () => {
+    if (id !== runId){ document.removeEventListener('visibilitychange', visFn); return; }
+    lastMark = performance.now();                           /* 回到前台，从现在重新起算 */
+  };
+  document.addEventListener('visibilitychange', visFn);
+
+  /* 小贴士轮换：乱序出发，转完一圈前不重样；换词走渐出 → 换字 → 渐入 */
+  const tips = [...THINK_TIPS].sort(() => Math.random() - .5);
+  let tipI = 0, settled = false;                            /* settled：收拢后换词回调不再动标签 */
+  label.textContent = tips[0];
+  const tipTimer = setInterval(() => {
+    if (id !== runId){ clearInterval(tipTimer); return; }
+    tipI = (tipI + 1) % tips.length;
+    label.style.opacity = '0';
+    setTimeout(() => {
+      if (id !== runId || settled) return;
+      label.textContent = tips[tipI];
+      label.style.opacity = '1';
+    }, 300);
+  }, 1200);
+
+  let i = 0;
+  const step = () => {
+    if (id !== runId){ document.removeEventListener('visibilitychange', visFn); return; }
+    const now = performance.now();
+    if (!document.hidden) visMs += now - lastMark;
+    lastMark = now;
+    i = Math.min(text.length, i + 2 + Math.floor(Math.random() * 3));
+    body.textContent = text.slice(0, i);
+    timeEl.textContent = fmtDur(visMs / 1000);
+    if (i >= text.length){
+      clearInterval(thinkTimer); thinkTimer = null;
+      clearInterval(tipTimer);
+      document.removeEventListener('visibilitychange', visFn);
+      const total = fmtDur(visMs / 1000);
+      setTimeout(() => {                                    /* 停半拍再收拢，像思考落定 */
+        if (id !== runId) return;
+        settled = true;
+        label.style.opacity = '1';                          /* 若正卡在换词渐出中，拉回来 */
+        box.classList.add('done', 'collapsed');
+        label.textContent = '已深度思考';
+        timeEl.textContent = '· ' + total;
+        setTimeout(() => { if (id === runId) done(); }, 520);  /* 等收拢动画走完再开演 */
+      }, 380);
+    }
+  };
+  thinkTimer = setTimeout(() => {
+    if (id !== runId) return;
+    step();
+    thinkTimer = setInterval(step, 24);
+  }, 420 + Math.random() * 260);
+}
+
+/* ---------- 生命周期 ---------- */
+function stopAll(){
+  clearTimeout(producerTimer); clearInterval(consumerTimer);
+  if (thinkTimer){ clearTimeout(thinkTimer); clearInterval(thinkTimer); thinkTimer = null; }
+  producerTimer = consumerTimer = null;
+  for (const x of scrambles){ clearInterval(x.iv); x.el.textContent = x.el.dataset.real; x.el.classList.add('settled'); }
+  scrambles = [];
+  playing = false;
+}
+function finish(){
+  stopAll();
+  cursor.remove();
+  if (dotsEl){ dotsEl.remove(); dotsEl = null; }
+  const dt = (performance.now() - t0) / 1000;
+  statsEl.textContent = `共 ${chars} 字 · 用时 ${dt.toFixed(1)}s · ${dt ? (chars / dt).toFixed(1) : '—'} 字/秒`;
+}
+function replay(){
+  stopAll();
+  runId++;
+  const id = runId;
+  stream.textContent = '';
+  paraEl = null;
+  userMsg.textContent = SAMPLES[sampleSel.value].user;
+  tokens = tokenize(SAMPLES[sampleSel.value].text, +granSel.value);
+  queue = []; chars = 0; started = false; t0 = 0; burstLeft = 0;
+  credit = 0; producerDone = false; playing = true;
+  statsEl.textContent = '';
+
+  /* 正文开演：思考阶段收拢后触发，或直接开始 */
+  const begin = () => {
+    if (id !== runId) return;
+    const anim = document.body.dataset.anim;
+    if (anim === 'dots'){
+      dotsEl = document.createElement('span');
+      dotsEl.className = 'dots';
+      dotsEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      curPara().appendChild(dotsEl);
+    }
+    startProducer(anim === 'dots' ? 1150 : 300);
+    if (modeSel.value === 'buffer'){
+      lastTick = performance.now();
+      consumerTimer = setInterval(tick, 16);
+    }
+  };
+  if (document.getElementById('thinkOn').checked) playThinking(id, begin);
+  else begin();
+}
+
+/* ---------- 控件 ---------- */
+document.getElementById('chips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip'); if (!chip) return;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === chip));
+  document.body.dataset.anim = chip.dataset.anim;
+  if (chip.dataset.anim === 'type' && playing){
+    /* 打字机建议逐字：仅在其正在播放时贴心一下 */
+    granSel.value = '1';
+    replay();
+  }
+});
+document.getElementById('replay').addEventListener('click', replay);
+granSel.addEventListener('change', replay);
+sampleSel.addEventListener('change', replay);
+modeSel.addEventListener('change', replay);
+speedEl.addEventListener('input', () => document.getElementById('speedv').textContent = speedEl.value);
+const durEl = document.getElementById('dur');
+durEl.addEventListener('input', () => {
+  document.body.style.setProperty('--dur', durEl.value + 'ms');
+  document.getElementById('durv').textContent = durEl.value + 'ms';
+});
+const jitEl = document.getElementById('jitter');
+jitEl.addEventListener('input', () => document.getElementById('jitv').textContent = jitEl.value);
+
+replay();
+</script>
+</body>
+</html>

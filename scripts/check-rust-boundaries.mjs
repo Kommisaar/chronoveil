@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+/** 校验 Rust 四层边界（ADR-010）：interfaces → services → domain ← infra；domain/services 禁 tauri/rusqlite/reqwest。 */
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const SRC = new URL('../src-tauri/src', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+if (!existsSync(SRC)) {
+  console.log('[check-rust-boundaries] src-tauri 不存在，跳过');
+  process.exit(0);
+}
+
+function walk(dir, files = []) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walk(full, files);
+    else if (entry.endsWith('.rs')) files.push(full);
+  }
+  return files;
+}
+
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+/** layer 允许依赖的 crate:: 目标（含自身）；infra 只许进 domain，services 可用 domain/infra，interfaces 全可。 */
+const ALLOWED = {
+  domain: ['domain'],
+  services: ['domain', 'infra', 'services'],
+  infra: ['domain', 'infra'],
+  interfaces: ['domain', 'infra', 'services', 'interfaces'],
+};
+
+const violations = [];
+
+for (const file of walk(SRC)) {
+  const rel = file.split(/[\\/]src-tauri[\\/]src[\\/]/)[1] ?? file;
+  const layer = rel.split(/[\\/]/)[0].replace(/\.rs$/, '');
+  if (!(layer in ALLOWED)) continue; // lib.rs / state.rs / main.rs 组合根，不限制
+  const code = stripComments(readFileSync(file, 'utf8'));
+
+  for (const m of code.matchAll(/\bcrate::(\w+)/g)) {
+    if (!ALLOWED[layer].includes(m[1])) {
+      violations.push(`${rel}: ${layer} 层不得引用 crate::${m[1]}`);
+    }
+  }
+  if (layer === 'domain' || layer === 'services') {
+    for (const m of code.matchAll(/^\s*(?:use\s+)?(tauri|rusqlite|reqwest)\b/gm)) {
+      violations.push(`${rel}: ${layer} 层禁依赖 ${m[1]}（ADR-010）`);
+    }
+  }
+}
+
+if (violations.length > 0) {
+  console.error('[check-rust-boundaries] 违规：');
+  for (const v of violations) console.error(`  - ${v}`);
+  process.exit(1);
+}
+console.log('[check-rust-boundaries] ok');

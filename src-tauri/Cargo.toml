@@ -1,0 +1,23 @@
+[package]
+name = "chronoveil"
+version = "0.1.0"
+description = "ChronoVeil — 本地 AI 角色扮演聊天应用"
+edition = "2021"
+
+# 注意：版本号为骨架期的合理猜测，首次 cargo build 时以实际解析为准（阶段 2 起验证）。
+
+[lib]
+name = "chronoveil_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.36", features = ["bundled"] }
+dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

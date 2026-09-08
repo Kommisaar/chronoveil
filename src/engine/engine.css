@@ -1,0 +1,241 @@
+/* ============================================================
+   渲染引擎样式 —— 从 docs/streaming-animations.html 搬家（TASK-004）
+   18 种出场动画（FR-005）命名与关键帧与 demo 逐一对照一致；
+   段落/场景线（FR-004）、光标、思考胶囊（FR-003）同源搬运。
+   引擎容器持有 data-anim 与内联 --dur；此处不含页面布局/主题。
+   ============================================================ */
+
+/* 动效时长基准（FR-005）：150–1200ms（默认 450ms），由引擎写入容器内联 --dur */
+[data-anim] {
+  --dur: 450ms;
+}
+
+.tok {
+  display: inline;
+  border-radius: 2px;
+}
+
+/* 1 平滑浮现（ChatGPT 系）：成块淡入 */
+[data-anim=fade] .tok { opacity: 0; transition: opacity var(--dur) ease-out; }
+[data-anim=fade] .tok.show { opacity: 1; }
+
+/* 2 光标随行（Claude 系）：词块微淡 + 常驻光标（保持利落，取短比例） */
+[data-anim=caret] .tok { opacity: 0; transition: opacity calc(var(--dur)*.45) linear; }
+[data-anim=caret] .tok.show { opacity: 1; }
+
+/* 3 打字机：瞬时出现，节奏靠引擎逐字 */
+[data-anim=type] .tok { transition: none; }
+
+/* 4 浮现上移：淡入 + 轻微上浮（transform 需要盒子，inline-block） */
+[data-anim=rise] .tok { display: inline-block; opacity: 0; transform: translateY(.35em); transition: opacity calc(var(--dur)*1.3) ease, transform calc(var(--dur)*1.3) cubic-bezier(.22,.7,.3,1); }
+[data-anim=rise] .tok.show { opacity: 1; transform: none; }
+
+/* 5 聚焦显影：从模糊到清晰（过渡最长，遮盖效果最强） */
+[data-anim=blur] .tok { opacity: 0; filter: blur(6px); transition: opacity calc(var(--dur)*1.5) ease, filter calc(var(--dur)*1.5) ease; }
+[data-anim=blur] .tok.show { opacity: 1; filter: blur(0); }
+
+/* 6 思考点 + 平滑（国产系首字加载）：正文同 fade，加载态由引擎插入 */
+[data-anim=dots] .tok { opacity: 0; transition: opacity var(--dur) ease-out; }
+[data-anim=dots] .tok.show { opacity: 1; }
+
+/* 7 霓虹通电：灯管闪烁几下再稳定发光 */
+[data-anim=neon] .tok { opacity: 0; }
+[data-anim=neon] .tok.show { opacity: 1; animation: neonOn calc(var(--dur)*1.4) steps(1, end) both; }
+@keyframes neonOn {
+  0% { opacity: 0; }
+  8% { opacity: 1; text-shadow: 0 0 10px #e8b06a; }
+  16% { opacity: .15; text-shadow: none; }
+  24% { opacity: 1; text-shadow: 0 0 4px #e8b06a; }
+  36% { opacity: .35; text-shadow: none; }
+  48% { opacity: 1; text-shadow: 0 0 12px #e8b06a; }
+  62% { opacity: .7; text-shadow: 0 0 2px #e8b06a; }
+  100% { opacity: 1; text-shadow: 0 0 6px rgba(232, 176, 106, .45); }
+}
+
+/* 8 字符解码：先闪乱码再定格（轮换由引擎驱动） */
+[data-anim=decode] .tok { opacity: 1; color: #e8b06a; }
+[data-anim=decode] .tok.settled { color: inherit; transition: color .35s ease; }
+[data-anim=decode] .action.settled { color: #93a5c8; }
+
+/* 9 翻牌登场：绕底边翻立起来，机场翻牌感 */
+[data-anim=flip] { perspective: 340px; }
+[data-anim=flip] .tok { display: inline-block; opacity: 0; transform: rotateX(-92deg); transform-origin: 50% 100%; transition: opacity calc(var(--dur)*.6) ease, transform calc(var(--dur)*.8) cubic-bezier(.2,.85,.3,1.12); }
+[data-anim=flip] .tok.show { opacity: 1; transform: none; }
+
+/* 10 坠落弹跳：从上方掉落，着地回弹 */
+[data-anim=drop] .tok { display: inline-block; opacity: 0; transform: translateY(-.9em) scaleY(1.35); transform-origin: 50% 0; transition: opacity calc(var(--dur)*.4) ease-out, transform calc(var(--dur)*.95) cubic-bezier(.2,1.45,.35,1); }
+[data-anim=drop] .tok.show { opacity: 1; transform: none; }
+
+/* 11 光束扫描：从左向右扫出，扫过处亮一下再褪去 */
+[data-anim=scan] .tok { clip-path: inset(-30% 100% -30% 0); transition: clip-path calc(var(--dur)*.85) ease-out; }
+[data-anim=scan] .tok.show { clip-path: inset(-30% 0% -30% 0); animation: scanGlow calc(var(--dur)*1.1) ease-out; }
+@keyframes scanGlow {
+  0% { text-shadow: 0 0 14px rgba(232, 176, 106, .95); }
+  100% { text-shadow: 0 0 14px rgba(232, 176, 106, 0); }
+}
+
+/* 12 墨晕沉淀：又大又糊的淡影收束成字 */
+[data-anim=ink] .tok { display: inline-block; opacity: 0; filter: blur(5px); transform: scale(1.5); color: #57607a; transition: opacity calc(var(--dur)*1.3) ease, filter calc(var(--dur)*1.3) ease, transform calc(var(--dur)*1.3) ease, color calc(var(--dur)*1.3) ease; }
+[data-anim=ink] .tok.show { opacity: 1; filter: blur(0); transform: none; color: inherit; }
+[data-anim=ink] .action.show { color: #93a5c8; }
+
+/* 13 信号撕裂：RGB 分离抖动几下，信号稳定后归位 */
+[data-anim=glitch] .tok { display: inline-block; opacity: 0; }
+[data-anim=glitch] .tok.show { opacity: 1; animation: glitchOn calc(var(--dur)*.9) steps(1, end) both; }
+@keyframes glitchOn {
+  0% { opacity: 0; text-shadow: none; transform: none; }
+  12% { opacity: 1; text-shadow: -2px 0 #ff5566, 2px 0 #4dd2ff; transform: translateX(1px); }
+  26% { text-shadow: 2px 0 #ff5566, -2px 0 #4dd2ff; transform: translateX(-1px); }
+  40% { text-shadow: -1px 0 #ff5566, 1px 0 #4dd2ff; transform: translateX(1px); }
+  54% { text-shadow: 1px 0 #ff5566, -1px 0 #4dd2ff; transform: none; }
+  68% { text-shadow: none; transform: none; }
+  100% { text-shadow: none; transform: none; }
+}
+
+/* 14 笔迹生长：从左侧被「写」出来，宽度伸展落定 */
+[data-anim=write] .tok { display: inline-block; opacity: 0; transform: scaleX(0); transform-origin: 0% 60%; transition: opacity calc(var(--dur)*.35) linear, transform calc(var(--dur)*.75) cubic-bezier(.25,.9,.3,1); }
+[data-anim=write] .tok.show { opacity: 1; transform: scaleX(1); }
+
+/* 15 星尘落定：每个字从随机方向、带随机旋转飘落归位（落点由引擎注入 --dx/--dy/--rot） */
+[data-anim=dust] .tok { display: inline-block; opacity: 0; filter: blur(4px); transform: translate(var(--dx, 0em), var(--dy, 0em)) rotate(var(--rot, 0deg)) scale(.7); transition: opacity calc(var(--dur)*1.1) ease, filter calc(var(--dur)*1.1) ease, transform calc(var(--dur)*1.1) cubic-bezier(.2,.8,.25,1); }
+[data-anim=dust] .tok.show { opacity: 1; filter: blur(0); transform: none; }
+
+/* 16 心跳脉冲：lub-dub 双跳，情绪激动的段落 */
+[data-anim=pulse] .tok { display: inline-block; opacity: 0; }
+[data-anim=pulse] .tok.show { opacity: 1; animation: pulseOn calc(var(--dur)*1.6) ease-out both; }
+@keyframes pulseOn {
+  0% { opacity: 0; transform: scale(.6); }
+  28% { transform: scale(1.12); }
+  42% { transform: scale(1); }
+  58% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* 17 收拢凝字：松散的字距带着微糊收拢成紧凑的字 */
+[data-anim=condense] .tok { display: inline-block; opacity: 0; letter-spacing: .45em; filter: blur(2px); transition: opacity calc(var(--dur)*.9) ease, letter-spacing calc(var(--dur)*.9) ease, filter calc(var(--dur)*.9) ease; }
+[data-anim=condense] .tok.show { opacity: 1; letter-spacing: 0; filter: blur(0); }
+
+/* 18 聚光点亮：暗场轮廓瞬间可见（可见暗色轮廓，非隐形字），暖光晕亮起再褪去，字色缓缓升温 */
+[data-anim=spot] .tok { opacity: 1; color: #5d5a52; transition: color calc(var(--dur)*1.2) ease; }
+[data-anim=spot] .tok.show { color: inherit; animation: spotGlow calc(var(--dur)*1.6) ease-out; }
+[data-anim=spot] .action.show { color: #93a5c8; }
+@keyframes spotGlow {
+  0% { text-shadow: 0 0 16px rgba(232, 176, 106, 0); }
+  35% { text-shadow: 0 0 18px rgba(232, 176, 106, .75), 0 0 4px rgba(232, 176, 106, .4); }
+  70% { text-shadow: 0 0 10px rgba(232, 176, 106, .35); }
+  100% { text-shadow: 0 0 6px rgba(232, 176, 106, 0); }
+}
+
+/* 语法子集配色（FR-004）：*动作* 蓝灰斜体；**加粗** 米白 */
+.action { font-style: italic; color: #93a5c8; }
+.tok.bold { font-weight: 700; color: #f2e7d8; }
+
+/* Markdown-lite：段落与场景线 */
+.para + .para, hr.scene + .para, .para + hr.scene { margin-top: .65em; }
+hr.scene {
+  border: none;
+  height: 1px;
+  margin: 1.05em 18%;
+  position: relative;
+  background: linear-gradient(90deg, transparent, #39415a 22%, #39415a 78%, transparent);
+}
+hr.scene::after {
+  content: "✦";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: #141822;
+  padding: 0 9px;
+  color: #7c8496;
+  font-size: 10px;
+}
+
+/* 光标 */
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: #e8b06a;
+  margin-left: 2px;
+  border-radius: 1px;
+  animation: blink 1.05s steps(1) infinite;
+}
+[data-anim=type] .stream-cursor { width: .55em; margin-left: 1px; }
+@keyframes blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+/* 思考阶段：独立后台通道——快滚直出，结束后收拢成一行，点开可回看（FR-003） */
+.think { margin: 0 0 .55em; font-size: 12.5px; }
+.think-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  cursor: default;
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: .3px;
+  color: #8b93a5;
+}
+.think.done .think-head {
+  cursor: pointer;
+  padding: 3px 11px;
+  margin-left: -11px;
+  border-radius: 999px;
+  background: rgba(148, 157, 178, .07);
+  transition: background .2s ease, color .2s ease;
+}
+.think.done .think-head:hover { background: rgba(148, 157, 178, .13); color: #aab3c5; }
+.tk-dot { width: 7px; height: 7px; border-radius: 50%; background: #e8b06a; animation: tkPulse 1.1s ease-in-out infinite; }
+.think.done .tk-dot { animation: none; background: #565d70; }
+@keyframes tkPulse {
+  0%, 100% { opacity: .3; transform: scale(.75); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+.tk-label {
+  background: linear-gradient(90deg, #8b93a5 45%, #e0e4ee 50%, #8b93a5 55%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: tkShimmer 1.5s linear infinite;
+  transition: opacity .3s ease;
+}
+.think.done .tk-label {
+  animation: none;
+  background: none;
+  background-clip: border-box;
+  -webkit-background-clip: border-box;
+  color: #8b93a5;
+}
+@keyframes tkShimmer { to { background-position: -200% 0; } }
+.tk-time { color: #6b7288; font-variant-numeric: tabular-nums; }
+.tk-chev { font-size: 10px; color: #6b7288; transition: transform .3s ease; }
+.think.collapsed .tk-chev { transform: rotate(-90deg); }
+.think-body {
+  max-height: 36em;
+  overflow: hidden;
+  color: #7d8394;
+  line-height: 1.72;
+  border-left: 2px solid #262c3c;
+  margin-top: 7px;
+  padding: 1px 0 1px 12px;
+  transition: max-height .45s ease, opacity .4s ease, margin .45s ease, padding .45s ease, border-color .45s ease;
+}
+.think.collapsed .think-body { max-height: 0; opacity: 0; margin-top: 0; padding-top: 0; padding-bottom: 0; border-color: transparent; }
+
+/* 思考点（风格 6 的加载态） */
+.dots { display: inline-flex; gap: 5px; align-items: center; height: 1.2em; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #8b93a5; animation: bnc 1.15s infinite; }
+.dot:nth-child(2) { animation-delay: .15s; }
+.dot:nth-child(3) { animation-delay: .3s; }
+@keyframes bnc {
+  0%, 60%, 100% { transform: translateY(0); opacity: .35; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}

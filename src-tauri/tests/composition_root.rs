@@ -1,0 +1,62 @@
+//! 组合根冒烟集成测试（TASK-005）：以公开 API 走通「装配 → 存储 → 配置」全链路，
+//! 与单元测试互补；同时使包内存在 tests/ 目标（build.rs 的 rustc-link-arg-tests
+//! 才会被 cargo 接受，测试二进制因此带上 comctl32 v6 manifest）。
+
+use chronoveil_lib::domain::models::{NewCharacter, NewMessage, NewSession};
+use chronoveil_lib::domain::ports::StoragePort;
+use chronoveil_lib::state::AppState;
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+fn temp_home(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "chronoveil_integration_test_{}_{}_{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed),
+        tag
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+/// 装配 → 建角色 → 建会话 → 插消息 → 读回，全链路落在注入的临时主目录内。
+#[test]
+fn composition_root_end_to_end() {
+    let home = temp_home("e2e");
+    let app = AppState::init_with_home(Some(home.clone())).unwrap();
+
+    let character = app
+        .storage
+        .create_character(&NewCharacter {
+            name: "苏鸢".into(),
+            greeting: "雨点敲着窗棂。".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let session = app
+        .storage
+        .create_session(&NewSession {
+            character_id: character.id,
+            title: "雨夜来电".into(),
+        })
+        .unwrap();
+    let message = app
+        .storage
+        .insert_message(&NewMessage::new(session.id, chronoveil_lib::domain::models::MessageRole::User, "是我。"))
+        .unwrap();
+
+    let listed = app.storage.list_messages(session.id).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, message.id);
+    assert_eq!(listed[0].content, "是我。");
+    assert!(app.storage.list_sessions().unwrap().iter().any(|s| s.id == session.id));
+
+    // 配置读取（无文件 → 全默认，FR-009）。
+    let config = app.config.load().unwrap();
+    assert_eq!(config.rhythm_ms_per_char, 45);
+
+    drop(app);
+    let _ = std::fs::remove_dir_all(&home);
+}

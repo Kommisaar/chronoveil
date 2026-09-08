@@ -13,8 +13,6 @@ use crate::domain::models::{
 };
 
 /// SQLite 持久化端口（CMP-003）。实现必须线程安全（&self 即可调用）。
-// 本阶段只落持久化地基，尚无 services / 命令层消费方（TASK-005 接线后移除本 allow）。
-#[allow(dead_code)]
 pub trait StoragePort {
     // ---- characters（FR-006：人设卡 CRUD） ----
     fn create_character(&self, new: &NewCharacter) -> Result<Character, StorageError>;

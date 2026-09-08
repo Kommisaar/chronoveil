@@ -25,7 +25,8 @@ const ALLOWED = {
   domain: ['domain'],
   services: ['domain', 'infra', 'services'],
   infra: ['domain', 'infra'],
-  interfaces: ['domain', 'infra', 'services', 'interfaces'],
+  // state 为组合根状态（state.rs）：命令层经 State<AppState> 取用（state.rs 契约，TASK-005 接线起生效）。
+  interfaces: ['domain', 'infra', 'services', 'interfaces', 'state'],
 };
 
 const violations = [];

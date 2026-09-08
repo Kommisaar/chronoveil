@@ -1,19 +1,149 @@
-import type { CharacterSummary, ChatMessage, SessionSummary } from './types';
-import { characters, messagesBySession, sessions } from './mock/data';
-
 /**
- * 命令封装（当前全部走 mock；阶段 3 起改为 invoke + ipc-command-whitelist 登记）。
- * 约定：签名保持稳定，切换实现时调用方不动。
+ * 命令封装（ADR-010：invoke 唯一入口在 src/api/）。
+ *
+ * 双模式（验收 3）：
+ * - Tauri 壳内（`isTauri`）→ tauri-specta 生成的 `commands.*`（类型同源，来自
+ *   `./generated/bindings.ts`，命令名登记于 config/ipc-command-whitelist.json）；
+ * - 纯浏览器（`pnpm run dev`）→ `./mock/backend` 内存实现。
+ *
+ * 约定：签名保持稳定，切换实现时调用方不动。命令错误统一解包为 [`ApiError`]
+ * （携带可判别的 `payload: IpcError`），调用方 `catch` 后读 `payload.kind` 分型。
  */
 
-export async function listSessions(): Promise<SessionSummary[]> {
-  return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+import { commands, type IpcError, type Result } from './generated/bindings';
+import { isTauri } from './client';
+import * as mock from './mock/backend';
+import type {
+  CharacterInput,
+  CharacterSummary,
+  ChatMessage,
+  ConfigDto,
+  SessionSummary,
+} from './types';
+
+/** 命令错误：`payload` 为 Rust 侧 IpcError 的结构化 wire 形态（可按 kind 分型）。 */
+export class ApiError extends Error {
+  readonly payload: IpcError;
+
+  constructor(payload: IpcError) {
+    super(ApiError.describe(payload));
+    this.name = 'ApiError';
+    this.payload = payload;
+  }
+
+  private static describe(e: IpcError): string {
+    switch (e.kind) {
+      case 'notFound':
+        return `${e.entity} #${e.id} 不存在（或已软删除）`;
+      case 'conflict':
+      case 'storage':
+      case 'config':
+      case 'unavailable':
+        return e.message;
+    }
+  }
 }
+
+async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
+  const outcome = await promise;
+  if (outcome.status === 'error') throw new ApiError(outcome.error);
+  return outcome.data;
+}
+
+// ---- 会话（FR-007）----
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  return isTauri ? unwrap(commands.listSessions()) : mock.listSessions();
+}
+
+export async function createSession(
+  characterId: number,
+  title?: string | null,
+): Promise<SessionSummary> {
+  return isTauri
+    ? unwrap(commands.createSession(characterId, title ?? null))
+    : mock.createSession(characterId, title);
+}
+
+export async function deleteSession(sessionId: number): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.deleteSession(sessionId));
+    return;
+  }
+  return mock.deleteSession(sessionId);
+}
+
+// ---- 消息（ADR-001）----
 
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
-  return (messagesBySession[sessionId] ?? []).slice();
+  return isTauri ? unwrap(commands.listMessages(sessionId)) : mock.listMessages(sessionId);
 }
 
+// ---- 生成（闭环接线属 TASK-006；未接线时 Rust 返回 kind: "unavailable"）----
+
+export async function sendMessage(
+  sessionId: number,
+  content: string,
+): Promise<ChatMessage> {
+  return isTauri
+    ? unwrap(commands.sendMessage(sessionId, content))
+    : mock.sendMessage(sessionId, content);
+}
+
+/** 取消当前会话的进行中生成；无进行中生成时为幂等 no-op（返回 false）。 */
+export async function cancelGeneration(sessionId: number): Promise<boolean> {
+  return isTauri
+    ? unwrap(commands.cancelGeneration(sessionId))
+    : mock.cancelGeneration(sessionId);
+}
+
+export async function regenerateLast(sessionId: number): Promise<ChatMessage> {
+  return isTauri
+    ? unwrap(commands.regenerateLast(sessionId))
+    : mock.regenerateLast(sessionId);
+}
+
+// ---- 角色 CRUD（FR-006，含 avatar）----
+
 export async function listCharacters(): Promise<CharacterSummary[]> {
-  return characters.slice();
+  return isTauri ? unwrap(commands.listCharacters()) : mock.listCharacters();
+}
+
+export async function createCharacter(
+  input: CharacterInput,
+): Promise<CharacterSummary> {
+  return isTauri ? unwrap(commands.createCharacter(input)) : mock.createCharacter(input);
+}
+
+export async function updateCharacter(
+  id: number,
+  input: CharacterInput,
+): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.updateCharacter(id, input));
+    return;
+  }
+  return mock.updateCharacter(id, input);
+}
+
+export async function deleteCharacter(id: number): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.deleteCharacter(id));
+    return;
+  }
+  return mock.deleteCharacter(id);
+}
+
+// ---- 配置（FR-009 / ADR-012）----
+
+export async function getConfig(): Promise<ConfigDto> {
+  return isTauri ? unwrap(commands.getConfig()) : mock.getConfig();
+}
+
+export async function saveConfig(config: ConfigDto): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.saveConfig(config));
+    return;
+  }
+  return mock.saveConfig(config);
 }

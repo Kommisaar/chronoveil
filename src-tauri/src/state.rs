@@ -13,8 +13,6 @@ pub const APP_DIR_NAME: &str = ".chronoveil";
 pub const DB_FILE_NAME: &str = "chronoveil.db";
 
 /// 组合根状态：`lib.rs` 经 `.manage()` 注入，命令层经 `State<AppState>` 取用。
-// 字段消费方在 TASK-005（IPC 命令层）接线后出现。
-#[allow(dead_code)]
 pub struct AppState {
     pub storage: Arc<Storage>,
     /// 应用主目录 `~/.chronoveil/`（根路径可注入，见 `init_with_home`）。

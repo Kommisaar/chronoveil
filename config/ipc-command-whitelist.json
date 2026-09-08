@@ -1,4 +1,18 @@
 {
   "$comment": "Tauri IPC 命令登记表（ADR-010）：src/api/commands.ts 中新增 invoke 命令必须同步登记，防止与 specta collect_commands 漂移。",
-  "commands": []
+  "commands": [
+    "list_sessions",
+    "create_session",
+    "delete_session",
+    "list_messages",
+    "send_message",
+    "cancel_generation",
+    "regenerate_last",
+    "list_characters",
+    "create_character",
+    "update_character",
+    "delete_character",
+    "get_config",
+    "save_config"
+  ]
 }

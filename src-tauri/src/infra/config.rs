@@ -224,8 +224,6 @@ impl ConfigStore {
 
     /// 保存配置：先校验，再写同目录临时文件并刷盘，最后原子改名覆盖目标
     /// （同目录同卷 rename；任一步失败则清理临时文件，config.json 保持上一次完整内容）。
-    // 消费方在 TASK-005（设置页保存接线）后出现；测试已覆盖原子写语义。
-    #[allow(dead_code)]
     pub fn save(&self, config: &Config) -> Result<(), ConfigError> {
         config.validate()?;
         let json =
@@ -251,7 +249,6 @@ impl ConfigStore {
 }
 
 /// 同目录同名 + `.tmp` 后缀：保证与目标同卷，rename 才是原子操作。
-#[allow(dead_code)] // 仅被 save（TASK-005 接线）调用
 fn tmp_sibling(path: &Path) -> PathBuf {
     let name = path
         .file_name()

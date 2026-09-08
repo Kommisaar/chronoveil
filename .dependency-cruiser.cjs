@@ -1,5 +1,11 @@
 /** 前端依赖守卫（ADR-010）：单向依赖 app → features → components/engine → api，engine 禁 React。 */
 module.exports = {
+  options: {
+    // pnpm 的 node_modules 条目是指向 .pnpm 虚拟 store 的 junction/symlink：
+    // 保留 symlink 逻辑路径（node_modules/@tauri-apps/...）做规则匹配，
+    // 否则 realpath 会让规则看到 node_modules/.pnpm/... 而误报。
+    preserveSymlinks: true,
+  },
   forbidden: [
     {
       name: 'engine-no-framework',
@@ -31,10 +37,10 @@ module.exports = {
     },
     {
       name: 'tauri-only-in-api',
-      comment: 'ADR-010：invoke 与 @tauri-apps/api 只允许出现在 src/api/。',
+      comment: 'ADR-010：invoke 与 @tauri-apps/api 只允许出现在 src/api/（@tauri-apps 包自身内部引用不在此限）。',
       severity: 'error',
       from: { pathNot: '^src/api/' },
-      to: { path: 'node_modules/@tauri-apps' },
+      to: { path: 'node_modules/@tauri-apps', pathNot: 'node_modules/@tauri-apps' },
     },
   ],
 };

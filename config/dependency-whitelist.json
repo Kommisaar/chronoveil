@@ -2,6 +2,7 @@
   "dependencies": [
     "@fluentui/react-components",
     "@fluentui/react-icons",
+    "@tauri-apps/api",
     "i18next",
     "react",
     "react-dom",
@@ -10,6 +11,7 @@
   ],
   "devDependencies": [
     "@testing-library/react",
+    "@tauri-apps/cli",
     "@types/react",
     "@types/react-dom",
     "@vitejs/plugin-react",

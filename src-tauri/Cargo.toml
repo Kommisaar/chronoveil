@@ -12,11 +12,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Windows 资源嵌入（manifest 全目标统一嵌，见 build.rs）；版本随 tauri-build 内所引。
+embed-resource = "=3.0.11"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["specta"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 类型同源（ADR-010 / TASK-005）：tauri-specta 生成 TS bindings。
+# 版本必须钉死（=）：tauri-specta v2 处于 rc，specta 系列互相要求精确匹配。
+specta = "=2.0.0-rc.22"
+specta-typescript = "=0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 rusqlite = { version = "0.36", features = ["bundled"] }
 dirs = "6"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

@@ -8,8 +8,15 @@ mod interfaces;
 mod services;
 mod state;
 
+use state::AppState;
+
 pub fn run() {
+    // 组合根装配：~/.chronoveil/ 主目录（ADR-012）+ chronoveil.db 迁移打开（CMP-003）。
+    // 启动期失败属致命（个人应用，无库即无一切），直接带错误信息退出。
+    let app_state = AppState::init().expect("初始化应用主目录与数据库失败");
+
     tauri::Builder::default()
+        .manage(app_state)
         .run(tauri::generate_context!())
         .expect("failed to run tauri application");
 }

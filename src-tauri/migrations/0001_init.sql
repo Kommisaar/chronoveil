@@ -1,4 +1,4 @@
--- 0001_init.sql — v1 三张表（data_model rev 5，ADR-009 全库软删除）
+-- 0001_init.sql — v1 三张表（data_model rev 6，ADR-009 全库软删除）
 -- 执行时机：阶段 2（db.rs 迁移器）；库文件 ~/.chronoveil/chronoveil.db（ADR-012）。
 
 PRAGMA foreign_keys = ON;
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE characters (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL,
+    avatar       TEXT,                               -- 角色头像，可空：data URL 或 ~/.chronoveil 相对路径（data_model rev 6）
     persona      TEXT    NOT NULL DEFAULT '',        -- 人设系统提示词
     greeting     TEXT    NOT NULL DEFAULT '',        -- 开场白 markdown-lite
     render_style TEXT    NOT NULL DEFAULT 'typewriter', -- 18 种风格之一（FR-005）

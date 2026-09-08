@@ -307,7 +307,9 @@ pub struct PendingGeneration {
     pub deps: GenerationDeps,
     pub registry: Arc<GenerationRegistry>,
     pub ticket: GenerationTicket,
-    /// true = 重新生成 / 断流重试语义：终态经「整条替换」落库（软删旧条 + 插新条，FR-008）。
+    /// true = 重新生成 / 断流重试语义：上下文剔除被替换的最后一条 assistant
+    /// （OQ-006 / FR-008「以相同上文重新生成」），终态经「整条替换」落库
+    /// （软删旧条 + 插新条，落库时序与崩溃安全不变）。
     pub regenerate: bool,
 }
 
@@ -348,6 +350,20 @@ async fn generate_once(
     let session = deps.storage.get_session(session_id)?;
     let character = deps.storage.get_character(session.character_id)?;
     let history = deps.storage.list_messages(session_id)?;
+    // OQ-006 / FR-008「以相同上文重新发起生成」+ SEQ-001「重发 = 整条重来」：
+    // 重新生成（含断流重试的整条替换语义）时，被替换的最后一条 assistant（旧整条
+    // 或中断半条）不得进 prompt 上下文——按 id 剔除后再装配，使请求以 user 条结尾，
+    // 模型不是对旧答案的续写。旧条本体保留在库中（「成功后替换」落库时序不变，
+    // 崩溃安全），只是不参与本次装配。
+    let history: Vec<_> = if regenerate {
+        let replaced = deps.storage.latest_assistant_message(session_id)?;
+        history
+            .into_iter()
+            .filter(|m| replaced.as_ref().map_or(true, |old| m.id != old.id))
+            .collect()
+    } else {
+        history
+    };
     let messages = super::prompt::assemble(&character, &history);
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
@@ -853,6 +869,150 @@ mod tests {
             matches!(events.last(), Some((LlmEvent::Done { .. }, 1))),
             "done 放行前旧条已被替换为恰好 1 条在世 assistant"
         );
+    }
+
+    /// OQ-006 / FR-008 断言辅助：捕获网关收到的请求体（messages 转成 (role, content) 列表）。
+    type CapturedRequests = Arc<std::sync::Mutex<Vec<serde_json::Value>>>;
+
+    fn capture_server(captured: CapturedRequests, script: impl Fn(&mut std::net::TcpStream) + Send + Sync + 'static) -> MockServer {
+        MockServer::start(move |req, stream| {
+            captured.lock().unwrap().push(req.json());
+            script(stream);
+        })
+    }
+
+    fn request_messages(captured: &CapturedRequests) -> Vec<(String, String)> {
+        captured.lock().unwrap()[0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                (
+                    m["role"].as_str().unwrap().to_owned(),
+                    m["content"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    /// OQ-006（FR-008「以相同上文重新发起生成」）：重新生成的请求上下文**不含**
+    /// 被替换的旧整条 assistant 回复——以 user 条结尾，模型不是对旧答案的续写；
+    /// 旧条本体在生成期间保留在库（崩溃安全），只是不进 prompt。
+    #[tokio::test]
+    async fn regenerate_request_excludes_replaced_whole_row() {
+        let (raw, _dir) = temp_storage("gen_regen_ctx");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "讲个故事"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::Assistant, "旧版本回复"))
+            .unwrap();
+
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = capture_server(captured.clone(), |stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("新版本"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log_for(&storage, session_id), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: true }.run().await;
+
+        let messages = request_messages(&captured);
+        assert_eq!(messages.last().unwrap().0, "user", "请求以最后一条 user 条结尾");
+        assert!(
+            !messages.iter().any(|(_, content)| content == "旧版本回复"),
+            "被替换的旧整条不得进上下文，实际请求：{messages:?}"
+        );
+        // 相同上文仍在：persona(system) + greeting(assistant) + user 提问
+        assert_eq!(messages.len(), 3, "system + greeting + user（旧 assistant 已剔除）");
+        assert_eq!(messages[0].0, "system");
+        assert_eq!(messages[2].1, "讲个故事");
+    }
+
+    /// OQ-006 同一半：被替换条是**中断半条**（上次生成失败/取消留下的 interrupt 条，
+    /// 也是 latest_assistant_message）时同样不得进上下文。
+    #[tokio::test]
+    async fn regenerate_request_excludes_replaced_interrupt_half_row() {
+        let (raw, _dir) = temp_storage("gen_regen_half");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "继续讲"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage {
+                session_id,
+                role: MessageRole::Assistant,
+                content: "写到一半的旧半条".into(),
+                reasoning: None,
+                think_ms: None,
+                tokens: None,
+                interrupt_flag: Some(crate::domain::chat::INTERRUPT_CANCEL.into()),
+            })
+            .unwrap();
+
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = capture_server(captured.clone(), |stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("全新的开头"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log_for(&storage, session_id), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: true }.run().await;
+
+        let messages = request_messages(&captured);
+        assert_eq!(messages.last().unwrap().0, "user");
+        assert!(
+            !messages.iter().any(|(_, content)| content == "写到一半的旧半条"),
+            "被替换的中断半条不得进上下文，实际请求：{messages:?}"
+        );
+        assert_eq!(messages.len(), 3, "system + greeting + user");
+    }
+
+    /// 对照：普通发送路径（regenerate=false）上下文仍完整携带既有 assistant 历史
+    /// （剔除只发生在整条替换语义下，OQ-006 修复不误伤正常闭环）。
+    #[tokio::test]
+    async fn send_request_still_includes_assistant_history() {
+        let (raw, _dir) = temp_storage("gen_send_ctx");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "你好"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::Assistant, "在"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "再讲点"))
+            .unwrap();
+
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = capture_server(captured.clone(), |stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("好"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log_for(&storage, session_id), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: false }.run().await;
+
+        let messages = request_messages(&captured);
+        assert!(messages.iter().any(|(role, content)| role == "assistant" && content == "在"),
+            "普通发送：既有 assistant 回复应留在上下文，实际请求：{messages:?}");
+        assert_eq!(messages.last().unwrap().1, "再讲点");
     }
 
     #[tokio::test]

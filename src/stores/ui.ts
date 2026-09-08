@@ -32,6 +32,13 @@ interface UiState {
    * 排序在此收口。后端为唯一事实，前端不做增量补丁。
    */
   refreshSessions: () => Promise<void>;
+  /**
+   * 事件级活性刷新（TASK-010 / FR-007「每条新消息刷新」）：消息落库与生成终态
+   * 时点由聊天侧触发，重排清单与相对时间。失败静默降级（TASK-010 验收 4）：
+   * 清单非关键数据，任何错误都不冒泡、不阻塞聊天主路径；错过的事件由下一
+   * 时点或侧栏重挂（挂载即重拉）兜底。
+   */
+  refreshSessionsQuietly: () => void;
   /** 删除会话后的本地即时收尾：清单移除 + 指向被删会话的 activeSessionId 置空（回聊天空态）。 */
   removeSession: (id: number) => void;
   toggleRailExpanded: () => void;
@@ -41,7 +48,7 @@ interface UiState {
 }
 
 /** 应用级 UI 路由状态（视图切换 + 当前会话 + 会话清单 + 界面偏好）；多路生成实例表在阶段 4 扩展（FR-007）。 */
-export const useUiStore = create<UiState>()((set) => ({
+export const useUiStore = create<UiState>()((set, get) => ({
   view: 'chat',
   activeSessionId: null,
   sessions: [],
@@ -61,6 +68,11 @@ export const useUiStore = create<UiState>()((set) => ({
       sessions: s.sessions.filter((session) => session.id !== id),
       activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
     })),
+  refreshSessionsQuietly: () => {
+    void get().refreshSessions().catch(() => {
+      // 静默：保持现有清单，等下一个事件时点再对齐（验收 4）
+    });
+  },
   toggleRailExpanded: () => set((s) => ({ railExpanded: !s.railExpanded })),
   toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setTheme: (theme) => set({ theme }),

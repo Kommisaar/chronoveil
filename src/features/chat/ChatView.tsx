@@ -154,6 +154,9 @@ const useStyles = makeStyles({
  * 生成闭环接线：发送（用户条落库 → 流式渲染走引擎）→ 终态（done/error/cancel）
  * 落库后重拉列表；停止立即静止；重新生成从零走完整演出（FR-008）。
  * 事件路由经 streamHub（按 session_id，多路并发互不串扰，FR-007 / ADR-007）。
+ * 侧栏活性刷新（TASK-010 / FR-007「每条新消息刷新」）：用户条落库、重新生成
+ * 替换落库、任一会话生成终态（hub 终态回调，含后台会话）三个事件时点触发
+ * store.refreshSessionsQuietly —— 失败静默，不阻塞聊天主路径。
  */
 export function ChatView() {
   const styles = useStyles();
@@ -162,6 +165,8 @@ export function ChatView() {
   // 会话清单单一数据源在 ui store（TASK-007 验收 4）：与 Sidebar 同源，
   // 不再各自 listSessions 本地缓存；重拉触发点统一在 store.refreshSessions
   const sessions = useUiStore((s) => s.sessions);
+  // 事件级活性刷新（TASK-010）：落库 / 终态时点触发，失败在 store 侧静默
+  const refreshSessionsQuietly = useUiStore((s) => s.refreshSessionsQuietly);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [characters, setCharacters] = useState<Map<number, CharacterSummary>>(new Map());
   const [config, setConfig] = useState<ConfigDto | null>(null);
@@ -229,6 +234,14 @@ export function ChatView() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, hubVersion]);
 
+  // 生成终态 → 会话清单事件级刷新（TASK-010 验收 2 / FR-007）：hub 终态回调
+  // 覆盖所有会话——含切走后的后台会话（多路并发，FR-007），事件级触发而非每
+  // token（验收 3）；当前会话的终态同样经此刷新，无需在 settleSession 重复挂。
+  useEffect(
+    () => streamHub.onTerminal(() => refreshSessionsQuietly()),
+    [refreshSessionsQuietly],
+  );
+
   const onSend = async (): Promise<void> => {
     const content = draft.trim();
     if (content.length === 0 || activeSessionId === null || busy) return;
@@ -239,6 +252,8 @@ export function ChatView() {
       // 用户条立即落库返回（SEQ-001）；assistant 生成走事件通道流式回传
       const userMessage = await sendMessage(activeSessionId, content);
       setMessages((prev) => [...prev, userMessage]);
+      // 用户条落库即刷新侧栏清单（TASK-010 验收 1：排序与相对时间即时更新）
+      refreshSessionsQuietly();
       if (isTauri) {
         streamHub.begin(activeSessionId);
       } else {
@@ -275,6 +290,8 @@ export function ChatView() {
       // FR-008：返回被替换的旧条——从界面移除，新条从零走完整演出
       const old = await regenerateLast(activeSessionId);
       setMessages((prev) => prev.filter((m) => m.id !== old.id));
+      // 替换落库（软删旧条 + 刷新 updated_at 单事务，ADR-001）→ 侧栏同步（TASK-010）
+      refreshSessionsQuietly();
       if (isTauri) {
         streamHub.begin(activeSessionId);
       } else {

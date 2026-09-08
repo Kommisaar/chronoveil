@@ -36,11 +36,14 @@ export interface StreamState {
 
 type StoreListener = () => void;
 type EventListener = (event: StreamEvent) => void;
+/** 终态监听者（TASK-010）：任一会话经终态事件落库时回调（含后台会话）。 */
+type TerminalListener = (sessionId: number) => void;
 
 class StreamHub {
   private states = new Map<number, StreamState>();
   private unsubs = new Map<number, () => void>();
   private eventListeners = new Map<number, Set<EventListener>>();
+  private terminalListeners = new Set<TerminalListener>();
   private storeListeners = new Set<StoreListener>();
   private version = 0;
 
@@ -98,6 +101,18 @@ class StreamHub {
     };
   }
 
+  /**
+   * 订阅终态时点（TASK-010 / FR-007「每条新消息刷新」）：任一会话收到
+   * done / error 事件（Rust 侧已落库，含切走后的后台会话）即回调，事件级
+   * 触发（非每 token）；end() 不触发。返回取消函数。
+   */
+  onTerminal(listener: TerminalListener): () => void {
+    this.terminalListeners.add(listener);
+    return () => {
+      this.terminalListeners.delete(listener);
+    };
+  }
+
   /** useSyncExternalStore 订阅面。 */
   subscribe = (listener: StoreListener): (() => void) => {
     this.storeListeners.add(listener);
@@ -130,10 +145,12 @@ class StreamHub {
         break;
       case 'done':
         state.status = 'done';
+        this.notifyTerminal(sessionId);
         break;
       case 'error':
         state.status = 'error';
         state.errorReason = event.reason;
+        this.notifyTerminal(sessionId);
         break;
     }
     this.notifyStore();
@@ -141,6 +158,10 @@ class StreamHub {
     if (listeners) {
       for (const listener of [...listeners]) listener(event);
     }
+  }
+
+  private notifyTerminal(sessionId: number): void {
+    for (const listener of [...this.terminalListeners]) listener(sessionId);
   }
 
   private notifyStore(): void {

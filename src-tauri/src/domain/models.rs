@@ -1,6 +1,9 @@
-//! 领域模型：Character / Session / Message（DOM-001，data_model v1 三表）。
+//! 领域模型：Character / Session / Message（DOM-001，data_model v1 三表）+
+//! Scene / CharacterState（data_model「5b 增量」，TASK-011 数据层地基）。
 //! 字段与库表一一对应；时间戳统一为 Unix 毫秒（created_at / updated_at / deleted_at）。
-//! Scene / CharacterState / 虚拟日历为 5b 增量，本阶段不含。
+//!
+//! 注：messages 表 5b 起已有可空 scene_id / character_id 列（迁移 0002），
+//! 本结构体的读写接线随导演 / 结算任务开启，暂不在此展开。
 
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +52,9 @@ pub struct Character {
     pub model_config: Option<String>,
     /// TTS 预留缝（CON-003），恒 None。
     pub voice_config: Option<String>,
+    /// 角色卡世界观日历 JSON（FR-013；data_model「日历归属与继承」：
+    /// 角色卡是日历的归属地），None = 内置默认历。
+    pub calendar_config: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 软删除墓碑（ADR-009）：None = 在世。
@@ -62,6 +68,9 @@ pub struct Session {
     pub character_id: i64,
     /// 标题，缺省取首条用户消息截断。
     pub title: String,
+    /// 会话日历快照（FR-013）：建会话时从 Character 复制，之后各自演进互不回写；
+    /// None = 内置默认历。
+    pub calendar_config: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 软删除墓碑（ADR-009）。
@@ -161,4 +170,111 @@ impl NewMessage {
             interrupt_flag: None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 5b 增量：场景与人物状态（FR-011 / FR-012 数据地基，data_model「5b 增量」）
+// ---------------------------------------------------------------------------
+
+/// 人物状态 scope（FR-012 三层拆解：底版 persona 之外的两层——状态与关系）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CharacterStateScope {
+    /// 随戏变有时效：情绪 / 健康 / 持有物 / 衣着。
+    State,
+    /// 缓慢演化：对你 / 他角的态度、约定、知情。
+    Relation,
+}
+
+impl CharacterStateScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CharacterStateScope::State => "state",
+            CharacterStateScope::Relation => "relation",
+        }
+    }
+
+    /// 从库值解析；未知值视为后端数据损坏。
+    pub fn from_db(value: &str) -> Result<Self, StorageError> {
+        match value {
+            "state" => Ok(CharacterStateScope::State),
+            "relation" => Ok(CharacterStateScope::Relation),
+            other => Err(StorageError::Backend(format!("未知状态 scope：{other}"))),
+        }
+    }
+}
+
+/// 场景（FR-011）：同会话 `idx` 单调自增，消息经 `messages.scene_id` 归属；
+/// 记账层（fic_day / fic_part）是唯一事实源，date_label 是虚拟日历命名缓存（FR-013）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Scene {
+    pub id: i64,
+    pub session_id: i64,
+    /// 同会话内单调自增（含墓碑行一并计序），场景顺序即叙事顺序。
+    pub idx: i64,
+    /// 场景地点，可空（由导演结算填充）。
+    pub location: Option<String>,
+    /// 叙事层时间原文（自由书写），可空。
+    pub time_note: Option<String>,
+    /// 记账层：第几天，可空。
+    pub fic_day: Option<i64>,
+    /// 记账层：时段，可空。
+    pub fic_part: Option<String>,
+    /// 虚拟日历命名缓存（如「白蜡月·晨露日」），可空。
+    pub date_label: Option<String>,
+    /// 本场一句话（远景压缩单元），可空。
+    pub summary: Option<String>,
+    /// 在场 character id 数组（库内以 JSON 文本存储）。
+    pub present: Vec<i64>,
+    /// 软删除墓碑（ADR-009）。
+    pub deleted_at: Option<i64>,
+}
+
+/// 人物状态（FR-012）：挂 `(character_id, session_id)`——状态属于「这个会话里的这个角色」，
+/// 重开会话不带旧案状态。同键（character_id, session_id, key）在世行唯一（partial unique index）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CharacterState {
+    pub id: i64,
+    pub character_id: i64,
+    pub session_id: i64,
+    /// state | relation。
+    pub scope: CharacterStateScope,
+    /// 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+    pub key: String,
+    /// 叙事语言的值，非数字。
+    pub value: String,
+    /// 过期三义透传（BR-002：scene_end / event:xxx / manual；形态由结算层定，存储层不解释）。
+    pub expiry: Option<String>,
+    /// 来源场景，可空。
+    pub source_scene: Option<i64>,
+    pub updated_at: i64,
+    /// 软删除墓碑（ADR-009）。
+    pub deleted_at: Option<i64>,
+}
+
+/// 插入场景入参；`idx` 由存储层按会话单调自增分配，调用方不指定。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewScene {
+    pub session_id: i64,
+    pub location: Option<String>,
+    pub time_note: Option<String>,
+    pub fic_day: Option<i64>,
+    pub fic_part: Option<String>,
+    pub date_label: Option<String>,
+    pub summary: Option<String>,
+    /// 在场 character id 数组；空数组落库为 NULL。
+    pub present: Vec<i64>,
+}
+
+/// upsert 人物状态入参：同键（character_id, session_id, key）覆盖 value / expiry / source_scene
+/// （scope 是行既有属性，不随覆盖变化）；键不存在则插入新行。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewCharacterState {
+    pub character_id: i64,
+    pub session_id: i64,
+    pub scope: CharacterStateScope,
+    pub key: String,
+    pub value: String,
+    pub expiry: Option<String>,
+    pub source_scene: Option<i64>,
 }

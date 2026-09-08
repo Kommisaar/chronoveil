@@ -11,7 +11,7 @@ use super::now;
 pub(crate) const ENTITY: &str = "character";
 
 const COLS: &str = "id, name, avatar, persona, greeting, render_style, model_config, \
-                    voice_config, created_at, updated_at, deleted_at";
+                    voice_config, calendar_config, created_at, updated_at, deleted_at";
 
 fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
     Ok(Character {
@@ -23,14 +23,16 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         render_style: row.get(5)?,
         model_config: row.get(6)?,
         voice_config: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
-        deleted_at: row.get(10)?,
+        calendar_config: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        deleted_at: row.get(11)?,
     })
 }
 
 pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character, StorageError> {
     let ts = now();
+    // calendar_config 的入参接线随角色卡编辑任务（NewCharacter 暂无该字段，落库 NULL = 内置默认历）。
     conn.execute(
         "INSERT INTO characters (name, avatar, persona, greeting, render_style, \
              model_config, voice_config, created_at, updated_at) \
@@ -55,6 +57,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         render_style: new.render_style.clone(),
         model_config: new.model_config.clone(),
         voice_config: new.voice_config.clone(),
+        calendar_config: None,
         created_at: ts,
         updated_at: ts,
         deleted_at: None,

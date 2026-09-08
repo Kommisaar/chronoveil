@@ -9,7 +9,8 @@
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, Message, NewCharacter, NewMessage, NewSession, Session, UpdateCharacter,
+    Character, CharacterState, Message, NewCharacter, NewCharacterState, NewMessage, NewScene,
+    NewSession, Scene, Session, UpdateCharacter,
 };
 
 /// SQLite 持久化端口（CMP-003）。实现必须线程安全（&self 即可调用）；
@@ -50,4 +51,22 @@ pub trait StoragePort: Send + Sync {
         -> Result<Message, StorageError>;
     fn soft_delete_message(&self, id: i64) -> Result<(), StorageError>;
     fn restore_message(&self, id: i64) -> Result<(), StorageError>;
+
+    // ---- scenes（FR-011 数据地基：场景结算落库在后续任务接线） ----
+    /// 插入场景；`idx` 同会话单调自增（墓碑行一并计序），调用方不指定。
+    fn insert_scene(&self, new: &NewScene) -> Result<Scene, StorageError>;
+    /// 会话内场景，按 `idx` 升序（叙事顺序），不含墓碑行。
+    fn list_scenes(&self, session_id: i64) -> Result<Vec<Scene>, StorageError>;
+    /// 最后一个在世场景；没有则 None。
+    fn latest_scene(&self, session_id: i64) -> Result<Option<Scene>, StorageError>;
+
+    // ---- character_state（FR-012：会话内人物状态） ----
+    /// upsert：同键（character_id, session_id, key）覆盖 value / expiry / source_scene，
+    /// 键不存在则插入。仅在世行参与唯一约束（partial unique index，迁移 0002 决策），
+    /// 软删后同键重插为新行。
+    fn upsert_character_state(&self, new: &NewCharacterState)
+        -> Result<CharacterState, StorageError>;
+    /// 会话内全部在世状态（不分组），按 id 升序。
+    fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError>;
+    fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError>;
 }

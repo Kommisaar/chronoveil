@@ -9,30 +9,45 @@ use super::now;
 
 pub(crate) const ENTITY: &str = "session";
 
-const COLS: &str = "id, character_id, title, created_at, updated_at, deleted_at";
+const COLS: &str = "id, character_id, title, calendar_config, created_at, updated_at, deleted_at";
 
 fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
         id: row.get(0)?,
         character_id: row.get(1)?,
         title: row.get(2)?,
-        created_at: row.get(3)?,
-        updated_at: row.get(4)?,
-        deleted_at: row.get(5)?,
+        calendar_config: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        deleted_at: row.get(6)?,
     })
 }
 
 pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, StorageError> {
     let ts = now();
+    // 建会话日历快照（FR-013；data_model「日历归属与继承」）：从被引用的角色行复制，
+    // 之后各自演进互不回写；角色为 NULL 则会话亦 NULL = 内置默认历。
+    // 只做数据复制、不查墓碑（可见性由 FK 与调用方语义决定，与 create_session 既有行为一致）。
+    let calendar_config: Option<String> = match conn.query_row(
+        "SELECT calendar_config FROM characters WHERE id = ?1",
+        params![new.character_id],
+        |r| r.get::<_, Option<String>>(0),
+    ) {
+        Ok(v) => v,
+        // 角色不存在：日历取 None，由下方 INSERT 的外键检查报 Conflict（保持既有错误语义）。
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(e) => return Err(e.into()),
+    };
     conn.execute(
-        "INSERT INTO sessions (character_id, title, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?3)",
-        params![new.character_id, new.title, ts],
+        "INSERT INTO sessions (character_id, title, calendar_config, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![new.character_id, new.title, calendar_config, ts],
     )?;
     Ok(Session {
         id: conn.last_insert_rowid(),
         character_id: new.character_id,
         title: new.title.clone(),
+        calendar_config,
         created_at: ts,
         updated_at: ts,
         deleted_at: None,
@@ -112,7 +127,8 @@ mod tests {
     use super::*;
     use crate::domain::models::MessageRole;
     use crate::domain::ports::StoragePort;
-    use crate::infra::storage::test_support::temp_storage;
+    use crate::infra::storage::test_support::{cleanup, temp_storage};
+    use crate::infra::storage::Storage;
     use std::thread::sleep;
     use std::time::Duration;
 
@@ -128,6 +144,66 @@ mod tests {
             .create_session(&NewSession { character_id: char_id, title: title.into() })
             .unwrap()
             .id
+    }
+
+    /// 验收 4（TASK-011）：create_session 复制 characters.calendar_config 快照——
+    /// 角色有日历则会话拿到同值；角色为 NULL（内置默认历）则会话亦 NULL。
+    /// 角色卡日历的写入路径随角色卡编辑任务接线，此处经 SQL 预置以验证复制语义。
+    #[test]
+    fn create_session_snapshots_character_calendar() {
+        let (storage, dir) = temp_storage("sess_calendar");
+        let db_path = dir.join("test.db");
+        let with_cal = storage
+            .create_character(&crate::domain::models::NewCharacter {
+                name: "有历".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .id;
+        let without_cal = storage
+            .create_character(&crate::domain::models::NewCharacter {
+                name: "默认".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .id;
+        drop(storage);
+
+        // 预置角色卡日历（JSON 任意，存储层透传不解释）
+        let config = r#"{"months":["白蜡月"],"daysPerMonth":30,"dayNames":["晨露日"]}"#;
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE characters SET calendar_config = ?1 WHERE id = ?2",
+                rusqlite::params![config, with_cal],
+            )
+            .unwrap();
+        }
+
+        let storage = Storage::open(&db_path).unwrap();
+        let snapshotted = storage
+            .create_session(&NewSession { character_id: with_cal, title: String::new() })
+            .unwrap();
+        assert_eq!(
+            snapshotted.calendar_config.as_deref(),
+            Some(config),
+            "建会话必须复制角色卡日历快照（FR-013）"
+        );
+        // 快照随行读回一致
+        assert_eq!(
+            storage.get_session(snapshotted.id).unwrap().calendar_config.as_deref(),
+            Some(config)
+        );
+
+        let default_cal = storage
+            .create_session(&NewSession { character_id: without_cal, title: String::new() })
+            .unwrap();
+        assert_eq!(
+            default_cal.calendar_config, None,
+            "角色无日历（NULL）则会话亦 NULL = 内置默认历"
+        );
+        drop(storage);
+        cleanup(&dir);
     }
 
     #[test]

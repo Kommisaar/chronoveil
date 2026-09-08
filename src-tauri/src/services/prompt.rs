@@ -52,6 +52,7 @@ mod tests {
             render_style: new.render_style,
             model_config: None,
             voice_config: None,
+            calendar_config: None,
             created_at: 0,
             updated_at: 0,
             deleted_at: None,

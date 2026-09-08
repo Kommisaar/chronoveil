@@ -5,9 +5,11 @@
 //! 「`deleted_at IS NULL` 过滤」「软删 = 置墓碑」「替换 = 软删旧条 + 插新条」全部封装在此。
 //! 库内不存在任何 `DELETE FROM` 物理删除语句（ADR-009）。
 
+mod character_states;
 mod characters;
 mod messages;
 mod migrations;
+mod scenes;
 mod sessions;
 
 use std::path::Path;
@@ -17,8 +19,8 @@ use rusqlite::Connection;
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, Message, MessageRole, NewCharacter, NewMessage, NewSession, Session,
-    UpdateCharacter,
+    Character, CharacterState, Message, MessageRole, NewCharacter, NewCharacterState, NewMessage,
+    NewScene, NewSession, Scene, Session, UpdateCharacter,
 };
 use crate::domain::ports::StoragePort;
 
@@ -197,6 +199,38 @@ impl StoragePort for Storage {
     fn restore_message(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| messages::restore(conn, id))
     }
+
+    // ---- scenes（FR-011 数据地基）----
+    fn insert_scene(&self, new: &NewScene) -> Result<Scene, StorageError> {
+        self.with_conn(|conn| scenes::insert(conn, new))
+    }
+
+    fn list_scenes(&self, session_id: i64) -> Result<Vec<Scene>, StorageError> {
+        self.with_conn(|conn| scenes::list_by_session(conn, session_id))
+    }
+
+    fn latest_scene(&self, session_id: i64) -> Result<Option<Scene>, StorageError> {
+        self.with_conn(|conn| scenes::latest(conn, session_id))
+    }
+
+    // ---- character_state（FR-012）----
+    fn upsert_character_state(
+        &self,
+        new: &NewCharacterState,
+    ) -> Result<CharacterState, StorageError> {
+        self.with_conn(|conn| character_states::upsert(conn, new))
+    }
+
+    fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError> {
+        self.with_conn(|conn| character_states::list_by_session(conn, session_id))
+    }
+
+    fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError> {
+        self.with_conn(|conn| {
+            let ts = now();
+            character_states::soft_delete(conn, id, ts)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -258,19 +292,24 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1], "schema_version 只记录一次 v1");
+        assert_eq!(versions, vec![1, 2], "schema_version 各版本只记录一次");
 
         let tables: Vec<String> = {
             let mut stmt = conn
                 .prepare(
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN \
-                     ('characters', 'sessions', 'messages') ORDER BY name",
+                     ('characters', 'sessions', 'messages', 'scenes', 'character_state') \
+                     ORDER BY name",
                 )
                 .unwrap();
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(tables, vec!["characters", "messages", "sessions"]);
+        assert_eq!(
+            tables,
+            vec!["character_state", "characters", "messages", "scenes", "sessions"],
+            "v1 三表 + 5b 两新表（迁移 0002）"
+        );
         drop(conn);
         cleanup(&dir);
     }

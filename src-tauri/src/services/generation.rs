@@ -509,6 +509,7 @@ mod tests {
             render_style: "fade".into(),
             model_config,
             voice_config: None,
+            calendar_config: None,
             created_at: 0,
             updated_at: 0,
             deleted_at: None,

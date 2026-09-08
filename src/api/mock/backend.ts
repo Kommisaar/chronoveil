@@ -171,8 +171,10 @@ export async function createCharacter(
     id: nextCharacterId++,
     name: input.name,
     avatar: input.avatar,
+    persona: input.persona,
     renderStyle: input.renderStyle,
     greeting: input.greeting,
+    modelConfig: input.modelConfig,
     updatedAt: Date.now(),
     sessionCount: 0,
   };
@@ -188,18 +190,19 @@ export async function updateCharacter(
   if (!character) throw new MockError(`角色 #${id} 不存在`);
   character.name = input.name;
   character.avatar = input.avatar;
+  character.persona = input.persona;
   character.renderStyle = input.renderStyle;
   character.greeting = input.greeting;
+  character.modelConfig = input.modelConfig;
   character.updatedAt = Date.now();
 }
 
+// 软删对齐 Rust / ADR-009：仅从列表移除（mock 无墓碑），不级联——
+// 历史会话与消息保留，聊天侧仍可查看（OQ-002 已消解，不做级联删除）。
 export async function deleteCharacter(id: number): Promise<void> {
   const index = characters.findIndex((c) => c.id === id);
   if (index < 0) throw new MockError(`角色 #${id} 不存在`);
   characters.splice(index, 1);
-  for (const session of sessions.filter((s) => s.characterId === id)) {
-    await deleteSession(session.id);
-  }
 }
 
 // ---- 配置（FR-009 / ADR-012）----

@@ -129,6 +129,9 @@ impl From<models::Session> for SessionSummary {
 }
 
 /// 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
+///
+/// TASK-008 起 `persona` / `model_config` 随列表返回：编辑表单点选即载入全量
+/// 字段（UI-002），避免为预填再发一次单条查询。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterSummary {
@@ -136,10 +139,15 @@ pub struct CharacterSummary {
     pub name: String,
     /// 头像可空：data URL 或 `~/.chronoveil` 相对路径；null 时前端首字占位。
     pub avatar: Option<String>,
+    /// 人设系统提示词（编辑预填）。
+    pub persona: String,
     /// 出场动画风格（18 种之一，FR-005）。
     pub render_style: String,
     /// 开场白 markdown-lite。
     pub greeting: String,
+    /// 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
+    /// None = 跟随全局默认。
+    pub model_config: Option<String>,
     pub updated_at: i64,
     /// 该角色开启的会话数（在世会话）。
     pub session_count: i64,
@@ -151,8 +159,10 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         id: c.id,
         name: c.name,
         avatar: c.avatar,
+        persona: c.persona,
         render_style: c.render_style,
         greeting: c.greeting,
+        model_config: c.model_config,
         updated_at: c.updated_at,
         session_count: 0,
     }
@@ -956,6 +966,29 @@ mod tests {
     }
 
     #[test]
+    fn character_summary_serializes_camel_case_with_persona_and_model_config() {
+        // TASK-008：摘要扩 persona / model_config（编辑预填），wire 保持 camelCase。
+        let summary = CharacterSummary {
+            id: 5,
+            name: "苏鸢".into(),
+            avatar: None,
+            persona: "雨夜电话亭的守夜人".into(),
+            render_style: "typewriter".into(),
+            greeting: "雨点敲着窗棂。".into(),
+            model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            updated_at: 42,
+            session_count: 2,
+        };
+        let json = serde_json::to_value(&summary).unwrap();
+        assert_eq!(json["persona"], "雨夜电话亭的守夜人");
+        assert_eq!(json["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
+        assert!(json["avatar"].is_null(), "avatar 可空透传");
+        // model_config = None（跟随全局）时 wire 为 null。
+        let follower = CharacterSummary { model_config: None, ..summary };
+        assert!(serde_json::to_value(&follower).unwrap()["modelConfig"].is_null());
+    }
+
+    #[test]
     fn character_crud_with_avatar_and_session_count() {
         let (app, dir) = temp_state("characters");
 
@@ -965,12 +998,18 @@ mod tests {
             persona: "雨夜电话亭的守夜人".into(),
             greeting: "雨点敲着窗棂。".into(),
             render_style: "typewriter".into(),
-            model_config: None,
+            model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             voice_config: None,
         };
         let created = create_character_impl(&app, input.clone()).unwrap();
         assert_eq!(created.avatar.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(created.session_count, 0);
+        // 扩字段（TASK-008）随创建回执 / 列表原样返回，编辑表单据此预填。
+        assert_eq!(created.persona, "雨夜电话亭的守夜人");
+        assert_eq!(
+            created.model_config.as_deref(),
+            Some(r#"{"providerId":"p1","model":"m1"}"#)
+        );
 
         // 会话计数汇总（关系侧）。
         app.storage
@@ -987,20 +1026,29 @@ mod tests {
         let listed = list_characters_impl(&app).unwrap();
         let suy = listed.iter().find(|c| c.id == created.id).unwrap();
         assert_eq!(suy.session_count, 2);
+        assert_eq!(suy.persona, "雨夜电话亭的守夜人");
+        assert_eq!(suy.model_config.as_deref(), Some(r#"{"providerId":"p1","model":"m1"}"#));
         let lin = listed.iter().find(|c| c.id == other.id).unwrap();
         assert_eq!(lin.session_count, 0);
 
-        // 整卡覆盖更新（含清除 avatar）。
+        // 整卡覆盖更新（含清除 avatar；model_config 置回 None = 跟随全局）。
         update_character_impl(
             &app,
             created.id,
-            CharacterInput { avatar: None, name: "苏鸢（改）".into(), ..input.clone() },
+            CharacterInput {
+                avatar: None,
+                name: "苏鸢（改）".into(),
+                model_config: None,
+                ..input.clone()
+            },
         )
         .unwrap();
         let after = list_characters_impl(&app).unwrap();
         let updated = after.iter().find(|c| c.id == created.id).unwrap();
         assert_eq!(updated.name, "苏鸢（改）");
         assert!(updated.avatar.is_none(), "avatar 传 None 即清除");
+        assert!(updated.model_config.is_none(), "model_config 传 None 即跟随全局");
+        assert_eq!(updated.persona, "雨夜电话亭的守夜人");
 
         // 软删 + NotFound 语义。
         delete_character_impl(&app, other.id).unwrap();

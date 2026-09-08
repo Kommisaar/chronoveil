@@ -141,6 +141,9 @@ avatar: string | null; persona: string; greeting: string; renderStyle: string; m
 voiceConfig: string | null }
 /**
  * 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
+ * 
+ * TASK-008 起 `persona` / `model_config` 随列表返回：编辑表单点选即载入全量
+ * 字段（UI-002），避免为预填再发一次单条查询。
  */
 export type CharacterSummary = { id: number; name: string; 
 /**
@@ -148,13 +151,22 @@ export type CharacterSummary = { id: number; name: string;
  */
 avatar: string | null; 
 /**
+ * 人设系统提示词（编辑预填）。
+ */
+persona: string; 
+/**
  * 出场动画风格（18 种之一，FR-005）。
  */
 renderStyle: string; 
 /**
  * 开场白 markdown-lite。
  */
-greeting: string; updatedAt: number; 
+greeting: string; 
+/**
+ * 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
+ * None = 跟随全局默认。
+ */
+modelConfig: string | null; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */

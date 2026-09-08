@@ -1,11 +1,11 @@
-//! 组合根（ADR-010）：装配应用主目录（ADR-012）与 SQLite 存储（CMP-003）。
-//! 本阶段只做主目录解析 + chronoveil.db 打开；config.json 装载由「应用配置」任务负责，
-//! 接缝即 `app_home`（config.json 与 chronoveil.db 同住 `~/.chronoveil/`）。
+//! 组合根（ADR-010）：装配应用主目录（ADR-012）、SQLite 存储（CMP-003）与
+//! config.json（TASK-003）。
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::domain::error::StorageError;
+use crate::infra::config::{ConfigError, ConfigStore};
 use crate::infra::storage::Storage;
 
 /// 应用主目录下的固定布局（ADR-012）。
@@ -19,7 +19,9 @@ pub struct AppState {
     pub storage: Arc<Storage>,
     /// 应用主目录 `~/.chronoveil/`（根路径可注入，见 `init_with_home`）。
     pub app_home: PathBuf,
-    // 接缝（ADR-012）：config.json 装载任务在此追加 `pub config: Config`。
+    /// config.json 存取句柄（ADR-012）。只持路径不持内容——读取路径每次
+    /// `load()` 取当次值，改完即生效（含外部手改），不长期缓存。
+    pub config: ConfigStore,
 }
 
 #[derive(Debug)]
@@ -30,6 +32,8 @@ pub enum AppStateError {
     CreateDir(std::io::Error),
     /// 数据库打开 / 迁移失败。
     Storage(StorageError),
+    /// 配置装载失败（坏 config.json 快速失败，ADR-012）。
+    Config(ConfigError),
 }
 
 impl std::fmt::Display for AppStateError {
@@ -38,6 +42,7 @@ impl std::fmt::Display for AppStateError {
             AppStateError::HomeNotFound => write!(f, "无法解析用户 home 目录"),
             AppStateError::CreateDir(e) => write!(f, "创建应用主目录失败：{e}"),
             AppStateError::Storage(e) => write!(f, "打开数据库失败：{e}"),
+            AppStateError::Config(e) => write!(f, "装载应用配置失败：{e}"),
         }
     }
 }
@@ -47,6 +52,12 @@ impl std::error::Error for AppStateError {}
 impl From<StorageError> for AppStateError {
     fn from(e: StorageError) -> Self {
         AppStateError::Storage(e)
+    }
+}
+
+impl From<ConfigError> for AppStateError {
+    fn from(e: ConfigError) -> Self {
+        AppStateError::Config(e)
     }
 }
 
@@ -72,9 +83,14 @@ impl AppState {
     pub fn init_with_home(home_override: Option<PathBuf>) -> Result<Self, AppStateError> {
         let app_home = resolve_app_home(home_override)?;
         let storage = Storage::open(&app_home.join(DB_FILE_NAME))?;
+        let config = ConfigStore::in_app_home(&app_home);
+        // 启动期试装载：坏 config.json 在此快速失败（ADR-012），之后读取路径
+        // 每次经 `state.config.load()` 取当次值，不在此缓存内容。
+        config.load()?;
         Ok(Self {
             storage: Arc::new(storage),
             app_home,
+            config,
         })
     }
 }
@@ -125,6 +141,51 @@ mod tests {
             .unwrap();
         assert_eq!(state.storage.get_character(character.id).unwrap().name, "组合根验证");
         drop(state);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// TASK-003 装配：config 句柄指向 `<app_home>/config.json`；缺文件装配成功
+    /// （全默认），保存 - 重读经同一句柄往返一致。
+    #[test]
+    fn app_state_config_seam_roundtrip() {
+        use crate::infra::config::{Config, ConfigStore, CONFIG_FILE_NAME};
+
+        let home = temp_home("config");
+        let state = AppState::init_with_home(Some(home.clone())).unwrap();
+        assert_eq!(
+            state.config.path(),
+            state.app_home.join(CONFIG_FILE_NAME),
+            "config.json 与 chronoveil.db 同住主目录（ADR-012）"
+        );
+
+        let mut config = Config::new_with_defaults();
+        config.ui_theme = "dark".into();
+        config.rhythm_ms_per_char = 90;
+        state.config.save(&config).unwrap();
+        assert_eq!(ConfigStore::in_app_home(&state.app_home).load().unwrap(), config);
+        drop(state);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// TASK-003 装配：坏 config.json 在启动装配期快速失败（ADR-012），错误可读。
+    #[test]
+    fn app_state_bad_config_fails_fast() {
+        use crate::infra::config::CONFIG_FILE_NAME;
+
+        let home = temp_home("badcfg");
+        let app_home = resolve_app_home(Some(home.clone())).unwrap();
+        std::fs::write(app_home.join(CONFIG_FILE_NAME), "{ not json").unwrap();
+
+        // AppState 不可 Debug（含非 Debug 的 Storage），用 match 拿错误。
+        let err = match AppState::init_with_home(Some(home.clone())) {
+            Ok(_) => panic!("坏 config.json 应使装配失败"),
+            Err(e) => e,
+        };
+        assert!(
+            matches!(err, AppStateError::Config(_)),
+            "坏配置应归入 Config 变体，实际：{err}"
+        );
+        assert!(err.to_string().contains("配置"), "错误信息应指向配置：{err}");
         let _ = std::fs::remove_dir_all(&home);
     }
 }

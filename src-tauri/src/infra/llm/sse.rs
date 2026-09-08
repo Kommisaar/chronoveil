@@ -1,0 +1,217 @@
+//! SSE 行解析（CMP-002 / INT-002）：字节流 → 完整行 → OpenAI 兼容 chat delta。
+//!
+//! 设计约定：
+//! - 字节缓冲只在凑齐完整行（`\n` 结尾）后才解码——UTF-8 多字节字符跨包被切断时
+//!   不会因 `from_utf8_lossy` 损坏（UTF-8 续字节不会是 `\n`，整行解码必安全）；
+//! - 只认 `data:` 行；`event:` / `id:` / 注释（`:`）与空行全部忽略（验收 2：未知事件优雅忽略）；
+//! - `data: [DONE]` 为终止哨兵；
+//! - delta 的 `content` 走正文、`reasoning_content`（兼容别名 `reasoning`）走思考，
+//!   未知字段（finish_reason、usage、role 等）一律忽略。
+
+use serde_json::Value;
+
+/// 一个 delta 里的两路增量；None = 该字段本轮无内容。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatDelta {
+    pub content: Option<String>,
+    pub reasoning: Option<String>,
+}
+
+/// 解析产物：`[DONE]` 哨兵或一个有效 delta（无效行在解析层即被忽略，不上抛）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SseItem {
+    Delta(ChatDelta),
+    Done,
+}
+
+/// 流式行解析器：跨 chunk 攒字节，逐完整行解析。
+#[derive(Debug, Default)]
+pub struct SseParser {
+    buf: Vec<u8>,
+}
+
+impl SseParser {
+    pub fn new() -> Self {
+        Self { buf: Vec::new() }
+    }
+
+    /// 喂入一段原始字节，返回其中凑齐的所有行解析出的条目。
+    pub fn feed(&mut self, bytes: &[u8]) -> Vec<SseItem> {
+        self.buf.extend_from_slice(bytes);
+        let mut items = Vec::new();
+        while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+            // 整行（不含换行）——完整行内的多字节字符解码必安全。
+            let line: Vec<u8> = self.buf.drain(..=pos).collect();
+            let line = &line[..line.len() - 1]; // 去掉 \n
+            let line = String::from_utf8_lossy(line);
+            let line = line.strip_suffix('\r').unwrap_or(&line);
+            if let Some(item) = parse_line(line) {
+                items.push(item);
+            }
+        }
+        items
+    }
+
+    /// 流结束：冲刷残行（未换行的尾巴）。正常 SSE 以 `\n` 结尾，此处通常为空。
+    pub fn finish(&mut self) -> Vec<SseItem> {
+        if self.buf.is_empty() {
+            return Vec::new();
+        }
+        let line = String::from_utf8_lossy(&self.buf).into_owned();
+        self.buf.clear();
+        parse_line(&line).into_iter().collect()
+    }
+}
+
+/// 单行解析：非 `data:` 行一律忽略；`data: [DONE]` 为哨兵；其余按 delta 解析。
+fn parse_line(line: &str) -> Option<SseItem> {
+    let payload = line.strip_prefix("data:")?.trim_start();
+    if payload == "[DONE]" {
+        return Some(SseItem::Done);
+    }
+    parse_delta(payload).map(SseItem::Delta)
+}
+
+/// OpenAI 兼容 delta 解析。容错策略（INT-002 兼容退化）：
+/// 非 JSON、缺 choices、缺 delta、字段为 null、空串——都视为「本轮无增量」返回 None，
+/// 不让怪异 provider 的杂音炸掉整条流。
+pub fn parse_delta(data: &str) -> Option<ChatDelta> {
+    let value: Value = serde_json::from_str(data).ok()?;
+    let choice = value.get("choices")?.as_array()?.first()?;
+    let delta = choice.get("delta")?;
+    // 字段型 reasoning：reasoning_content 为主，兼容别名 reasoning（部分网关用后者）。
+    let reasoning = delta
+        .get("reasoning_content")
+        .or_else(|| delta.get("reasoning"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let content = delta
+        .get("content")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if content.is_none() && reasoning.is_none() {
+        return None;
+    }
+    Some(ChatDelta { content, reasoning })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn feed_all(parser: &mut SseParser, chunks: &[&[u8]]) -> Vec<SseItem> {
+        let mut items = Vec::new();
+        for c in chunks {
+            items.extend(parser.feed(c));
+        }
+        items.extend(parser.finish());
+        items
+    }
+
+    #[test]
+    fn single_chunk_normal_flow() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &["data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n\
+               data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n\
+               data: [DONE]\n\n"
+                .as_bytes()],
+        );
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], SseItem::Delta(ChatDelta {
+            content: Some("你".into()), reasoning: None,
+        }));
+        assert_eq!(items[2], SseItem::Done);
+    }
+
+    /// 字节按任意边界切块（含 UTF-8 多字节字符被拦腰切断），解析结果不受影响。
+    #[test]
+    fn byte_chunks_split_at_arbitrary_boundaries() {
+        let payload = "data: {\"choices\":[{\"delta\":{\"content\":\"深度·思考\"}}]}\n\ndata: [DONE]\n\n";
+        let bytes = payload.as_bytes();
+        for step in 1..=7 {
+            let mut p = SseParser::new();
+            let chunks: Vec<&[u8]> = bytes.chunks(step).collect();
+            let items = feed_all(&mut p, &chunks);
+            assert_eq!(items.len(), 2, "step={step}");
+            assert_eq!(
+                items[0],
+                SseItem::Delta(ChatDelta { content: Some("深度·思考".into()), reasoning: None }),
+                "step={step}"
+            );
+            assert_eq!(items[1], SseItem::Done, "step={step}");
+        }
+    }
+
+    /// CRLF 行尾同样支持。
+    #[test]
+    fn crlf_line_endings() {
+        let mut p = SseParser::new();
+        let items = feed_all(&mut p, &[b"data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"]);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], SseItem::Delta(ChatDelta { content: Some("a".into()), reasoning: None }));
+    }
+
+    /// 未知事件类型、注释、空行、event/id 行全部优雅忽略。
+    #[test]
+    fn unknown_lines_are_ignored() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &[b": keep-alive\n\n\
+               event: ping\n\
+               data: {\"unexpected\":true}\n\n\
+               id: 42\n\n\
+               data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\n\n\
+               data: [DONE]\n\n"],
+        );
+        // event: ping 之下的 data 行虽是合法 JSON 但缺 choices → 忽略；只留正文 delta 与 DONE。
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], SseItem::Delta(ChatDelta { content: Some("x".into()), reasoning: None }));
+    }
+
+    /// 验收 2：字段型 reasoning 直通思考通道；两字段同现时各自就位。
+    #[test]
+    fn field_reasoning_routes_to_think() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &["data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"想\",\"content\":\"写\"}}]}\n\ndata: [DONE]\n\n".as_bytes()],
+        );
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            items[0],
+            SseItem::Delta(ChatDelta { content: Some("写".into()), reasoning: Some("想".into()) })
+        );
+    }
+
+    /// 兼容别名 `reasoning`（部分网关）同样直通。
+    #[test]
+    fn reasoning_alias_field_supported() {
+        let delta = parse_delta("{\"choices\":[{\"delta\":{\"reasoning\":\"R\"}}]}").unwrap();
+        assert_eq!(delta.reasoning.as_deref(), Some("R"));
+    }
+
+    /// finish_reason 收尾块、空串、null、缺 delta：全部视为无增量。
+    #[test]
+    fn empty_and_terminal_deltas_are_dropped() {
+        assert_eq!(parse_delta("{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}"), None);
+        assert_eq!(parse_delta("{\"choices\":[{\"delta\":{\"content\":\"\"}}]}"), None);
+        assert_eq!(parse_delta("{\"choices\":[{\"delta\":{\"content\":null}}]}"), None);
+        assert_eq!(parse_delta("{\"choices\":[]}"), None);
+        assert_eq!(parse_delta("not-json"), None);
+        assert_eq!(parse_delta(""), None);
+    }
+
+    /// 残行冲刷：流在行中间被掐断时，残行按原始文本忽略，不误报。
+    #[test]
+    fn trailing_partial_line_is_flushed_safely() {
+        let mut p = SseParser::new();
+        let items = feed_all(&mut p, &[b"data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\ndata: {\"choi"]);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0], SseItem::Delta(ChatDelta { content: Some("a".into()), reasoning: None }));
+    }
+}

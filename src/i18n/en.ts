@@ -13,6 +13,17 @@ export const en = {
     new: 'New session',
     expand: 'Expand sessions pane',
     collapse: 'Collapse sessions pane',
+    untitled: 'New session',
+    pickCharacter: 'Pick a character to start a conversation',
+    noCharacters: 'No characters yet — create one on the Characters page first',
+    delete: 'Delete session',
+    deleteBody:
+      'Session "{{title}}" will be deleted; chat history is soft-deleted (data stays in the local database). Delete it?',
+    deleteConfirm: 'Delete',
+    cancel: 'Cancel',
+    deleteBlocked: 'This session is generating a reply and cannot be deleted right now',
+    deleteFailed: 'Delete failed',
+    createFailed: 'Failed to create session',
   },
   chat: {
     empty: 'Select a session on the left, or start a new one from the Characters page',

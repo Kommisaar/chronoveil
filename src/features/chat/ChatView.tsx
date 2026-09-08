@@ -24,7 +24,6 @@ import {
   getConfig,
   listCharacters,
   listMessages,
-  listSessions,
   regenerateLast,
   sendMessage,
 } from '../../api/commands';
@@ -33,7 +32,6 @@ import type {
   CharacterSummary,
   ChatMessage,
   ConfigDto,
-  SessionSummary,
 } from '../../api/types';
 import { EmptyState } from '../../components/EmptyState';
 import { formatClock } from '../../lib/relativeTime';
@@ -161,9 +159,11 @@ export function ChatView() {
   const styles = useStyles();
   const { t, i18n } = useTranslation();
   const activeSessionId = useUiStore((s) => s.activeSessionId);
+  // 会话清单单一数据源在 ui store（TASK-007 验收 4）：与 Sidebar 同源，
+  // 不再各自 listSessions 本地缓存；重拉触发点统一在 store.refreshSessions
+  const sessions = useUiStore((s) => s.sessions);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [characters, setCharacters] = useState<Map<number, CharacterSummary>>(new Map());
-  const [sessions, setSessions] = useState<Map<number, SessionSummary>>(new Map());
   const [config, setConfig] = useState<ConfigDto | null>(null);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
@@ -178,9 +178,6 @@ export function ChatView() {
   useEffect(() => {
     void listCharacters().then((list) => {
       setCharacters(new Map(list.map((c) => [c.id, c])));
-    });
-    void listSessions().then((list) => {
-      setSessions(new Map(list.map((s) => [s.id, s])));
     });
     void getConfig()
       .then(setConfig)
@@ -300,7 +297,7 @@ export function ChatView() {
   };
 
   // 流式行的说话人 = 会话角色（FR-007：会话归属角色）
-  const sessionCharacterId = sessions.get(activeSessionId)?.characterId;
+  const sessionCharacterId = sessions.find((s) => s.id === activeSessionId)?.characterId;
   const sessionSpeaker =
     (sessionCharacterId !== undefined && characters.get(sessionCharacterId)?.name) || '—';
   const tuning = {

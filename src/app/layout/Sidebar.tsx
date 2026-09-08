@@ -1,19 +1,54 @@
 // 第二层会话侧栏（结构照抄 relay-harbor 项目导航栏，仅在聊天视图显示）：
-// 「会话」分组小字 + 会话清单（两行条目：标题 + 相对时间 meta，点击切换
-// 当前会话）。选中态为与活动栏同款的共享指示条（位移动画）+ 选中底色。
+// 「会话」分组小字 + 工具钮（新建会话 / 收起）+ 会话清单（两行条目：标题 +
+// 相对时间 meta，点击切换当前会话）。选中态为与活动栏同款的共享指示条
+// （位移动画）+ 选中底色。
+// 会话管理（TASK-007 / FR-007 / ADR-009）：
+// - 新建：Fluent Dialog 就地列出现役角色（listCharacters）→ createSession →
+//   store 全量重拉（updated_at 倒序进列表）→ 新会话成为当前会话（视图已在聊天）；
+// - 删除：条目删除钮 → Dialog 确认（文案明示「聊天记录软删除」，ADR-009）→
+//   deleteSession → store.removeSession（当前会话指向被删项时置空，回聊天
+//   空态）→ 全量重拉对齐；
+// - 生成中的会话禁删（streamHub streaming/stopping，先取消再删不采用），
+//   点击时就地轻提示；
+// - 清单唯一数据源在 ui store（sessions / refreshSessions）：本组件挂载即重拉
+//   （AppShell 仅聊天视图挂载本组件，从其他视图回来自然重拉，验收 3），
+//   ChatView 同源读取，两侧不出现陈旧分叉（验收 4）。
 // 条目入场动画：挂载时逐项浮现一次（app.css 的 sidebar-enter 全局类，
 // 错开延迟经行内 --enter-delay 注入）。
 // 右缘 handle（2026-09-08 用户要求）：点击收起/展开侧栏——root 只做
 // 0/232 宽度裁切（overflow hidden + width 过渡），内容在内层固定 232px
 // 的 inner 里滑出而非挤压；收起过渡结束后 inner 隐藏（两段式，避免
 // 文本被压扁、焦点落入零宽区域）。
-import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
-import { PanelLeftContract16Regular } from '@fluentui/react-icons';
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  makeStyles,
+  mergeClasses,
+  tokens,
+} from '@fluentui/react-components';
+import {
+  Add16Regular,
+  Delete16Regular,
+  PanelLeftContract16Regular,
+} from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { CSSProperties } from 'react';
-import { listSessions } from '../../api/commands';
-import type { SessionSummary } from '../../api/types';
+import { createSession, deleteSession, listCharacters } from '../../api/commands';
+import type { CharacterSummary, SessionSummary } from '../../api/types';
+import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
@@ -25,10 +60,18 @@ const ENTER_STAGGER_MS = 16;
 const ENTER_STAGGER_CAP_MS = 240;
 // 收起过渡（durationGentle）结束后再藏 inner 的宽限
 const COLLAPSE_HIDE_MS = 220;
+// 轻提示（禁删 / 操作失败）自动消隐
+const HINT_CLEAR_MS = 4000;
 
 function enterDelayStyle(index: number): CSSProperties {
   const delay = Math.min(index * ENTER_STAGGER_MS, ENTER_STAGGER_CAP_MS);
   return { '--enter-delay': `${delay}ms` } as CSSProperties;
+}
+
+/** 生成中的判定（FR-007 多路并发）：streamHub 有该会话的活动流跟踪即禁删。 */
+function isGenerating(sessionId: number): boolean {
+  const state = streamHub.stateOf(sessionId);
+  return state !== null && (state.status === 'streaming' || state.status === 'stopping');
 }
 
 const useStyles = makeStyles({
@@ -52,13 +95,20 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
     overflowY: 'auto',
   },
+  // 会话条目行：选择按钮（占满）+ 删除钮；原条目的 marginLeft 上移到行
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    marginLeft: tokens.spacingHorizontalXS,
+  },
   item: {
+    flex: 1,
+    minWidth: 0, // 标题省略号生效前提（flex 子项默认 min-width:auto）
     display: 'flex',
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
     minHeight: '44px',
     padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
-    marginLeft: tokens.spacingHorizontalXS,
     borderRadius: tokens.borderRadiusMedium,
     color: tokens.colorNeutralForeground1,
     textDecoration: 'none',
@@ -68,6 +118,29 @@ const useStyles = makeStyles({
   itemActive: {
     backgroundColor: tokens.colorNeutralBackground1Selected,
     ':hover': { backgroundColor: tokens.colorNeutralBackground1Selected },
+  },
+  // 条目删除钮：低调常驻（前景三阶，悬停染危险色）；生成中禁删的守卫在
+  // 点击路径上（requestDelete），不禁用按钮以便给出可发现的提示
+  deleteBtn: {
+    width: '28px',
+    height: '28px',
+    flexShrink: 0,
+    marginRight: '2px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0px',
+    border: 'none',
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: 'transparent',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    color: tokens.colorNeutralForeground3,
+    '> svg': { width: '16px', height: '16px', fontSize: '16px' },
+    ':hover': {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+      color: tokens.colorPaletteRedForeground1,
+    },
   },
   // 共享选中指示条：与活动栏同款（3×16 品牌色圆角竖条）。位置（translate）
   // 由 JS 写入——需 X+Y 双轴位移；默认隐藏，定位后显示。绝对定位子项不
@@ -93,9 +166,8 @@ const useStyles = makeStyles({
     cursor: 'pointer',
   },
   label: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  // 头部行：标题 + 收起按钮（千问式——收起在侧栏内，展开在主区左上）。
-  // 行高 36 与活动栏首条目同带（内层 padding-top 8 → 行跨 y 8-44），
-  // 收起按钮右缘对齐会话条目右端（条目 marginLeft 4 ≈ 内层右 padding 差 1px）
+  // 头部行：标题 + 工具钮组（新建 / 收起）。行高 36 与活动栏首条目同带
+  // （内层 padding-top 8 → 行跨 y 8-44），钮组右缘对齐会话条目右端
   section: {
     display: 'flex',
     alignItems: 'center',
@@ -106,7 +178,14 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
   },
-  collapseBtn: {
+  sectionActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+  },
+  // 头部图标钮（新建 / 收起共用规格；原生 button 手动抹平默认外观，
+  // 不与 buttonReset 合并——后者的条目 padding 会覆盖此处的 0）
+  iconBtn: {
     width: '36px',
     height: '36px',
     display: 'flex',
@@ -116,6 +195,7 @@ const useStyles = makeStyles({
     border: 'none',
     borderRadius: tokens.borderRadiusMedium,
     backgroundColor: 'transparent',
+    fontFamily: 'inherit',
     color: tokens.colorNeutralForeground2,
     cursor: 'pointer',
     // 图标与活动栏同规格（20px）
@@ -138,24 +218,115 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
   },
+  // 轻提示（生成中禁删 / 删除失败等）：就地一行，红字，自动消隐
+  hint: {
+    padding: `${tokens.spacingVerticalXXS} ${tokens.spacingHorizontalM}`,
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorPaletteRedForeground1,
+  },
+  // 新建会话对话框：选角色列表（现役角色，来自 listCharacters）
+  characterList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalXXS,
+    marginTop: tokens.spacingVerticalS,
+  },
+  characterItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    minHeight: '40px',
+    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
+    borderRadius: tokens.borderRadiusMedium,
+    textAlign: 'left',
+    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
+    ':active': { backgroundColor: tokens.colorNeutralBackground1Pressed },
+    ':disabled': { opacity: 0.5, cursor: 'default' },
+  },
+  characterAvatar: {
+    width: '28px',
+    height: '28px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorNeutralForeground2,
+    fontSize: tokens.fontSizeBase300,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  characterName: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  dialogHint: {
+    marginTop: tokens.spacingVerticalXS,
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground3,
+  },
 });
 
-/** 会话侧栏（FR-007 多会话管理；数据经 api 层读，mock 阶段为内存清单）。 */
+/** 会话侧栏（FR-007 多会话管理）：清单走 ui store 单一数据源，挂载即重拉。 */
 export function Sidebar() {
   const styles = useStyles();
   const { t, i18n } = useTranslation();
   const activeSessionId = useUiStore((s) => s.activeSessionId);
+  const sessions = useUiStore((s) => s.sessions);
+  const sessionsLoaded = useUiStore((s) => s.sessionsLoaded);
   const selectSession = useUiStore((s) => s.selectSession);
+  const refreshSessions = useUiStore((s) => s.refreshSessions);
+  const removeSession = useUiStore((s) => s.removeSession);
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
   const [innerHidden, setInnerHidden] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
 
+  // 订阅 streamHub 的版本号：生成中判定随流状态启停即时更新（禁删提示）
+  useSyncExternalStore(streamHub.subscribe, streamHub.getVersion);
+
+  // 挂载即全量重拉（验收 3）：AppShell 只在聊天视图挂载本组件——应用启动
+  // 与从角色/设置视图回到聊天都会经这里刷新，不显示陈旧清单
   useEffect(() => {
-    void listSessions().then(setSessions);
+    void refreshSessions();
+  }, [refreshSessions]);
+
+  // 现役角色清单：新建会话的选择列表 + 空标题条目的回退名（FR-007：标题
+  // 缺省取首条用户消息，新建会话在首条消息前无标题）
+  useEffect(() => {
+    void listCharacters()
+      .then(setCharacters)
+      .catch(() => {
+        // 拉取失败只影响新建列表与标题回退，不打断侧栏
+        setCharacters([]);
+      });
   }, []);
+
+  // 轻提示自动消隐
+  useEffect(() => {
+    if (hint === null) return undefined;
+    const timer = window.setTimeout(() => setHint(null), HINT_CLEAR_MS);
+    return () => window.clearTimeout(timer);
+  }, [hint]);
+
+  const charactersById = useMemo(
+    () => new Map((characters ?? []).map((c) => [c.id, c])),
+    [characters],
+  );
+
+  // 条目标题：库中标题为空（新建会话尚无首条用户消息）时回退角色名
+  const displayTitle = (session: SessionSummary): string => {
+    if (session.title !== '') return session.title;
+    return charactersById.get(session.characterId)?.name ?? t('sessions.untitled');
+  };
 
   // 两段式收起：宽度过渡播完再藏 inner（隐藏后内容不可聚焦），展开时立即可见
   useEffect(() => {
@@ -186,6 +357,51 @@ export function Sidebar() {
     });
   }, [activeSessionId, sessions]);
 
+  // 删除入口（验收 2）：生成中禁删并就地提示（不采用先取消再删）；
+  // 其余进确认对话框，文案明示聊天记录软删除（ADR-009）
+  const requestDelete = (session: SessionSummary): void => {
+    if (isGenerating(session.id)) {
+      setHint(t('sessions.deleteBlocked'));
+      return;
+    }
+    setDeleteTarget(session);
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (deleteTarget === null) return;
+    setDeleting(true);
+    const target = deleteTarget;
+    try {
+      await deleteSession(target.id);
+      // 本地即时收尾：清单移除 + 当前会话指向被删项时置空（回聊天空态），
+      // 再全量重拉对齐（验收 2/3：删除后列表即时刷新）
+      removeSession(target.id);
+      setDeleteTarget(null);
+      void refreshSessions();
+    } catch (e) {
+      setHint(`${t('sessions.deleteFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // 新建会话（验收 1）：createSession → 全量重拉（updated_at 倒序进列表）→
+  // 成为当前会话（selectSession 同时保证视图切到聊天）
+  const createFromCharacter = async (characterId: number): Promise<void> => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const created = await createSession(characterId);
+      await refreshSessions();
+      selectSession(created.id);
+      setNewOpen(false);
+    } catch (e) {
+      setHint(`${t('sessions.createFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   // 入场错开序号：按 JSX 书写顺序（= DOM 序）逐项递增；仅渲染期使用
   let enterIndex = 0;
   const nextEnter = () => enterDelayStyle(enterIndex++);
@@ -193,22 +409,33 @@ export function Sidebar() {
   return (
     <aside
       id="sessions-sidebar"
-        ref={asideRef}
-        className={styles.root}
-        style={{ width: collapsed ? 0 : 232 }}
-        aria-label={t('sessions.title')}
-        aria-hidden={collapsed}
+      ref={asideRef}
+      className={styles.root}
+      style={{ width: collapsed ? 0 : 232 }}
+      aria-label={t('sessions.title')}
+      aria-hidden={collapsed}
+    >
+      <div
+        className={styles.inner}
+        style={{ visibility: innerHidden ? 'hidden' : 'visible' }}
       >
-        <div
-          className={styles.inner}
-          style={{ visibility: innerHidden ? 'hidden' : 'visible' }}
-        >
-          <div ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
-          <div className={mergeClasses(styles.section, 'sidebar-enter')} style={nextEnter()}>
-            <span>{t('sessions.title')}</span>
+        <div ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
+        <div className={mergeClasses(styles.section, 'sidebar-enter')} style={nextEnter()}>
+          <span>{t('sessions.title')}</span>
+          <span className={styles.sectionActions}>
             <button
               type="button"
-              className={styles.collapseBtn}
+              className={styles.iconBtn}
+              onClick={() => setNewOpen(true)}
+              aria-haspopup="dialog"
+              aria-label={t('sessions.new')}
+              title={t('sessions.new')}
+            >
+              <Add16Regular />
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
               onClick={toggleSidebarCollapsed}
               aria-controls="sessions-sidebar"
               aria-expanded="true"
@@ -217,37 +444,124 @@ export function Sidebar() {
             >
               <PanelLeftContract16Regular />
             </button>
+          </span>
+        </div>
+        {!sessionsLoaded ? null : sessions.length === 0 ? (
+          <div className={mergeClasses(styles.empty, 'sidebar-enter')} style={nextEnter()}>
+            {t('sessions.empty')}
           </div>
-          {sessions.length === 0 ? (
-            <div className={mergeClasses(styles.empty, 'sidebar-enter')} style={nextEnter()}>
-              {t('sessions.empty')}
-            </div>
-          ) : (
-            sessions.map((session) => {
-              const active = session.id === activeSessionId;
-              return (
+        ) : (
+          sessions.map((session) => {
+            const active = session.id === activeSessionId;
+            return (
+              <div
+                key={session.id}
+                className={mergeClasses(styles.row, 'sidebar-enter')}
+                style={nextEnter()}
+              >
                 <button
-                  key={session.id}
                   type="button"
                   className={mergeClasses(
                     styles.item,
                     styles.buttonReset,
-                    'sidebar-enter',
                     active && styles.itemActive,
                   )}
-                  style={nextEnter()}
                   onClick={() => selectSession(session.id)}
                   aria-current={active ? 'page' : undefined}
                 >
                   <span className={styles.label}>
-                    <span className={styles.title}>{session.title}</span>
-                    <span className={styles.meta}>{formatRelative(session.updatedAt, i18n.language)}</span>
+                    <span className={styles.title}>{displayTitle(session)}</span>
+                    <span className={styles.meta}>
+                      {formatRelative(session.updatedAt, i18n.language)}
+                    </span>
                   </span>
                 </button>
-              );
-            })
-          )}
-        </div>
+                <button
+                  type="button"
+                  className={styles.deleteBtn}
+                  aria-label={`${t('sessions.delete')}：${displayTitle(session)}`}
+                  title={t('sessions.delete')}
+                  onClick={() => requestDelete(session)}
+                >
+                  <Delete16Regular />
+                </button>
+              </div>
+            );
+          })
+        )}
+        {hint !== null && (
+          <div className={styles.hint} role="status">
+            {hint}
+          </div>
+        )}
+      </div>
+
+      {/* 新建会话：就地 Dialog 列出现役角色（验收 1；不新建共享组件） */}
+      <Dialog open={newOpen} onOpenChange={(_, data) => setNewOpen(data.open)}>
+        <DialogSurface aria-describedby={undefined}>
+          <DialogBody>
+            <DialogTitle>{t('sessions.new')}</DialogTitle>
+            <DialogContent>
+              <div className={styles.dialogHint}>{t('sessions.pickCharacter')}</div>
+              {characters === null ? null : characters.length === 0 ? (
+                <div className={styles.dialogHint}>{t('sessions.noCharacters')}</div>
+              ) : (
+                <div className={styles.characterList}>
+                  {characters.map((character) => (
+                    <button
+                      key={character.id}
+                      type="button"
+                      className={mergeClasses(styles.characterItem, styles.buttonReset)}
+                      disabled={creating}
+                      onClick={() => void createFromCharacter(character.id)}
+                    >
+                      <span className={styles.characterAvatar} aria-hidden="true">
+                        {character.name.slice(0, 1)}
+                      </span>
+                      <span className={styles.characterName}>{character.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </DialogContent>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+
+      {/* 删除确认：文案明示「聊天记录软删除」（ADR-009） */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(_, data) => {
+          if (!data.open) setDeleteTarget(null);
+        }}
+      >
+        <DialogSurface aria-describedby={undefined}>
+          <DialogBody>
+            <DialogTitle>{t('sessions.delete')}</DialogTitle>
+            <DialogContent>
+              {deleteTarget !== null
+                ? t('sessions.deleteBody', { title: displayTitle(deleteTarget) })
+                : null}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                appearance="secondary"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+              >
+                {t('sessions.cancel')}
+              </Button>
+              <Button
+                appearance="primary"
+                disabled={deleting}
+                onClick={() => void confirmDelete()}
+              >
+                {t('sessions.deleteConfirm')}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </aside>
   );
 }

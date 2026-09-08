@@ -157,10 +157,10 @@ pub struct MessageIds {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LlmEvent {
-    /// 正文增量。`reset`（重发后首个事件为 true）：清空已累积正文后重新累积。
-    Token { session_id: i64, message_id: i64, delta: String, reset: bool },
-    /// 思考增量（字段型直通 + 内联 think 拆分，FR-003）。`reset` 同上。
-    Reasoning { session_id: i64, message_id: i64, delta: String, reset: bool },
+    /// 正文增量（INT-001 负载字段 text）。`reset`（重发后首个事件为 true）：清空已累积正文后重新累积。
+    Token { session_id: i64, message_id: i64, text: String, reset: bool },
+    /// 思考增量（字段型直通 + 内联 think 拆分，FR-003；INT-001 负载字段 text）。`reset` 同上。
+    Reasoning { session_id: i64, message_id: i64, text: String, reset: bool },
     /// 终态：正常完成。think_ms 为网关侧 reasoning 墙钟时长（无思考则 None）。
     Done { session_id: i64, message_id: i64, think_ms: Option<u64> },
     /// 终态：失败。reason 为人类可读错误；interrupted 表示已有半条内容产生（ADR-001）。
@@ -550,7 +550,7 @@ impl EventRouter<'_> {
         self.sink.emit(LlmEvent::Token {
             session_id: self.ids.session_id,
             message_id: self.ids.message_id,
-            delta: delta.to_owned(),
+            text: delta.to_owned(),
             reset,
         });
     }
@@ -560,7 +560,7 @@ impl EventRouter<'_> {
         self.sink.emit(LlmEvent::Reasoning {
             session_id: self.ids.session_id,
             message_id: self.ids.message_id,
-            delta: delta.to_owned(),
+            text: delta.to_owned(),
             reset,
         });
     }

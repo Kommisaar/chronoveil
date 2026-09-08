@@ -67,8 +67,8 @@ fn drain(rx: &mut mpsc::UnboundedReceiver<LlmEvent>) -> Observed {
     let mut observed = Observed::default();
     while let Ok(event) = rx.try_recv() {
         match event {
-            LlmEvent::Token { delta, reset, .. } => observed.tokens.push((delta, reset)),
-            LlmEvent::Reasoning { delta, reset, .. } => observed.reasoning.push((delta, reset)),
+            LlmEvent::Token { text, reset, .. } => observed.tokens.push((text, reset)),
+            LlmEvent::Reasoning { text, reset, .. } => observed.reasoning.push((text, reset)),
             LlmEvent::Done { think_ms, .. } => observed.done.push(think_ms),
             LlmEvent::Error { reason, interrupted, .. } => observed.errors.push((reason, interrupted)),
         }
@@ -276,8 +276,8 @@ async fn cancel_stops_stream_and_emits_nothing_more() {
 
     let first = rx.recv().await.expect("应先收到首个 token");
     match &first {
-        LlmEvent::Token { delta, reset, .. } => {
-            assert_eq!(delta, "第一");
+        LlmEvent::Token { text, reset, .. } => {
+            assert_eq!(text, "第一");
             assert!(!*reset);
         }
         other => panic!("首个事件应为 token：{other:?}"),
@@ -436,20 +436,20 @@ async fn complete_json_failure_is_detectable_and_non_stream() {
     assert_eq!(req.json()["stream"], false, "结构化调用为非流式一次性请求");
 }
 
-/// 验收 4：事件序列化形态（TASK-005 直通 Tauri 事件通道的契约）。
+/// 验收 4：事件序列化形态（INT-001 契约：token/reasoning 负载为 text，OQ-004 对齐后直通 Tauri 事件通道）。
 #[test]
-fn event_payload_shape_is_tauri_ready() {
+fn event_payload_shape_matches_int001_contract() {
     let value = serde_json::to_value(LlmEvent::Token {
         session_id: 1,
         message_id: 2,
-        delta: "x".into(),
+        text: "x".into(),
         reset: true,
     })
     .unwrap();
     assert_eq!(value["type"], "token");
     assert_eq!(value["session_id"], 1);
     assert_eq!(value["message_id"], 2);
-    assert_eq!(value["delta"], "x");
+    assert_eq!(value["text"], "x");
     assert_eq!(value["reset"], true);
 
     let value = serde_json::to_value(LlmEvent::Done {

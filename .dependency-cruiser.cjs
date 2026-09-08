@@ -37,10 +37,10 @@ module.exports = {
     },
     {
       name: 'tauri-only-in-api',
-      comment: 'ADR-010：invoke 与 @tauri-apps/api 只允许出现在 src/api/（@tauri-apps 包自身内部引用不在此限）。',
+      comment: 'ADR-010：invoke 与 @tauri-apps/api 只允许出现在 src/api/（from 侧只盯第一方 src/，@tauri-apps 包自身内部引用不在第一方范围内）。',
       severity: 'error',
-      from: { pathNot: '^src/api/' },
-      to: { path: 'node_modules/@tauri-apps', pathNot: 'node_modules/@tauri-apps' },
+      from: { path: '^src/', pathNot: '^src/api/' },
+      to: { path: 'node_modules/@tauri-apps' },
     },
   ],
 };

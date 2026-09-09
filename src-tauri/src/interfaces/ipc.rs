@@ -148,6 +148,8 @@ pub struct CharacterSummary {
     /// 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
     /// None = 跟随全局默认。
     pub model_config: Option<String>,
+    /// 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
+    pub accent_color: Option<String>,
     pub updated_at: i64,
     /// 该角色开启的会话数（在世会话）。
     pub session_count: i64,
@@ -163,6 +165,7 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         render_style: c.render_style,
         greeting: c.greeting,
         model_config: c.model_config,
+        accent_color: c.accent_color,
         updated_at: c.updated_at,
         session_count: 0,
     }
@@ -199,6 +202,8 @@ pub struct CharacterInput {
     pub greeting: String,
     pub render_style: String,
     pub model_config: Option<String>,
+    /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
+    pub accent_color: Option<String>,
     /// TTS 预留缝（CON-003），前端恒传 null。
     pub voice_config: Option<String>,
 }
@@ -572,6 +577,7 @@ fn create_character_impl(
         greeting: input.greeting,
         render_style: input.render_style,
         model_config: input.model_config,
+        accent_color: input.accent_color,
         voice_config: input.voice_config,
     })?;
     Ok(CharacterSummary {
@@ -604,6 +610,7 @@ fn update_character_impl(
             greeting: input.greeting,
             render_style: input.render_style,
             model_config: input.model_config,
+            accent_color: input.accent_color,
             voice_config: input.voice_config,
         },
     )?;
@@ -976,12 +983,14 @@ mod tests {
             render_style: "typewriter".into(),
             greeting: "雨点敲着窗棂。".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            accent_color: Some("#5e2347".into()),
             updated_at: 42,
             session_count: 2,
         };
         let json = serde_json::to_value(&summary).unwrap();
         assert_eq!(json["persona"], "雨夜电话亭的守夜人");
         assert_eq!(json["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
+        assert_eq!(json["accentColor"], "#5e2347", "强调色 camelCase wire");
         assert!(json["avatar"].is_null(), "avatar 可空透传");
         // model_config = None（跟随全局）时 wire 为 null。
         let follower = CharacterSummary { model_config: None, ..summary };
@@ -999,6 +1008,7 @@ mod tests {
             greeting: "雨点敲着窗棂。".into(),
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            accent_color: None,
             voice_config: None,
         };
         let created = create_character_impl(&app, input.clone()).unwrap();

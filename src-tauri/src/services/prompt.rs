@@ -51,6 +51,7 @@ mod tests {
             greeting: new.greeting,
             render_style: new.render_style,
             model_config: None,
+            accent_color: new.accent_color,
             voice_config: None,
             calendar_config: None,
             created_at: 0,

@@ -175,6 +175,7 @@ export async function createCharacter(
     renderStyle: input.renderStyle,
     greeting: input.greeting,
     modelConfig: input.modelConfig,
+    accentColor: input.accentColor,
     updatedAt: Date.now(),
     sessionCount: 0,
   };
@@ -194,6 +195,7 @@ export async function updateCharacter(
   character.renderStyle = input.renderStyle;
   character.greeting = input.greeting;
   character.modelConfig = input.modelConfig;
+  character.accentColor = input.accentColor;
   character.updatedAt = Date.now();
 }
 

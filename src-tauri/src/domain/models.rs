@@ -50,6 +50,8 @@ pub struct Character {
     pub render_style: String,
     /// 角色专属模型覆写 JSON，可空。
     pub model_config: Option<String>,
+    /// 强调色（编辑器右栏渐变背景等界面着色），#RRGGBB；None = 跟随海报派生色。
+    pub accent_color: Option<String>,
     /// TTS 预留缝（CON-003），恒 None。
     pub voice_config: Option<String>,
     /// 角色卡世界观日历 JSON（FR-013；data_model「日历归属与继承」：
@@ -107,6 +109,7 @@ pub struct NewCharacter {
     pub greeting: String,
     pub render_style: String,
     pub model_config: Option<String>,
+    pub accent_color: Option<String>,
     pub voice_config: Option<String>,
 }
 
@@ -119,6 +122,7 @@ impl Default for NewCharacter {
             greeting: String::new(),
             render_style: "typewriter".to_string(),
             model_config: None,
+            accent_color: None,
             voice_config: None,
         }
     }
@@ -133,6 +137,7 @@ pub struct UpdateCharacter {
     pub greeting: String,
     pub render_style: String,
     pub model_config: Option<String>,
+    pub accent_color: Option<String>,
     pub voice_config: Option<String>,
 }
 

@@ -381,7 +381,8 @@ export function ChatView() {
       </div>
       {notice !== null && <div className={styles.notice}>{notice}</div>}
       <div className={styles.composer}>
-        <div className={styles.composerCard}>
+        {/* composer-card：全局类挂点，app.css 的 Textarea 中和样式按此收窄作用域 */}
+        <div className={mergeClasses(styles.composerCard, 'composer-card')}>
           <Textarea
             root={{ className: styles.inputRoot }}
             textarea={{

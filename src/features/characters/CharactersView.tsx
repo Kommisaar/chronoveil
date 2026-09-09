@@ -36,31 +36,16 @@ import {
 } from '../../api/commands';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { EmptyState } from '../../components/EmptyState';
+import { SPRING_CURVE } from '../../components/motion';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
+import { dotGradientOf, posterGradientOf } from './posterGradient';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 
 /** 编辑目标：create 无预填；edit 携带全量摘要（key 重挂换绑表单）。 */
 type EditorTarget = { mode: 'create' } | { mode: 'edit'; character: CharacterSummary };
-/** 深色低饱和海报渐变调色板（呼应应用图标的靛紫系，扩展 4 组邻近色）。 */
-const POSTER_GRADIENTS: ReadonlyArray<readonly [string, string]> = [
-  ['#332a6e', '#6b46b8'], // 靛紫
-  ['#1e3a66', '#3f6ab3'], // 暮蓝
-  ['#5e2347', '#a04580'], // 玫紫
-  ['#1d4a41', '#3c8170'], // 松石
-  ['#5a3f1c', '#9a7a3f'], // 琥珀
-  ['#57231f', '#a04a3c'], // 绯红
-];
-
-/** 每角色恒定渐变（按 id 取模），同人不同卡配色漂移不可接受。 */
-function gradientOf(id: number): string {
-  const [from, to] =
-    POSTER_GRADIENTS[Math.abs(id) % POSTER_GRADIENTS.length] ??
-    (['#332a6e', '#6b46b8'] as const);
-  return `linear-gradient(150deg, ${from} 0%, ${to} 100%)`;
-}
 
 const useStyles = makeStyles({
   // —— 氛围层与页面骨架 ——
@@ -140,6 +125,10 @@ const useStyles = makeStyles({
     justifyContent: 'flex-end',
     minHeight: '300px',
     overflow: 'hidden',
+    // 16px 大圆角与编辑器面板对齐；喂给 Card 的圆角变量让 ::after
+    // 聚焦环同步跟随（否则键盘 focus 时方角环会露出来）
+    borderRadius: '16px',
+    '--fui-Card--border-radius': '16px',
   },
   letterB: {
     position: 'absolute',
@@ -226,7 +215,8 @@ const useStyles = makeStyles({
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'card-enter-pop',
       animationDuration: '480ms',
-      animationTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+      // 弹簧曲线共享常量 SPRING_CURVE（src/components/motion.ts）
+      animationTimingFunction: SPRING_CURVE,
       animationFillMode: 'backwards',
       animationDelay: 'var(--enter-delay, 0ms)',
     },
@@ -249,6 +239,8 @@ export function CharactersView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderDto[]>([]);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
+  // 可见性与挂载分离：editorOpen=false 只触发退场动画，播完 onClosed 才卸载。
+  const [editorOpen, setEditorOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -311,19 +303,32 @@ export function CharactersView() {
       guarded(() => {
         setEditorError(null);
         setEditor(target);
+        setEditorOpen(true);
       });
     },
     [guarded],
   );
 
   const closeEditor = useCallback(() => {
-    guarded(() => setEditor(null));
+    guarded(() => setEditorOpen(false));
   }, [guarded]);
 
-  /** 保存成功 / 删除成功后的静默关闭（目标已消失，无需丢弃确认）。 */
+  /** 共享元素过渡用：当前编辑目标对应的触发元素（卡片 / 新建按钮）矩形。
+      关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
+      自行退化为纯淡出。 */
+  const getTriggerRect = useCallback(() => {
+    const key = editor?.mode === 'edit' ? String(editor.character.id) : 'create';
+    const el = document.querySelector<HTMLElement>(
+      `[data-editor-trigger="${key}"]`,
+    );
+    return el ? el.getBoundingClientRect() : null;
+  }, [editor]);
+
+  /** 保存成功 / 删除成功后的静默关闭（目标已消失，无需丢弃确认）；
+      仍走退场动画，播完 onClosed 卸载。 */
   const closeEditorSilently = useCallback(() => {
     setDirty(false);
-    setEditor(null);
+    setEditorOpen(false);
   }, []);
 
   const handleSave = useCallback(
@@ -415,6 +420,7 @@ export function CharactersView() {
           <div className={styles.toolbarRight}>
             <Button
               appearance="primary"
+              data-editor-trigger="create"
               onClick={() => openEditor({ mode: 'create' })}
             >
               {t('characters.new')}
@@ -449,6 +455,7 @@ export function CharactersView() {
                   size="small"
                   tabIndex={0}
                   ref={register(index)}
+                  data-editor-trigger={character.id}
                   className={mergeClasses(
                     styles.cardB,
                     lift.root,
@@ -457,7 +464,7 @@ export function CharactersView() {
                   )}
                   style={{
                     ...enterStyle,
-                    backgroundImage: gradientOf(character.id),
+                    backgroundImage: posterGradientOf(character),
                   }}
                   onClick={() => openEditor({ mode: 'edit', character })}
                   onKeyDown={(e) => {
@@ -484,7 +491,7 @@ export function CharactersView() {
                     <div className={styles.metaB}>
                       <span
                         className={styles.dot}
-                        style={{ backgroundImage: gradientOf(character.id + 1) }}
+                        style={{ backgroundImage: dotGradientOf(character) }}
                       />
                       <Text className={styles.metaTextB}>{styleMeta(character)}</Text>
                       <Text className={styles.metaTextB}>
@@ -514,13 +521,16 @@ export function CharactersView() {
       {editor ? (
         <CharacterEditorDialog
           key={editor.mode === 'edit' ? `edit-${editor.character.id}` : 'create'}
+          open={editorOpen}
           character={editor.mode === 'edit' ? editor.character : null}
+          getTriggerRect={getTriggerRect}
           providers={providers}
           saving={saving}
           errorText={editorError}
           onDirtyChange={onDirtyChange}
           onSave={(input) => void handleSave(input)}
           onClose={closeEditor}
+          onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}
         />
       ) : null}

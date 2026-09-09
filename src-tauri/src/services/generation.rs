@@ -508,6 +508,7 @@ mod tests {
             greeting: String::new(),
             render_style: "fade".into(),
             model_config,
+            accent_color: None,
             voice_config: None,
             calendar_config: None,
             created_at: 0,

@@ -136,6 +136,10 @@ export type CharacterInput = { name: string;
  */
 avatar: string | null; persona: string; greeting: string; renderStyle: string; modelConfig: string | null; 
 /**
+ * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
+ */
+accentColor: string | null; 
+/**
  * TTS 预留缝（CON-003），前端恒传 null。
  */
 voiceConfig: string | null }
@@ -166,7 +170,11 @@ greeting: string;
  * 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
  * None = 跟随全局默认。
  */
-modelConfig: string | null; updatedAt: number; 
+modelConfig: string | null; 
+/**
+ * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
+ */
+accentColor: string | null; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */

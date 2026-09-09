@@ -71,22 +71,24 @@ body {
    ::after 下划线条）与卡片式输入框冲突——全部中和，框只留
    composerCard 一层；焦点指示由 composerCard 的 :focus-within 边框
    承担（a11y 不丢）。!important 用于压过 Griffel 运行时注入的同级
-   规则（其 <style> 注入顺序在本文件之后）。当前全应用仅聊天输入一处
-   Textarea，未来新增表单域若需 Fluent 原生样式再收窄选择器 */
-.fui-Textarea,
-.fui-Textarea:hover,
-.fui-Textarea:focus-within,
-.fui-Textarea__textarea,
-.fui-Textarea__textarea:hover,
-.fui-Textarea__textarea:focus,
-.fui-Textarea__textarea:focus-visible {
+   规则（其 <style> 注入顺序在本文件之后）。
+   2026-09-09 收窄作用域到 .composer-card（ChatView 输入卡全局类挂
+   点）：原「全应用仅一处 Textarea」的假设已被角色编辑器打破，其
+   人设/开场白需要 Fluent 原生边框表单观感。 */
+.composer-card .fui-Textarea,
+.composer-card .fui-Textarea:hover,
+.composer-card .fui-Textarea:focus-within,
+.composer-card .fui-Textarea__textarea,
+.composer-card .fui-Textarea__textarea:hover,
+.composer-card .fui-Textarea__textarea:focus,
+.composer-card .fui-Textarea__textarea:focus-visible {
   border: none !important;
   box-shadow: none !important;
   outline: none !important;
   background: transparent !important;
 }
 
-.fui-Textarea::after {
+.composer-card .fui-Textarea::after {
   display: none !important;
 }
 
@@ -108,6 +110,51 @@ body {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* 角色编辑器对话框进出场（2026-09-09）：共享元素过渡（container
+   transform）。面板形变走 FLIP——挂载/退场时由 CharacterEditorDialog
+   量取触发卡片矩形后对 DialogBody 写行内 transform+transition（动态值
+   进不了 Griffel keyframes）；面板/背板的淡入淡出与 body 内容交叉淡化
+   是静态 keyframes，Griffel 类经 mergeClasses 挂载，reduced-motion
+   门控在各类的 @media 内。退场契约：关闭时父级只把 open 翻 false，
+   对话框留在挂载树播完再回调 onClosed 卸载（CharactersView 的
+   editorOpen 两段式关闭）；触发元素查不到（如软删后的卡片）自动
+   退化为纯淡出。 */
+@keyframes editor-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes editor-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes editor-body-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes editor-body-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 

@@ -22,4 +22,4 @@ pnpm run build
 
 ## 结构
 
-见 relay-harbor「架构与部署」文档的代码结构章节（ADR-010）：前端 `src/` 单向依赖 `app → features → components/engine → api`，渲染引擎 `src/engine/` 纯 TS + DOM + CSS 禁 React；Rust 四层 `interfaces → services → domain ← infra`，`state.rs` 组合根。改动代码前先查 relay-harbor 对应设计条目（AGENTS.md）。
+见 relay-harbor「架构与部署」文档的代码结构章节（ADR-010）：前端 `src/` 单向依赖 `app → features → components/engine → api`，渲染引擎 `src/engine/` 纯 TS + DOM + CSS 禁 React；Rust 四层 `interfaces → services → domain ← infra`，`state.rs` 组合根。改动代码前先查 relay-harbor 对应设计条目。

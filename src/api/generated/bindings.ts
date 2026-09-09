@@ -134,7 +134,7 @@ export type CharacterInput = { name: string;
 /**
  * None = 不带头像 / 更新时清除头像。
  */
-avatar: string | null; persona: string; greeting: string; renderStyle: string; modelConfig: string | null; 
+avatar: string | null; persona: string; renderStyle: string; modelConfig: string | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
  */
@@ -162,10 +162,6 @@ persona: string;
  * 出场动画风格（18 种之一，FR-005）。
  */
 renderStyle: string; 
-/**
- * 开场白 markdown-lite。
- */
-greeting: string; 
 /**
  * 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
  * None = 跟随全局默认。

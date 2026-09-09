@@ -517,7 +517,6 @@ mod tests {
             name: "苏鸢".into(),
             avatar: None,
             persona: String::new(),
-            greeting: String::new(),
             render_style: "fade".into(),
             model_config,
             accent_color: None,
@@ -713,7 +712,6 @@ mod tests {
             .create_character(&NewCharacter {
                 name: "苏鸢".into(),
                 persona: "守夜人".into(),
-                greeting: "雨点敲窗。".into(),
                 ..Default::default()
             })
             .unwrap();
@@ -951,10 +949,10 @@ mod tests {
             !messages.iter().any(|(_, content)| content == "旧版本回复"),
             "被替换的旧整条不得进上下文，实际请求：{messages:?}"
         );
-        // 相同上文仍在：persona(system) + greeting(assistant) + user 提问
-        assert_eq!(messages.len(), 3, "system + greeting + user（旧 assistant 已剔除）");
+        // 相同上文仍在：persona(system) + user 提问
+        assert_eq!(messages.len(), 2, "system + user（旧 assistant 已剔除）");
         assert_eq!(messages[0].0, "system");
-        assert_eq!(messages[2].1, "讲个故事");
+        assert_eq!(messages[1].1, "讲个故事");
     }
 
     /// OQ-006 同一半：被替换条是**中断半条**（上次生成失败/取消留下的 interrupt 条，
@@ -998,7 +996,7 @@ mod tests {
             !messages.iter().any(|(_, content)| content == "写到一半的旧半条"),
             "被替换的中断半条不得进上下文，实际请求：{messages:?}"
         );
-        assert_eq!(messages.len(), 3, "system + greeting + user");
+        assert_eq!(messages.len(), 2, "system + user");
     }
 
     /// 对照：普通发送路径（regenerate=false）上下文仍完整携带既有 assistant 历史

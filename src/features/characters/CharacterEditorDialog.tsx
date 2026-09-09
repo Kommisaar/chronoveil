@@ -1,7 +1,7 @@
 /**
  * 角色卡编辑器（2026-09-09 推倒重做后用户定稿：左满高海报 + 右设置面板）。
  *
- * - 布局：左侧 280px 电影海报占满整列（渐变 + 首字水印 + 名字 + 开场白 +
+ * - 布局：左侧 280px 电影海报占满整列（渐变 + 首字水印 + 名字 +
  *   出场风格，随输入实时更新，与海报墙语言统一），右侧为中性面板
  *   （标题 / 表单 / 动作；2026-09-09 用户定稿：右栏不带背景色，主题交给
  *   左海报）；
@@ -41,8 +41,9 @@ import {
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Edit20Regular } from '@fluentui/react-icons';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { SPRING_CURVE } from '../../components/motion';
 import { AccentSwatches, OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
@@ -60,8 +61,11 @@ const morphable = (): boolean =>
 const useStyles = makeStyles({
   // padding 0：海报顶天立地贴满左缘，内边距交给右栏各段
   surface: {
+    // 桌面壳 minWidth 960 放得下 880；min() 兜底浏览器 dev 等无下限环境，
+    // 窄于 ~930px 时面板收缩而不是溢出视口。maxWidth 880 必须显式保留：
+    // Fluent DialogSurface 自带 max-width: 600px，删掉它面板会被压回 600
     maxWidth: '880px',
-    width: '880px',
+    width: 'min(880px, calc(100vw - 48px))',
     maxHeight: 'min(640px, 92vh)',
     padding: '0px',
     overflow: 'hidden',
@@ -141,12 +145,16 @@ const useStyles = makeStyles({
       animationFillMode: 'forwards',
     },
   },
-  // 左右分栏：左海报满高 + 右栏（标题/表单/动作）
+  // 左右分栏：左海报满高 + 右栏（标题/表单/动作）。maxHeight inherit 把
+  // surface 的高度上限传下来约束网格行高：右栏内容超高时（如新建态的
+  // 「名称必填」提示）由 content 自己滚动，而不是行高撑破 surface、动作行
+  // 被 overflow hidden 剪掉（DialogBody 自带的松上限压不住这种内容）。
   split: {
     display: 'grid',
     gridTemplateColumns: '280px minmax(0, 1fr)',
     gap: '0px',
     alignItems: 'stretch',
+    maxHeight: 'inherit',
   },
   // —— 左：电影海报占满整列 ——
   poster: {
@@ -192,17 +200,6 @@ const useStyles = makeStyles({
     color: '#ffffff',
     wordBreak: 'break-word',
   },
-  posterGreeting: {
-    display: '-webkit-box',
-    WebkitBoxOrient: 'vertical',
-    WebkitLineClamp: 3,
-    overflow: 'hidden',
-    fontSize: tokens.fontSizeBase200,
-    lineHeight: '1.7',
-    color: 'rgba(255, 255, 255, 0.82)',
-    '::before': { content: '"「"', color: 'rgba(255, 255, 255, 0.55)' },
-    '::after': { content: '"」"', color: 'rgba(255, 255, 255, 0.55)' },
-  },
   posterMeta: {
     display: 'flex',
     alignItems: 'center',
@@ -228,6 +225,31 @@ const useStyles = makeStyles({
     minWidth: '0px',
     minHeight: '0px',
   },
+  // 首行：名称（展示态 + 行内重命名）与强调色板同行（2026-09-09 定稿排版）
+  nameRow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: tokens.spacingHorizontalS,
+  },
+  nameValue: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    // 长名截断防把同行色板挤下折（色板自身 flexWrap 可换行兜底）
+    maxWidth: '260px',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+  },
+  nameInput: {
+    width: '240px',
+  },
+  accentGroup: {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+  },
   titleRow: {
     display: 'flex',
     alignItems: 'center',
@@ -243,6 +265,10 @@ const useStyles = makeStyles({
     minHeight: '0px',
     overflowY: 'auto',
     padding: '12px 24px 0px 24px',
+    // 溢出滚动的细滚动条（WebView2 Chromium 支持）：默认粗滚动条在圆角
+    // 亚克力面板右缘太重
+    scrollbarWidth: 'thin',
+    scrollbarColor: `${tokens.colorNeutralStroke2} transparent`,
   },
   form: {
     display: 'flex',
@@ -296,6 +322,23 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   const field = useFieldStyles();
   const { t } = useTranslation();
   const form = useEditorForm({ character, onDirtyChange });
+
+  // 名称行内编辑：编辑态默认展示文本，点铅笔进输入态；Enter 提交回展示态，
+  // Esc 还原进输入前的值。新建（character = null）直接以输入态起步。
+  // 刻意不做失焦提交：Fluent 的焦点管理（tabster）会在开面板时挪走焦点，
+  // blur 一触发就把输入态弹回展示态；表单值本随键入实时更新，「编辑态」
+  // 只是展示形态，不依赖失焦收口。
+  const [editingName, setEditingName] = useState(character === null);
+  const nameBeforeEditRef = useRef('');
+  const startEditName = (): void => {
+    nameBeforeEditRef.current = form.name;
+    setEditingName(true);
+  };
+  const commitName = (): void => setEditingName(false);
+  const cancelName = (): void => {
+    form.setName(nameBeforeEditRef.current);
+    setEditingName(false);
+  };
 
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const onClosedRef = useRef(onClosed);
@@ -388,13 +431,12 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
             style={{ backgroundImage: form.live.posterGradient }}
             aria-hidden
           >
-            <Text className={styles.posterLetter}>{form.name.trim().slice(0, 1) || '·'}</Text>
+            {/* 首字水印跟随海报名的回退名：新建空名时与海报名一致取
+                「新」，比 72px 的间隔号「·」缩成一粒悬浮小点更成海报 */}
+            <Text className={styles.posterLetter}>{form.live.nameText.slice(0, 1)}</Text>
             <div className={styles.posterScrim} />
             <div className={styles.posterContent}>
               <Text className={styles.posterName}>{form.live.nameText}</Text>
-              {form.live.greetingText ? (
-                <Text className={styles.posterGreeting}>{form.live.greetingText}</Text>
-              ) : null}
               <div className={styles.posterMeta}>
                 <span
                   className={styles.posterDot}
@@ -411,17 +453,55 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
             </DialogTitle>
             <DialogContent className={styles.content}>
               <div className={styles.form}>
-                <label className={field.field}>
-                  <Text size={300} weight="semibold">
-                    {t('characters.name')}
-                  </Text>
-                  <Input
-                    value={form.name}
-                    onChange={(_, d) => form.setName(d.value)}
-                    aria-label={t('characters.name')}
-                  />
+                {/* 首行：名称 + 强调色同行。展示态名称是纯文本 + 铅笔按钮，
+                    输入态经行内 Input（Enter/失焦提交，Esc 还原）；空名时
+                    canSave 关掉并提示，色板提行折行兜底（nameRow flexWrap）。 */}
+                <div className={field.field}>
+                  <div className={styles.nameRow}>
+                    <Text size={300} weight="semibold">
+                      {t('characters.nameLabel')}
+                    </Text>
+                    {editingName ? (
+                      <Input
+                        className={styles.nameInput}
+                        value={form.name}
+                        onChange={(_, d) => form.setName(d.value)}
+                        aria-label={t('characters.name')}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitName();
+                          if (e.key === 'Escape') cancelName();
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <Text size={300} weight="semibold" className={styles.nameValue}>
+                          {form.live.nameText}
+                        </Text>
+                        <Button
+                          appearance="subtle"
+                          size="small"
+                          icon={<Edit20Regular />}
+                          aria-label={t('characters.rename')}
+                          title={t('characters.rename')}
+                          onClick={startEditName}
+                        />
+                      </>
+                    )}
+                    <div className={styles.accentGroup}>
+                      <Text size={300} weight="semibold">
+                        {t('characters.accentColorLabel')}
+                      </Text>
+                      <AccentSwatches
+                        accentColor={form.accentColor}
+                        idPosterGradient={form.live.idPosterGradient}
+                        onChange={form.setAccentColor}
+                      />
+                    </div>
+                  </div>
                   {!form.canSave ? <Text size={200}>{t('characters.nameRequired')}</Text> : null}
-                </label>
+                  <Text size={200}>{t('characters.accentHint')}</Text>
+                </div>
                 <label className={field.field}>
                   <Text size={300} weight="semibold">
                     {t('characters.persona')}
@@ -432,18 +512,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     onChange={(_, d) => form.setPersona(d.value)}
                     aria-label={t('characters.persona')}
                     placeholder={t('characters.personaPlaceholder')}
-                  />
-                </label>
-                <label className={field.field}>
-                  <Text size={300} weight="semibold">
-                    {t('characters.greeting')}
-                  </Text>
-                  <Textarea
-                    value={form.greeting}
-                    rows={3}
-                    onChange={(_, d) => form.setGreeting(d.value)}
-                    aria-label={t('characters.greeting')}
-                    placeholder={t('characters.greetingPlaceholder')}
                   />
                 </label>
                 <div className={field.field}>
@@ -457,17 +525,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     previewRef={form.previewRef}
                     previewed={form.previewed}
                   />
-                </div>
-                <div className={field.field}>
-                  <Text size={300} weight="semibold">
-                    {t('characters.accentColor')}
-                  </Text>
-                  <AccentSwatches
-                    accentColor={form.accentColor}
-                    idPosterGradient={form.live.idPosterGradient}
-                    onChange={form.setAccentColor}
-                  />
-                  <Text size={200}>{t('characters.accentHint')}</Text>
                 </div>
                 <OverrideSection
                   open={form.overrideOpen}

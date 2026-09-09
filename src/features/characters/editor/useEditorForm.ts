@@ -10,7 +10,7 @@
  * - model_config 覆写序列化为 camelCase 键 JSON（Rust resolve_effective_llm 消费），
  *   全空序列化为 null，未知键原样往返保留；
  * - 「预览演出」经引擎公开 API 播一次所选风格（createRenderer +
- *   setStyle / beginTurn / enqueue / finish），样例文本取当前开场白草稿。
+ *   setStyle / beginTurn / enqueue / finish），样例文本取 i18n 预览样例。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -80,7 +80,6 @@ function serializeModelOverride(fields: ModelOverrideFields): string | null {
 function formSignature(
   name: string,
   persona: string,
-  greeting: string,
   renderStyle: string,
   accentColor: string | null,
   override: ModelOverrideFields,
@@ -88,7 +87,6 @@ function formSignature(
   return [
     name,
     persona,
-    greeting,
     renderStyle,
     accentColor ?? '',
     override.providerId,
@@ -104,8 +102,6 @@ export interface EditorForm {
   setName: (value: string) => void;
   persona: string;
   setPersona: (value: string) => void;
-  greeting: string;
-  setGreeting: (value: string) => void;
   renderStyle: string;
   setRenderStyle: (value: string) => void;
   accentColor: string | null;
@@ -125,7 +121,6 @@ export interface EditorForm {
   /** 外壳渲染主题横幅 / 海报用的派生值（全部随输入实时更新）。 */
   live: {
     nameText: string;
-    greetingText: string;
     posterGradient: string;
     idPosterGradient: string;
     dotGradient: string;
@@ -146,7 +141,6 @@ export function useEditorForm(props: {
     return {
       name: character?.name ?? '',
       persona: character?.persona ?? '',
-      greeting: character?.greeting ?? '',
       // 新建默认 render_style 与 Rust NewCharacter::default 一致（typewriter）。
       renderStyle: character?.renderStyle ?? 'typewriter',
       // null = 跟随海报派生（accent_color 列语义，迁移 0003）。
@@ -155,7 +149,6 @@ export function useEditorForm(props: {
       signature: formSignature(
         character?.name ?? '',
         character?.persona ?? '',
-        character?.greeting ?? '',
         character?.renderStyle ?? 'typewriter',
         character?.accentColor ?? null,
         override,
@@ -165,7 +158,6 @@ export function useEditorForm(props: {
 
   const [name, setName] = useState(initial.name);
   const [persona, setPersona] = useState(initial.persona);
-  const [greeting, setGreeting] = useState(initial.greeting);
   const [renderStyle, setRenderStyle] = useState(initial.renderStyle);
   const [accentColor, setAccentColor] = useState<string | null>(initial.accentColor);
   const [override, setOverrideState] = useState<ModelOverrideFields>(initial.override);
@@ -183,7 +175,7 @@ export function useEditorForm(props: {
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
-  const dirty = formSignature(name, persona, greeting, renderStyle, accentColor, override) !== initial.signature;
+  const dirty = formSignature(name, persona, renderStyle, accentColor, override) !== initial.signature;
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -210,7 +202,7 @@ export function useEditorForm(props: {
     const style: AnimStyleId = found ? found.id : 'fade';
     rendererRef.current.setStyle(style);
     rendererRef.current.beginTurn();
-    rendererRef.current.enqueue(greeting.trim() || t('characters.previewSample'));
+    rendererRef.current.enqueue(t('characters.previewSample'));
     rendererRef.current.finish();
     setPreviewed(true);
   };
@@ -221,8 +213,6 @@ export function useEditorForm(props: {
     const selectedStyle = ANIM_STYLES.find((s) => s.id === renderStyle);
     return {
       nameText: name.trim() || t('characters.new'),
-      greetingText: greeting.trim(),
-      // 强调色即角色主色：设了整卡覆盖（与海报墙同规则），未设按 id 取模。
       // 强调色即角色主色：设了整卡覆盖（与海报墙同规则），未设按 id 取模。
       posterGradient: posterGradientOf(accentInput),
       // 「跟随海报」色板展示的正是放弃覆盖后海报回到的样子。
@@ -230,17 +220,15 @@ export function useEditorForm(props: {
       dotGradient: dotGradientOf(accentInput),
       styleLabel: selectedStyle ? selectedStyle.label : renderStyle,
     };
-  }, [character, accentColor, renderStyle, name, greeting, t]);
+  }, [character, accentColor, renderStyle, name, t]);
 
   return {
     name,
     setName,
-    persona,
-    setPersona,
-    greeting,
-    setGreeting,
-    renderStyle,
-    setRenderStyle,
+  persona,
+  setPersona,
+  renderStyle,
+  setRenderStyle,
     accentColor,
     setAccentColor,
     override,
@@ -258,7 +246,6 @@ export function useEditorForm(props: {
       // avatar 不做编辑 UI：新建 null、编辑原样带回现值。
       avatar: character?.avatar ?? null,
       persona,
-      greeting,
       renderStyle,
       accentColor,
       modelConfig: serializeModelOverride(override),

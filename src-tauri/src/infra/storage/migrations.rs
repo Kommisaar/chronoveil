@@ -15,6 +15,8 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     (2, include_str!("../../../migrations/0002_scenes_character_state.sql")),
     // 编辑器「强调色」（2026-09-09）：characters.accent_color 可空扩列
     (3, include_str!("../../../migrations/0003_character_accent.sql")),
+    // 角色卡移除开场白（2026-09-09 产品裁剪）：characters 丢弃 greeting 列
+    (4, include_str!("../../../migrations/0004_drop_character_greeting.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。
@@ -110,7 +112,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3], "旧版本记录保留，新版本追加");
+        assert_eq!(versions, vec![1, 2, 3, 4], "旧版本记录保留，新版本追加");
 
         // 旧数据逐字段原样（验收 1：迁移不丢数据）
         let (name, persona): (String, String) = conn

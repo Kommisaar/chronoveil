@@ -162,17 +162,6 @@ const useStyles = makeStyles({
     color: '#ffffff',
     wordBreak: 'break-word',
   },
-  greetingB: {
-    display: '-webkit-box',
-    WebkitBoxOrient: 'vertical',
-    WebkitLineClamp: 2,
-    overflow: 'hidden',
-    fontSize: tokens.fontSizeBase200,
-    lineHeight: '1.7',
-    color: 'rgba(255, 255, 255, 0.82)',
-    '::before': { content: '"「"', color: 'rgba(255, 255, 255, 0.55)' },
-    '::after': { content: '"」"', color: 'rgba(255, 255, 255, 0.55)' },
-  },
   metaB: {
     display: 'flex',
     alignItems: 'center',
@@ -444,7 +433,6 @@ export function CharactersView() {
                   <div className={styles.scrimB} />
                   <div className={styles.contentB}>
                     <span className={styles.nameB}>{character.name}</span>
-                    <span className={styles.greetingB}>{character.greeting}</span>
                     <div className={styles.metaB}>
                       <span
                         className={styles.dot}

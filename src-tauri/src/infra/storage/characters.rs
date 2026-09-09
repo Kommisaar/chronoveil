@@ -10,7 +10,7 @@ use super::now;
 
 pub(crate) const ENTITY: &str = "character";
 
-const COLS: &str = "id, name, avatar, persona, greeting, render_style, model_config, \
+const COLS: &str = "id, name, avatar, persona, render_style, model_config, \
                     voice_config, calendar_config, accent_color, created_at, updated_at, \
                     deleted_at";
 
@@ -20,15 +20,14 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         name: row.get(1)?,
         avatar: row.get(2)?,
         persona: row.get(3)?,
-        greeting: row.get(4)?,
-        render_style: row.get(5)?,
-        model_config: row.get(6)?,
-        voice_config: row.get(7)?,
-        calendar_config: row.get(8)?,
-        accent_color: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-        deleted_at: row.get(12)?,
+        render_style: row.get(4)?,
+        model_config: row.get(5)?,
+        voice_config: row.get(6)?,
+        calendar_config: row.get(7)?,
+        accent_color: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        deleted_at: row.get(11)?,
     })
 }
 
@@ -36,14 +35,13 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
     let ts = now();
     // calendar_config 的入参接线随角色卡编辑任务（NewCharacter 暂无该字段，落库 NULL = 内置默认历）。
     conn.execute(
-        "INSERT INTO characters (name, avatar, persona, greeting, render_style, \
+        "INSERT INTO characters (name, avatar, persona, render_style, \
              model_config, voice_config, accent_color, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             new.name,
             new.avatar,
             new.persona,
-            new.greeting,
             new.render_style,
             new.model_config,
             new.voice_config,
@@ -56,7 +54,6 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         name: new.name.clone(),
         avatar: new.avatar.clone(),
         persona: new.persona.clone(),
-        greeting: new.greeting.clone(),
         render_style: new.render_style.clone(),
         model_config: new.model_config.clone(),
         voice_config: new.voice_config.clone(),
@@ -98,14 +95,13 @@ pub(crate) fn update(
     upd: &UpdateCharacter,
 ) -> Result<(), StorageError> {
     let n = conn.execute(
-        "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, greeting = ?4, \
-             render_style = ?5, model_config = ?6, voice_config = ?7, accent_color = ?8, \
-             updated_at = ?9 WHERE id = ?10 AND deleted_at IS NULL",
+        "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, render_style = ?4, \
+             model_config = ?5, voice_config = ?6, accent_color = ?7, \
+             updated_at = ?8 WHERE id = ?9 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
             upd.persona,
-            upd.greeting,
             upd.render_style,
             upd.model_config,
             upd.voice_config,
@@ -161,7 +157,6 @@ mod tests {
             name: String::new(),
             avatar: None,
             persona: String::new(),
-            greeting: String::new(),
             render_style: "typewriter".into(),
             model_config: None,
             accent_color: None,
@@ -184,7 +179,6 @@ mod tests {
             name: "艾莉丝".to_string(),
             avatar: Some("data:image/png;base64,xxx".to_string()),
             persona: " 你是时间旅人。".to_string(),
-            greeting: " *她转过身* 你来了。".to_string(),
             render_style: "fade".to_string(),
             model_config: Some(r#"{"temperature":0.8}"#.to_string()),
             accent_color: Some("#6b46b8".to_string()),

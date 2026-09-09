@@ -35,7 +35,7 @@ impl MessageRole {
     }
 }
 
-/// 角色卡（DOM-001）：一等实体——人设、开场白、出场方式、模型参数都挂在角色上。
+/// 角色卡（DOM-001）：一等实体——人设、出场方式、模型参数都挂在角色上。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Character {
     pub id: i64,
@@ -44,8 +44,6 @@ pub struct Character {
     pub avatar: Option<String>,
     /// 人设系统提示词（底版，几乎不变）。
     pub persona: String,
-    /// 开场白，markdown-lite，与聊天正文走同一渲染管线。
-    pub greeting: String,
     /// 出场动画风格（18 种之一，按角色存而非全局）。
     pub render_style: String,
     /// 角色专属模型覆写 JSON，可空。
@@ -106,7 +104,6 @@ pub struct NewCharacter {
     pub name: String,
     pub avatar: Option<String>,
     pub persona: String,
-    pub greeting: String,
     pub render_style: String,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
@@ -119,7 +116,6 @@ impl Default for NewCharacter {
             name: String::new(),
             avatar: None,
             persona: String::new(),
-            greeting: String::new(),
             render_style: "typewriter".to_string(),
             model_config: None,
             accent_color: None,
@@ -134,7 +130,6 @@ pub struct UpdateCharacter {
     pub name: String,
     pub avatar: Option<String>,
     pub persona: String,
-    pub greeting: String,
     pub render_style: String,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,

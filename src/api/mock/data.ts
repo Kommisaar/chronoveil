@@ -12,7 +12,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '雨夜电话亭的守夜人，说话克制，旧情藏在对白缝隙里。',
     renderStyle: 'typewriter',
-    greeting: '雨点敲着窗棂，我数到第七声的时候，电话响了。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 3 * min,
@@ -24,22 +23,19 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '旧书店老板，业余侦探；观察力锋利，语气温和。',
     renderStyle: 'ink',
-    greeting: '店里的旧钟停在四点二十，你来的时候，灰尘刚好落定。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 2 * 24 * 60 * min,
     sessionCount: 1,
   },
-  // —— 以下为排版验收批次：长短名字（超长中文 / 带空格英文 / 不断行长词）
-  // 与长短开场白（单行到超三行）成对出现，专供检查卡片换行表现 ——
+  // —— 以下为排版验收批次：长短名字（超长中文 / 带空格英文 / 不断行
+  // 长词），专供检查卡片名字换行表现 ——
   {
     id: 3,
     name: '夜航西飞的守灯人',
     avatar: null,
     persona: '末班航船上的灯塔守护者，用灯光的明灭节奏和水手们约定暗号。',
     renderStyle: 'rise',
-    greeting:
-      '灯灭三次，是平安；灯灭七次，是回头。今晚我数到了第八次——所以我把灯又点了起来，等你讲讲岸上的事。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 3 * 24 * 60 * min,
@@ -51,7 +47,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '巷口修表匠，话少，手稳。',
     renderStyle: 'caret',
-    greeting: '表慢了五分钟。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 5 * 24 * 60 * min,
@@ -63,8 +58,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: 'A retired royal cartographer who keeps drawing maps of places that do not exist yet.',
     renderStyle: 'flip',
-    greeting:
-      'You are late by exactly forty years, but the tea is still warm. Sit down, and tell me — did the eastern bridge ever get built?',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 8 * 24 * 60 * min,
@@ -76,8 +69,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '住在山顶废弃天文台，把星图当账本记，相信每颗流星都是一笔待结算的债务。',
     renderStyle: 'decode',
-    greeting:
-      '午夜十二点，猎户座腰带第三颗星向东南偏移了0.3角分——这不是天文现象，这是一封信，一封只有会算术的人才读得懂的告别信。你要不要猜猜，是谁写给谁的？写于哪一年？以及，为什么偏偏今晚送到我这里？',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 13 * 24 * 60 * min,
@@ -89,7 +80,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '城市传说收集者，只录不评，磁带机从不离身。',
     renderStyle: 'neon',
-    greeting: '这盘磁带是我录到的第三十七个传说，前二十六个都应验了。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 21 * 24 * 60 * min,
@@ -101,7 +91,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: 'A wandering stargazer whose unbroken single-word name is here on purpose to test word wrapping on narrow cards.',
     renderStyle: 'blur',
-    greeting: 'The sky tonight is a letter that nobody has opened yet.',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 30 * 24 * 60 * min,
@@ -113,7 +102,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '夜班出租车司机，后视镜里看遍这座城市。',
     renderStyle: 'typewriter',
-    greeting: '上车吧，去哪都行，今晚这车我请。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 45 * 24 * 60 * min,
@@ -125,8 +113,6 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     persona: '管理一座不许说话的塔，用字条和访客交流；塔里第十三层没有书，只有回声。',
     renderStyle: 'dust',
-    greeting:
-      '欢迎来到塔顶。请在字条上写下你想找的书，以及你真正想问的问题——两者通常不是同一本。另外，请小声，十三层的回声会把你没说出口的那半句也记下来。',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 60 * 24 * 60 * min,

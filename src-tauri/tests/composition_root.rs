@@ -31,7 +31,6 @@ fn composition_root_end_to_end() {
         .storage
         .create_character(&NewCharacter {
             name: "苏鸢".into(),
-            greeting: "雨点敲着窗棂。".into(),
             ..Default::default()
         })
         .unwrap();

@@ -82,18 +82,21 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
 it('未保存切换选中项提示丢弃确认：放弃后换载目标角色（验收 3）', async () => {
   renderView();
   fireEvent.click(await screen.findByText('林深'));
+  // 名称默认展示态：点铅笔（重命名）进入行内输入态后再改值
+  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
   fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
 
   fireEvent.click(screen.getByText('苏鸢'));
   expect(screen.getByText('放弃未保存的修改？')).toBeTruthy();
 
-  // 继续编辑：留在当前编辑对象
+  // 继续编辑：仍处输入态，行内输入保留未提交值
   fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
   expect(inputOf('名称').value).toBe('林深（改）');
 
-  // 放弃修改：切换到苏鸢（key 重挂、表单换绑初值）
+  // 放弃修改：切换到苏鸢（key 重挂、表单换绑初值，回到展示态）
   fireEvent.click(screen.getByText('苏鸢'));
   fireEvent.click(screen.getByRole('button', { name: '放弃修改' }));
+  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
   expect(inputOf('名称').value).toBe('苏鸢');
 });
 

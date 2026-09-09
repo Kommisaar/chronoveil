@@ -174,7 +174,6 @@ export async function createCharacter(
     avatar: input.avatar,
     persona: input.persona,
     renderStyle: input.renderStyle,
-    greeting: input.greeting,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
     updatedAt: Date.now(),
@@ -194,7 +193,6 @@ export async function updateCharacter(
   character.avatar = input.avatar;
   character.persona = input.persona;
   character.renderStyle = input.renderStyle;
-  character.greeting = input.greeting;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;
   character.updatedAt = Date.now();

@@ -7,7 +7,11 @@
 // - 氛围层：fixed 环境光晕（靛紫，呼应应用图标），仅本视图挂载期间存在；
 // - 每角色渐变按 id 取模 6 组深色低饱和调色板，同人恒同色；
 // - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑、
-//   开新会话走 selectSession、脏守卫照旧。
+//   脏守卫照旧（卡片上的「开新会话」入口已移除，建会话走侧栏新建）。
+// - 海报文字（首字母水印/名字/问候/元信息）一律用普通 span 而非 Text：
+//   Fluent Card 自带 `.fui-Card哈希 .fui-Text { color: currentcolor }`
+//   两类名后代规则（useCardStyles.styles.raw.js），单类名的 Griffel color
+//   压不过它——暗色下继承值恰为白色被掩盖，亮色下会变成深底深字。
 import {
   Button,
   Card,
@@ -28,7 +32,6 @@ import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
-  createSession,
   deleteCharacter,
   getConfig,
   listCharacters,
@@ -40,7 +43,6 @@ import { SPRING_CURVE } from '../../components/motion';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
-import { useUiStore } from '../../stores/ui';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 
@@ -102,13 +104,6 @@ const useStyles = makeStyles({
     position: 'absolute',
     inset: '0px',
   },
-  orb: {
-    position: 'absolute',
-    inset: '0px',
-    pointerEvents: 'none',
-    backgroundImage:
-      'radial-gradient(circle at 72% 16%, rgba(255, 255, 255, 0.28), transparent 55%)',
-  },
   dot: {
     width: '8px',
     height: '8px',
@@ -141,7 +136,7 @@ const useStyles = makeStyles({
     lineHeight: 1,
     color: 'rgba(255, 255, 255, 0.24)',
     userSelect: 'none',
-    textShadow: '0 2px 24px rgba(0, 0, 0, 0.35)',
+    // 不加 textShadow：半透明填充会透出模糊暗晕，观感像污渍（2026-09-09 用户反馈"脏"）
   },
   scrimB: {
     position: 'absolute',
@@ -190,14 +185,6 @@ const useStyles = makeStyles({
     color: 'rgba(255, 255, 255, 0.66)',
     fontSize: tokens.fontSizeBase200,
   },
-  startBtnB: {
-    marginLeft: 'auto',
-    whiteSpace: 'nowrap',
-    color: 'rgba(255, 255, 255, 0.92)',
-    backgroundColor: 'rgba(255, 255, 255, 0.10)',
-    border: '1px solid rgba(255, 255, 255, 0.35)',
-    ':hover': { backgroundColor: 'rgba(255, 255, 255, 0.20)' },
-  },
 
   clickable: {
     cursor: 'pointer',
@@ -232,8 +219,6 @@ export function CharactersView() {
   const lift = useCardLiftStyles();
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
-  // 只调用既有 store API（验收 6）：selectSession = 选中会话并切回聊天视图。
-  const selectSession = useUiStore((s) => s.selectSession);
 
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -247,8 +232,6 @@ export function CharactersView() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CharacterSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [startingId, setStartingId] = useState<number | null>(null);
   // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
   // 以下滚入才播；同批 60ms 级错峰。本视图内无重挂触发源，resetKey 恒定。
   const { reveal, register } = useRevealOnScroll(characters.length, 'characters');
@@ -373,26 +356,6 @@ export function CharactersView() {
     }
   }, [deleteTarget, editor, refresh, closeEditorSilently, t]);
 
-  const startSession = useCallback(
-    (character: CharacterSummary) => {
-      guarded(() => {
-        void (async () => {
-          setStartingId(character.id);
-          setStartError(null);
-          try {
-            const session = await createSession(character.id);
-            selectSession(session.id);
-          } catch (e) {
-            setStartError(`${t('characters.newSessionFailed')}：${describeError(e)}`);
-          } finally {
-            setStartingId(null);
-          }
-        })();
-      });
-    },
-    [guarded, selectSession, t],
-  );
-
   const discardAndContinue = (): void => {
     setDiscardOpen(false);
     const action = pendingActionRef.current;
@@ -430,11 +393,6 @@ export function CharactersView() {
         {loadError ? (
           <Text role="alert" className={styles.errorText}>
             {loadError}
-          </Text>
-        ) : null}
-        {startError ? (
-          <Text role="alert" className={styles.errorText}>
-            {startError}
           </Text>
         ) : null}
         {sorted.length === 0 ? (
@@ -481,34 +439,21 @@ export function CharactersView() {
                       alt={character.name}
                     />
                   ) : (
-                    <Text className={styles.letterB}>{character.name.slice(0, 1)}</Text>
+                    <span className={styles.letterB}>{character.name.slice(0, 1)}</span>
                   )}
-                  <div className={styles.orb} />
                   <div className={styles.scrimB} />
                   <div className={styles.contentB}>
-                    <Text className={styles.nameB}>{character.name}</Text>
-                    <Text className={styles.greetingB}>{character.greeting}</Text>
+                    <span className={styles.nameB}>{character.name}</span>
+                    <span className={styles.greetingB}>{character.greeting}</span>
                     <div className={styles.metaB}>
                       <span
                         className={styles.dot}
                         style={{ backgroundImage: dotGradientOf(character) }}
                       />
-                      <Text className={styles.metaTextB}>{styleMeta(character)}</Text>
-                      <Text className={styles.metaTextB}>
+                      <span className={styles.metaTextB}>{styleMeta(character)}</span>
+                      <span className={styles.metaTextB}>
                         {t('characters.sessionCount', { count: character.sessionCount })}
-                      </Text>
-                      <Button
-                        size="small"
-                        appearance="transparent"
-                        className={styles.startBtnB}
-                        disabled={startingId !== null}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startSession(character);
-                        }}
-                      >
-                        {t('characters.newSession')}
-                      </Button>
+                      </span>
                     </div>
                   </div>
                 </Card>

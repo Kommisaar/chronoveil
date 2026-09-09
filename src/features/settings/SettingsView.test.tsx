@@ -1,7 +1,8 @@
-// 设置视图交互单测（TASK-009）：jsdom 下 isTauri=false，走 mock 后端
-// （内存 config，跨用例共享 → 每个用例 beforeEach 重置基线）。
-// 覆盖：空态引导、providers 新建/校验/保存落盘（directorModel 保留）、
-// api_key 掩码切换、激活删除拦截、非激活删除、保存后主题/语言即时生效。
+// 设置视图交互单测（TASK-009；2026-09-09 起自动保存语义）：jsdom 下
+// isTauri=false，走 mock 后端（内存 config，跨用例共享 → 每个用例
+// beforeEach 重置基线）。覆盖：空态引导、providers 新建/校验/修改即落盘
+// （directorModel 保留）、api_key 掩码切换、激活删除拦截、非激活删除、
+// 主题/语言改动即时生效、非法草稿不落盘。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -35,7 +36,12 @@ const seedConfig = (partial: Partial<ConfigDto>): ConfigDto => ({
   ...partial,
 });
 
-const saveButton = () => screen.getByRole('button', { name: '保存' }) as HTMLButtonElement;
+// 自动保存防抖 600ms + 落盘延迟；并行负载下留裕量（同 CharactersView 210ms
+// 退场契约的加时经验）。
+const AUTOSAVE_WAIT = { timeout: 3000 };
+
+/** 原地等待 ms（真实计时器，用于越过防抖窗口做否定断言）。 */
+const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('SettingsView（TASK-009）', () => {
   beforeEach(async () => {
@@ -50,14 +56,15 @@ describe('SettingsView（TASK-009）', () => {
     expect(screen.getAllByRole('button', { name: '新建' }).length).toBeGreaterThan(0);
   });
 
-  it('验收 2/5/6：新建 provider → 校验禁保存 → 填齐后保存落盘，directorModel 原样保留', async () => {
+  it('验收 2/5/6：新建 provider → 未填齐不落盘 → 填齐后自动落盘，directorModel 原样保留', async () => {
     renderSettings();
     await screen.findByText(/还没有模型服务/);
     fireEvent.click(screen.getAllByRole('button', { name: '新建' })[0]!);
 
-    // 未填齐：卡片级校验提示 + 保存禁用
+    // 未填齐：卡片级校验提示；越过防抖窗口后仍不落盘（自动保存跳过非法草稿）
     expect(await screen.findByText(/名称为必填/)).toBeTruthy();
-    expect(saveButton().disabled).toBe(true);
+    await settle(700);
+    expect((await getConfig()).providers).toHaveLength(0);
 
     fireEvent.change(await screen.findByLabelText(/-name$/), { target: { value: '主服务' } });
     fireEvent.change(screen.getByLabelText(/-baseUrl$/), {
@@ -65,10 +72,8 @@ describe('SettingsView（TASK-009）', () => {
     });
     fireEvent.change(screen.getByLabelText(/-model$/), { target: { value: 'gpt-x' } });
 
-    // 脏状态标记
-    expect(await screen.findByText('未保存')).toBeTruthy();
-    await waitFor(() => expect(saveButton().disabled).toBe(false));
-    fireEvent.click(saveButton());
+    // 草稿合法 → 待自动保存状态
+    expect(await screen.findByText('更改将自动保存')).toBeTruthy();
 
     await waitFor(async () => {
       const saved = await getConfig();
@@ -77,9 +82,9 @@ describe('SettingsView（TASK-009）', () => {
       expect(saved.providers[0]!.model).toBe('gpt-x');
       // 不呈现的字段整份带回（saveConfig 整份覆写不丢字段）
       expect(saved.directorModel).toBe('director-keep');
-    });
-    // 保存后脏标记消失
-    await waitFor(() => expect(screen.queryByText('未保存')).toBeNull());
+    }, AUTOSAVE_WAIT);
+    // 落盘后待保存状态消失
+    await waitFor(() => expect(screen.queryByText('更改将自动保存')).toBeNull(), AUTOSAVE_WAIT);
   });
 
   it('验收 2：api_key 默认掩码，可见性切换', async () => {
@@ -104,7 +109,7 @@ describe('SettingsView（TASK-009）', () => {
     expect(confirm.disabled).toBe(true);
   });
 
-  it('验收 2：非激活 provider 经确认对话框删除（草稿级，保存后落盘）', async () => {
+  it('验收 2：非激活 provider 经确认对话框删除，自动落盘', async () => {
     await saveConfig(
       seedConfig({
         providers: [fullProvider({}), fullProvider({ id: 'p2', name: '备用' })],
@@ -117,12 +122,13 @@ describe('SettingsView（TASK-009）', () => {
     expect((confirm as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(confirm);
     await waitFor(() => expect(screen.getAllByLabelText(/-name$/)).toHaveLength(1));
-    // 草稿级删除：未保存前落盘值不变
-    const onDisk = await getConfig();
-    expect(onDisk.providers).toHaveLength(2);
+    // 删除经自动保存落盘
+    await waitFor(async () => {
+      expect((await getConfig()).providers).toHaveLength(1);
+    }, AUTOSAVE_WAIT);
   });
 
-  it('验收 2：激活单选切换，保存后 active_provider_id 落盘', async () => {
+  it('验收 2：激活单选切换，自动落盘 active_provider_id', async () => {
     await saveConfig(
       seedConfig({
         providers: [fullProvider({}), fullProvider({ id: 'p2', name: '备用' })],
@@ -134,36 +140,40 @@ describe('SettingsView（TASK-009）', () => {
     expect((radios[0] as HTMLInputElement).checked).toBe(true);
     expect((radios[1] as HTMLInputElement).checked).toBe(false);
     fireEvent.click(radios[1]!);
-    fireEvent.click(saveButton());
     await waitFor(async () => {
       expect((await getConfig()).activeProviderId).toBe('p2');
-    });
+    }, AUTOSAVE_WAIT);
   });
 
-  it('验收 4/5：主题/语言三档入草稿，保存成功后即时生效（ui store）', async () => {
+  it('验收 4/5：主题/语言三档改动即时生效（ui store），落盘交自动保存', async () => {
     renderSettings();
     await screen.findByText('外观');
     fireEvent.click(screen.getByRole('radio', { name: '暗色' }));
     fireEvent.click(screen.getByRole('radio', { name: 'English' }));
-    fireEvent.click(saveButton());
+    // 改动即生效（不等落盘）
     await waitFor(() => {
       expect(useUiStore.getState().theme).toBe('dark');
       expect(useUiStore.getState().language).toBe('en');
     });
     // 落盘值与 ui store 一致（'system'|'zh'|'en' / 'system'|'light'|'dark'）
-    const saved = await getConfig();
-    expect(saved.uiTheme).toBe('dark');
-    expect(saved.uiLanguage).toBe('en');
+    await waitFor(async () => {
+      const saved = await getConfig();
+      expect(saved.uiTheme).toBe('dark');
+      expect(saved.uiLanguage).toBe('en');
+    }, AUTOSAVE_WAIT);
   });
 
-  it('验收 3：动效基准数字输入非法时禁保存并提示', async () => {
+  it('验收 3：动效基准数字输入非法时不落盘并提示，改合法后问题消失', async () => {
+    const baseline = await getConfig();
     renderSettings();
     const anim = await screen.findByLabelText('动效基准（ms）');
     fireEvent.change(anim, { target: { value: '12.5' } });
     // 字段级提示与底部汇总行各出现一次
     expect(await screen.findAllByText(/动效基准需为非负整数/)).toHaveLength(2);
-    expect(saveButton().disabled).toBe(true);
+    // 非法草稿不落盘：越过防抖窗口后磁盘仍为基线值
+    await settle(700);
+    expect((await getConfig()).animDurationBase).toBe(baseline.animDurationBase);
     fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '300' } });
-    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    await waitFor(() => expect(screen.queryByText(/动效基准需为非负整数/)).toBeNull());
   });
 });

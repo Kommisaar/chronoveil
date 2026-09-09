@@ -1,10 +1,14 @@
-// 设置视图（UI-003 / FR-009，TASK-009 接真）：载入 config.json → 分节卡片
-// 草稿编辑 → 显式「保存」整份 saveConfig 原子落盘（ADR-012）。语义要点：
+// 设置视图（UI-003 / FR-009，TASK-009 接真；2026-09-09 起改「修改即保存」）：
+// 载入 config.json → 分节卡片直接编辑，草稿合法即防抖自动 saveConfig 原子
+// 落盘（ADR-012），无显式保存按钮。语义要点：
 // - saveConfig 是整份覆写：以载入 config 为基做不可变更新，不呈现的字段
 //   （directorModel，FR-009 已移除配置项）原样带回；
-// - 主题/语言在表单草稿中改动，保存成功后经既有 setTheme/setLanguage
-//   即时生效（AppProviders 的 useResolvedTheme 解析，不在此重复实现）；
-// - 校验双重兜底：前端禁保存 + Rust save_config 校验（越界经 ApiError 展示）。
+// - 自动保存只在整份草稿校验通过时触发：provider 必填/节奏/动效基准非法时
+//   就地展示问题、不落盘，改正后自动续存；保存失败不自动重试，待下一次
+//   修改再试（lastAttempted 挡住同内容的重复尝试）；
+// - 主题/语言改动即经既有 setTheme/setLanguage 即时生效（AppProviders 的
+//   useResolvedTheme 解析），落盘交给自动保存；
+// - 后端校验兜底：Rust save_config 校验（越界经 ApiError 展示）。
 // 表单容器卡刻意不加悬停浮起（useCardLiftStyles 备注：避免填写时内容随
 // 悬停跳动）。
 import {
@@ -29,7 +33,7 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { Add16Regular } from '@fluentui/react-icons';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfig, saveConfig } from '../../api/commands';
 import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
@@ -43,6 +47,9 @@ import {
   toDraft,
 } from './preferences';
 import { ProviderCard } from './ProviderCard';
+
+/** 自动保存防抖：停止修改后延迟落盘（滑杆拖动/逐键输入不逐帧写盘）。 */
+const AUTOSAVE_DEBOUNCE_MS = 600;
 
 const useStyles = makeStyles({
   title: {
@@ -93,11 +100,13 @@ const useStyles = makeStyles({
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
   },
-  actions: {
+  status: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: tokens.spacingHorizontalM,
+    minHeight: tokens.spacingVerticalL,
+    color: tokens.colorNeutralForeground3,
+    fontSize: tokens.fontSizeBase200,
   },
   hint: {
     marginTop: tokens.spacingVerticalL,
@@ -122,6 +131,9 @@ export function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // 最近一次实际尝试落盘的整份 payload：保存失败后挡住自动重试（同内容
+  // 不再试，待下一次修改生成新 payload 再试）。
+  const lastAttemptedRef = useRef('');
 
   // 载入当次 config（生成侧读当次值不缓存，ADR-012；此处为表单基线）
   useEffect(() => {
@@ -167,7 +179,7 @@ export function SettingsView() {
     if (!isRhythmValid(draft.rhythmMsPerChar)) issues.push(t('settings.issueRhythm'));
     if (animBase === null) issues.push(t('settings.issueAnimBase'));
   }
-  const canSave = draft !== null && issues.length === 0 && !saving;
+  const hasIssues = issues.length > 0;
 
   const patch = (partial: Partial<ConfigDto>) =>
     setDraft((d) => (d === null ? d : { ...d, ...partial }));
@@ -202,7 +214,8 @@ export function SettingsView() {
   };
 
   const save = async () => {
-    if (!loaded || !draft || !next || !canSave) return;
+    if (!loaded || !draft || !next || saving || hasIssues) return;
+    lastAttemptedRef.current = JSON.stringify(next);
     setSaving(true);
     setSaveError(null);
     try {
@@ -210,16 +223,24 @@ export function SettingsView() {
       setLoaded(next);
       setDraft(toDraft(next));
       setAnimBaseText(String(next.animDurationBase));
-      // 保存成功后主题/语言即时生效（既有 ui store 动作，AppProviders 消费）
-      setTheme(draft.uiTheme as ThemeSetting);
-      setLanguage(draft.uiLanguage as LanguageSetting);
     } catch (e: unknown) {
-      // 后端校验失败（如 rhythm 越界）经 ApiError 展示可读错误（验收 5）
+      // 后端校验失败（如 rhythm 越界）经 ApiError 展示可读错误（验收 5）；
+      // 不自动重试，待下一次修改由自动保存再试。
       setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
   };
+
+  // 修改即保存：草稿合法且与载入基线不一致时防抖落盘。effect 依赖随渲染
+  // 重建的 save/issues，重跑只会重置计时器；真正触发条件由早退分支把守。
+  useEffect(() => {
+    if (!loaded || !next || !dirty || hasIssues) return;
+    const payload = JSON.stringify(next);
+    if (payload === lastAttemptedRef.current) return;
+    const timer = setTimeout(() => void save(), AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  });
 
   const deleteIsActive = deleteTarget !== null && draft?.activeProviderId === deleteTarget.id;
 
@@ -246,7 +267,11 @@ export function SettingsView() {
                   layout="horizontal"
                   aria-label={t('settings.theme')}
                   value={draft.uiTheme}
-                  onChange={(_, d) => patch({ uiTheme: d.value })}
+                  onChange={(_, d) => {
+                    patch({ uiTheme: d.value });
+                    // 改动即生效（既有 ui store 动作，AppProviders 消费），落盘交自动保存
+                    setTheme(d.value as ThemeSetting);
+                  }}
                 >
                   <Radio value="system" label={t('settings.themeSystem')} />
                   <Radio value="light" label={t('settings.themeLight')} />
@@ -259,7 +284,10 @@ export function SettingsView() {
                   layout="horizontal"
                   aria-label={t('settings.language')}
                   value={draft.uiLanguage}
-                  onChange={(_, d) => patch({ uiLanguage: d.value })}
+                  onChange={(_, d) => {
+                    patch({ uiLanguage: d.value });
+                    setLanguage(d.value as LanguageSetting);
+                  }}
                 >
                   <Radio value="system" label={t('settings.languageSystem')} />
                   <Radio value="zh" label={t('settings.languageZh')} />
@@ -343,23 +371,24 @@ export function SettingsView() {
             </Card>
           </div>
 
-          <div className={styles.actions}>
+          {/* 修改即保存的状态行：保存中 / 失败 / 非法未存 / 待自动保存 */}
+          <div className={styles.status}>
             {saveError ? (
               <Text className={styles.issues} role="alert">
                 {t('settings.saveFailed')}: {saveError}
               </Text>
-            ) : null}
-            {dirty && !saveError ? (
+            ) : saving ? (
+              <Text>{t('settings.saving')}</Text>
+            ) : dirty && hasIssues ? (
               <Badge appearance="tint" color="warning">
                 {t('settings.dirty')}
               </Badge>
+            ) : dirty ? (
+              <Text>{t('settings.autosaveHint')}</Text>
             ) : null}
-            <Button appearance="primary" disabled={!canSave} onClick={() => void save()}>
-              {saving ? t('settings.saving') : t('settings.save')}
-            </Button>
           </div>
 
-          {issues.length > 0 && !saving ? (
+          {hasIssues && !saving ? (
             <Text className={styles.issues}>{issues.join('；')}</Text>
           ) : null}
 

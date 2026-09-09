@@ -167,7 +167,7 @@ const useStyles = makeStyles({
     lineHeight: 1,
     color: 'rgba(255, 255, 255, 0.24)',
     userSelect: 'none',
-    textShadow: '0 2px 24px rgba(0, 0, 0, 0.35)',
+    // 与海报墙一致：不加 textShadow（半透明填充透出暗晕像污渍）
   },
   posterScrim: {
     position: 'absolute',

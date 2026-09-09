@@ -90,3 +90,24 @@ body {
   display: none !important;
 }
 
+/* 角色卡入场动画（2026-09-09 定稿弹性形态）：只在此声明 @keyframes
+   （Griffel 无法声明 keyframes），应用侧是 CharactersView 的 enterPop
+   Griffel 类（reduced-motion 门控在其 @media 内，批内延迟经行内
+   --enter-delay 注入，由 useRevealOnScroll 视口触发）——不能做成全局
+   类拼接进 Fluent Card 的 className：Card 内部会对 className 再过一次
+   Griffel mergeClasses，拼接的非 Griffel 类会被静默丢弃（repo 规约：
+   一律 mergeClasses）。 */
+@keyframes card-enter-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

@@ -1,25 +1,24 @@
-// 页面容器统一边距与限宽（标题锚定机制移植自 relay-harbor 的 25vw；
-// 2026-09-08 用户调整为 15vw）：标题起点锚定整窗 15vw 比例位，随窗口
-// 等比。chronoveil 的角色/设置页无侧栏，左栏仅活动栏收起态
-// 48px，左 padding = 15vw - 48px；右 padding 固定 64（非对称）。
-// maxWidth = 15vw - 48 + 内容宽上限 + 64
-// （角色网格页 / 设置两栏卡片页均 880），内容宽上限不随窗变。聊天主
-// 界面是全幅工作台（自带内部滚动），不走此容器。
+// 页面容器统一边距与限宽：设置页限宽 880 且整体居中（maxWidth 含左
+// 右 padding 各 64）；角色网格页为「海报墙」（2026-09-09 用户定）：
+// 不限宽、随窗加列（列宽下限由各网格自己的 minmax 决定），左右等
+// 边距 64（2026-09-09 用户改：放弃 15vw 标题锚定，改对称页边距）。
+// 聊天主界面是全幅工作台（自带内部滚动），不走此容器。
 import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 
 /** 页面族：决定限宽档位 */
 export type PageContainerFamily = 'grid' | 'settings';
 
 const useStyles = makeStyles({
-  // 角色卡片网格页（内容宽上限 880）
+  // 角色卡片网格页（海报墙：不限宽随窗加列，左右等边距）
   grid: {
-    padding: `${tokens.spacingVerticalXL} 64px ${tokens.spacingVerticalXL} calc(15vw - 48px)`,
-    maxWidth: 'calc(15vw + 896px)',
+    padding: `${tokens.spacingVerticalXL} 64px`,
   },
-  // 设置两栏卡片页（内容宽上限 880，半宽卡片需容纳 160px 标签列）
+  // 设置两栏卡片页（内容宽上限 880，半宽卡片需容纳 160px 标签列；
+  // marginInline 居中，宽窗下两侧留白对称）
   settings: {
-    padding: `${tokens.spacingVerticalXL} 64px ${tokens.spacingVerticalXL} calc(15vw - 48px)`,
-    maxWidth: 'calc(15vw + 896px)',
+    padding: `${tokens.spacingVerticalXL} 64px`,
+    maxWidth: 'calc(880px + 128px)',
+    marginInline: 'auto',
   },
 });
 

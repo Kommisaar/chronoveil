@@ -1,13 +1,14 @@
-// 角色管理视图（UC-004 / FR-006 / UI-002 / ADR-009 / ADR-011）。TASK-008 从只读
-// 网格升级为完整 CRUD：
-// - 卡片网格保留（updated_at 倒序，UI-002），卡片点击进入编辑（非模态
-//   CharacterEditorDialog，网格仍可点选——「未保存切换选中项」丢弃确认可达）；
-//   大卡布局沿用：左图区（avatar，null 首字占位）+ 右信息堆栈 + 悬停浮起。
-// - 删除为软删（ADR-009）+ 就地 Fluent 确认对话框（文案明示历史会话与消息保留）。
-// - 「开新会话」只调既有 store API（useUiStore.selectSession 创建并切回聊天），
-//   不改 stores/ui.ts；侧栏列表新鲜度由会话任务负责（本任务不做）。
+// 角色管理视图（UC-004 / FR-006 / UI-002 / ADR-009 / ADR-011）。TASK-008 完整 CRUD
+// 之上的视觉重做（沉浸氛围感）：
+// - 卡片为竖版电影海报卡（2026-09-09 用户定稿，双形态对比期结束移除横版）：
+//   全幅渐变 + 底部压暗白字；
+// - 入场动画定稿弹性（card-enter-pop）：视口内触发（useRevealOnScroll），
+//   首屏手动判交立即成批、折叠线以下滚入才播，批内 60ms 错峰；
+// - 氛围层：fixed 环境光晕（靛紫，呼应应用图标），仅本视图挂载期间存在；
+// - 每角色渐变按 id 取模 6 组深色低饱和调色板，同人恒同色；
+// - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑、
+//   开新会话走 selectSession、脏守卫照旧。
 import {
-  Badge,
   Button,
   Card,
   Dialog,
@@ -23,6 +24,7 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
@@ -36,35 +38,68 @@ import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/ty
 import { EmptyState } from '../../components/EmptyState';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
-import { formatRelative } from '../../lib/relativeTime';
+import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 
 /** 编辑目标：create 无预填；edit 携带全量摘要（key 重挂换绑表单）。 */
 type EditorTarget = { mode: 'create' } | { mode: 'edit'; character: CharacterSummary };
+/** 深色低饱和海报渐变调色板（呼应应用图标的靛紫系，扩展 4 组邻近色）。 */
+const POSTER_GRADIENTS: ReadonlyArray<readonly [string, string]> = [
+  ['#332a6e', '#6b46b8'], // 靛紫
+  ['#1e3a66', '#3f6ab3'], // 暮蓝
+  ['#5e2347', '#a04580'], // 玫紫
+  ['#1d4a41', '#3c8170'], // 松石
+  ['#5a3f1c', '#9a7a3f'], // 琥珀
+  ['#57231f', '#a04a3c'], // 绯红
+];
+
+/** 每角色恒定渐变（按 id 取模），同人不同卡配色漂移不可接受。 */
+function gradientOf(id: number): string {
+  const [from, to] =
+    POSTER_GRADIENTS[Math.abs(id) % POSTER_GRADIENTS.length] ??
+    (['#332a6e', '#6b46b8'] as const);
+  return `linear-gradient(150deg, ${from} 0%, ${to} 100%)`;
+}
 
 const useStyles = makeStyles({
-  root: {
+  // —— 氛围层与页面骨架 ——
+  ambient: {
+    position: 'fixed',
+    inset: '0px',
+    zIndex: 0,
+    pointerEvents: 'none',
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'radial-gradient(1100px 420px at 20% -8%, rgba(107, 70, 184, 0.16), transparent 62%), ' +
+      'radial-gradient(900px 380px at 96% 0%, rgba(63, 106, 179, 0.10), transparent 60%)',
+  },
+  content: {
+    position: 'relative',
+    zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: '16px',
+    gap: '20px',
   },
   toolbar: {
     display: 'flex',
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
   },
-  newBtn: {
-    // 与标题同行、贴右（relay-harbor 设置页同款工具条）
+  toolbarRight: {
     marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
   },
   errorText: {
     color: tokens.colorPaletteRedForeground1,
   },
-  grid: {
+  // 竖版电影海报网格（更窄更高，电影海报密度；200px 起步，海报墙不限宽随窗加列）
+  gridPoster: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))',
-    gap: '12px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: '16px',
   },
   empty: {
     display: 'flex',
@@ -72,80 +107,129 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 大卡：padding 0 让图片区通栏贴边（圆角裁切靠 overflow hidden），
-  // 右侧信息栏自带内边距
-  card: {
-    padding: '0px',
-    display: 'grid',
-    gridTemplateColumns: '150px minmax(0, 1fr)',
-    overflow: 'hidden',
-  },
-  clickable: {
-    cursor: 'pointer',
-  },
-  portrait: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '190px',
-    backgroundColor: tokens.colorNeutralBackground3,
-  },
-  portraitImg: {
+
+  // —— 海报卡共享件（头像图 / 高光 / 色点） ——
+  posterImg: {
     display: 'block',
     width: '100%',
     height: '100%',
     objectFit: 'cover',
+    position: 'absolute',
+    inset: '0px',
   },
-  portraitChar: {
-    fontSize: '40px',
-    fontWeight: tokens.fontWeightSemibold,
-    color: tokens.colorNeutralForeground3,
+  orb: {
+    position: 'absolute',
+    inset: '0px',
+    pointerEvents: 'none',
+    backgroundImage:
+      'radial-gradient(circle at 72% 16%, rgba(255, 255, 255, 0.28), transparent 55%)',
   },
-  info: {
+  dot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: tokens.borderRadiusCircular,
+    flexShrink: 0,
+  },
+
+  // —— 竖版电影海报卡：全幅渐变 + 底部压暗白字 ——
+  cardB: {
+    padding: '0px',
+    position: 'relative',
     display: 'flex',
     flexDirection: 'column',
-    gap: tokens.spacingVerticalS,
-    padding: tokens.spacingVerticalM,
-    minWidth: 0,
+    justifyContent: 'flex-end',
+    minHeight: '300px',
+    overflow: 'hidden',
   },
-  headRow: {
-    display: 'flex',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: tokens.spacingHorizontalS,
-  },
-  name: {
-    fontSize: tokens.fontSizeBase500,
+  letterB: {
+    position: 'absolute',
+    top: '30px',
+    left: '0px',
+    right: '0px',
+    textAlign: 'center',
+    fontSize: '88px',
     fontWeight: tokens.fontWeightSemibold,
+    lineHeight: 1,
+    color: 'rgba(255, 255, 255, 0.24)',
+    userSelect: 'none',
+    textShadow: '0 2px 24px rgba(0, 0, 0, 0.35)',
   },
-  updated: {
-    flexShrink: 0,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
+  scrimB: {
+    position: 'absolute',
+    left: '0px',
+    right: '0px',
+    bottom: '0px',
+    height: '70%',
+    pointerEvents: 'none',
+    backgroundImage:
+      'linear-gradient(180deg, rgba(14, 13, 22, 0) 0%, rgba(14, 13, 22, 0.55) 45%, rgba(13, 12, 20, 0.92) 100%)',
   },
-  // markdown-lite 原文三行截断（展示层不解析，BR-005）；大卡右侧有宽度，
-  // 比小卡的 2 行多给一行
-  greeting: {
+  contentB: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    width: '100%',
+    padding: tokens.spacingVerticalM,
+  },
+  nameB: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    color: '#ffffff',
+    wordBreak: 'break-word',
+  },
+  greetingB: {
     display: '-webkit-box',
     WebkitBoxOrient: 'vertical',
-    WebkitLineClamp: 3,
+    WebkitLineClamp: 2,
     overflow: 'hidden',
-    color: tokens.colorNeutralForeground2,
     fontSize: tokens.fontSizeBase200,
+    lineHeight: '1.7',
+    color: 'rgba(255, 255, 255, 0.82)',
+    '::before': { content: '"「"', color: 'rgba(255, 255, 255, 0.55)' },
+    '::after': { content: '"」"', color: 'rgba(255, 255, 255, 0.55)' },
   },
-  meta: {
+  metaB: {
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    rowGap: '2px',
     gap: tokens.spacingHorizontalS,
-    paddingTop: tokens.spacingVerticalS,
-    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
+    marginTop: '4px',
   },
-  count: {
-    color: tokens.colorNeutralForeground3,
+  metaTextB: {
+    color: 'rgba(255, 255, 255, 0.66)',
     fontSize: tokens.fontSizeBase200,
   },
-  startBtn: {
+  startBtnB: {
     marginLeft: 'auto',
+    whiteSpace: 'nowrap',
+    color: 'rgba(255, 255, 255, 0.92)',
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+    border: '1px solid rgba(255, 255, 255, 0.35)',
+    ':hover': { backgroundColor: 'rgba(255, 255, 255, 0.20)' },
+  },
+
+  clickable: {
+    cursor: 'pointer',
+  },
+
+  // —— 入场动画（定稿弹性；keyframes 在 app.css；reduced-motion 门控在 @media 内） ——
+  // 必须走 Griffel 类 + mergeClasses：Fluent Card 内部对 className 再过一次
+  // Griffel 合并，字符串拼接的全局类会被静默丢弃（repo 规约）。
+  // 揭示前占位：滚入视口前以透明等待；揭示后换动画类，动画类里的
+  // backwards fill 会在批内延迟期接手维持 from 态，动画止于自然态。
+  preReveal: {
+    opacity: 0,
+  },
+  enterPop: {
+    '@media (prefers-reduced-motion: no-preference)': {
+      animationName: 'card-enter-pop',
+      animationDuration: '480ms',
+      animationTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+      animationFillMode: 'backwards',
+      animationDelay: 'var(--enter-delay, 0ms)',
+    },
   },
 });
 
@@ -157,7 +241,7 @@ export function CharactersView() {
   const styles = useStyles();
   const lift = useCardLiftStyles();
   const page = usePageContainerStyles('grid');
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   // 只调用既有 store API（验收 6）：selectSession = 选中会话并切回聊天视图。
   const selectSession = useUiStore((s) => s.selectSession);
 
@@ -173,6 +257,9 @@ export function CharactersView() {
   const [deleting, setDeleting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<number | null>(null);
+  // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
+  // 以下滚入才播；同批 60ms 级错峰。本视图内无重挂触发源，resetKey 恒定。
+  const { reveal, register } = useRevealOnScroll(characters.length, 'characters');
 
   // 待确认的切换动作：丢弃确认放行后执行（引用稳定，不进渲染）。
   const pendingActionRef = useRef<(() => void) | null>(null);
@@ -316,18 +403,23 @@ export function CharactersView() {
   // UI-002：卡片按 updated_at 倒序。
   const sorted = [...characters].sort((a, b) => b.updatedAt - a.updatedAt);
 
+  const styleMeta = (character: CharacterSummary) =>
+    `${t('characters.renderStyle')} · ${character.renderStyle}`;
+
   return (
     <div className={page}>
-      <div className={styles.root}>
+      <div className={styles.ambient} aria-hidden />
+      <div className={styles.content}>
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('characters.title')}</Title1>
-          <Button
-            appearance="primary"
-            className={styles.newBtn}
-            onClick={() => openEditor({ mode: 'create' })}
-          >
-            {t('characters.new')}
-          </Button>
+          <div className={styles.toolbarRight}>
+            <Button
+              appearance="primary"
+              onClick={() => openEditor({ mode: 'create' })}
+            >
+              {t('characters.new')}
+            </Button>
+          </div>
         </div>
         {loadError ? (
           <Text role="alert" className={styles.errorText}>
@@ -344,62 +436,77 @@ export function CharactersView() {
             <EmptyState message={t('characters.empty')} />
           </div>
         ) : (
-          <div className={styles.grid}>
-            {sorted.map((character) => (
-              <Card
-                key={character.id}
-                size="small"
-                tabIndex={0}
-                className={mergeClasses(styles.card, lift.root, styles.clickable)}
-                onClick={() => openEditor({ mode: 'edit', character })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openEditor({ mode: 'edit', character });
-                  }
-                }}
-              >
-                <div className={styles.portrait}>
+          <div className={styles.gridPoster}>
+            {sorted.map((character, index) => {
+              const delay = reveal[index];
+              const enterStyle =
+                delay === undefined
+                  ? undefined
+                  : ({ '--enter-delay': `${delay}ms` } as CSSProperties);
+              return (
+                <Card
+                  key={character.id}
+                  size="small"
+                  tabIndex={0}
+                  ref={register(index)}
+                  className={mergeClasses(
+                    styles.cardB,
+                    lift.root,
+                    styles.clickable,
+                    delay === undefined ? styles.preReveal : styles.enterPop,
+                  )}
+                  style={{
+                    ...enterStyle,
+                    backgroundImage: gradientOf(character.id),
+                  }}
+                  onClick={() => openEditor({ mode: 'edit', character })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      openEditor({ mode: 'edit', character });
+                    }
+                  }}
+                >
                   {character.avatar ? (
                     <img
-                      className={styles.portraitImg}
+                      className={styles.posterImg}
                       src={character.avatar}
                       alt={character.name}
                     />
                   ) : (
-                    <Text className={styles.portraitChar}>{character.name.slice(0, 1)}</Text>
+                    <Text className={styles.letterB}>{character.name.slice(0, 1)}</Text>
                   )}
-                </div>
-                <div className={styles.info}>
-                  <div className={styles.headRow}>
-                    <Text className={styles.name}>{character.name}</Text>
-                    <Text className={styles.updated}>
-                      {formatRelative(character.updatedAt, i18n.language)}
-                    </Text>
+                  <div className={styles.orb} />
+                  <div className={styles.scrimB} />
+                  <div className={styles.contentB}>
+                    <Text className={styles.nameB}>{character.name}</Text>
+                    <Text className={styles.greetingB}>{character.greeting}</Text>
+                    <div className={styles.metaB}>
+                      <span
+                        className={styles.dot}
+                        style={{ backgroundImage: gradientOf(character.id + 1) }}
+                      />
+                      <Text className={styles.metaTextB}>{styleMeta(character)}</Text>
+                      <Text className={styles.metaTextB}>
+                        {t('characters.sessionCount', { count: character.sessionCount })}
+                      </Text>
+                      <Button
+                        size="small"
+                        appearance="transparent"
+                        className={styles.startBtnB}
+                        disabled={startingId !== null}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startSession(character);
+                        }}
+                      >
+                        {t('characters.newSession')}
+                      </Button>
+                    </div>
                   </div>
-                  <Text className={styles.greeting}>{character.greeting}</Text>
-                  <div className={styles.meta}>
-                    <Badge appearance="tint">
-                      {t('characters.renderStyle')} · {character.renderStyle}
-                    </Badge>
-                    <Text className={styles.count}>
-                      {t('characters.sessionCount', { count: character.sessionCount })}
-                    </Text>
-                    <Button
-                      size="small"
-                      className={styles.startBtn}
-                      disabled={startingId !== null}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startSession(character);
-                      }}
-                    >
-                      {t('characters.newSession')}
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

@@ -45,6 +45,7 @@ import {
   newProviderId,
   parseAnimBaseMs,
   toDraft,
+  withoutModel,
 } from './preferences';
 import { ProviderCard } from './ProviderCard';
 
@@ -161,6 +162,7 @@ export function SettingsView() {
     return {
       providers: draft.providers,
       activeProviderId: draft.activeProviderId,
+      activeModel: draft.activeModel,
       rhythmMsPerChar: draft.rhythmMsPerChar,
       punctPauseEnabled: draft.punctPauseEnabled,
       animDurationBase: animBase ?? loaded.animDurationBase,
@@ -192,17 +194,53 @@ export function SettingsView() {
         name: '',
         baseUrl: '',
         apiKey: '',
-        model: '',
+        models: [],
       };
       return { ...d, providers: [...d.providers, provider] };
     });
 
   const changeProvider = (id: string, nextProvider: ProviderDto) =>
-    setDraft((d) =>
-      d === null
-        ? d
-        : { ...d, providers: d.providers.map((p) => (p.id === id ? nextProvider : p)) },
-    );
+    setDraft((d) => {
+      if (d === null) return d;
+      // 全局默认模型跟随改名：默认指向本服务且原选中模型在改动后同位置换了名，
+      // 则默认跟随新名（删除行走 withoutModel 的回落逻辑，不在此处理）。
+      let activeModel = d.activeModel;
+      const prev = d.providers.find((p) => p.id === id);
+      if (
+        prev &&
+        d.activeProviderId === id &&
+        activeModel !== null &&
+        nextProvider.models.length === prev.models.length
+      ) {
+        const idx = prev.models.indexOf(activeModel);
+        if (idx >= 0 && nextProvider.models[idx] !== activeModel) {
+          activeModel = nextProvider.models[idx]!;
+        }
+      }
+      return {
+        ...d,
+        activeModel,
+        providers: d.providers.map((p) => (p.id === id ? nextProvider : p)),
+      };
+    });
+
+  /** 模型行「设为默认」：整对写入 (activeProviderId, activeModel)。 */
+  const activateModel = (providerId: string, model: string) =>
+    setDraft((d) => (d === null ? d : { ...d, activeProviderId: providerId, activeModel: model }));
+
+  /** 删除模型行：默认选中指向被删模型时同步回落（置 null，解析层取第一个模型）。 */
+  const removeModel = (providerId: string, index: number) =>
+    setDraft((d) => {
+      if (d === null) return d;
+      const provider = d.providers.find((p) => p.id === providerId);
+      if (!provider) return d;
+      const next = withoutModel(d, provider, index);
+      return {
+        ...d,
+        activeModel: next.activeModel,
+        providers: d.providers.map((p) => (p.id === providerId ? next.provider : p)),
+      };
+    });
 
   const confirmDelete = () => {
     const target = deleteTarget;
@@ -360,9 +398,11 @@ export function SettingsView() {
                     <ProviderCard
                       key={provider.id}
                       provider={provider}
-                      isActive={draft.activeProviderId === provider.id}
+                      isActiveProvider={draft.activeProviderId === provider.id}
+                      activeModel={draft.activeModel}
                       onChange={(p) => changeProvider(provider.id, p)}
-                      onActivate={() => patch({ activeProviderId: provider.id })}
+                      onActivateModel={(model) => activateModel(provider.id, model)}
+                      onRemoveModel={(index) => removeModel(provider.id, index)}
                       onDelete={() => setDeleteTarget(provider)}
                     />
                   ))}

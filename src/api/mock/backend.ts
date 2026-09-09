@@ -16,10 +16,11 @@ import type {
 } from '../types';
 import { characters, messagesBySession, sessions } from './data';
 
-/** 与 Rust `Config::new_with_defaults`（FR-009）一致的默认配置。 */
+/** 与 Rust `Config::new_with_defaults`（FR-009；双层级 provider→models）一致的默认配置。 */
 export const DEFAULT_CONFIG: ConfigDto = {
   providers: [],
   activeProviderId: null,
+  activeModel: null,
   rhythmMsPerChar: 45,
   punctPauseEnabled: true,
   animDurationBase: 450,
@@ -207,15 +208,20 @@ export async function deleteCharacter(id: number): Promise<void> {
   characters.splice(index, 1);
 }
 
-// ---- 配置（FR-009 / ADR-012）----
+// ---- 配置（FR-009 / ADR-012；双层级 provider→models）----
+
+/** providers 逐项浅拷 + models 数组拷贝：调用方改返回值/草稿不污染内存基线。 */
+function cloneProviders(providers: ConfigDto['providers']): ConfigDto['providers'] {
+  return providers.map((p) => ({ ...p, models: [...p.models] }));
+}
 
 export async function getConfig(): Promise<ConfigDto> {
-  return { ...config, providers: config.providers.map((p) => ({ ...p })) };
+  return { ...config, providers: cloneProviders(config.providers) };
 }
 
 export async function saveConfig(next: ConfigDto): Promise<void> {
   if (next.rhythmMsPerChar < 10 || next.rhythmMsPerChar > 160) {
     throw new MockError('rhythmMsPerChar 越界（允许 10–160）');
   }
-  config = { ...next, providers: next.providers.map((p) => ({ ...p })) };
+  config = { ...next, providers: cloneProviders(next.providers) };
 }

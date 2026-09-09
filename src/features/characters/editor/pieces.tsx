@@ -2,7 +2,7 @@
  * 编辑器共享 UI 件（2026-09-09 编辑器重做时抽出）：字段级组件与样式——
  * 强调色板、预览框、模型覆写折叠段，由 CharacterEditorDialog 排版壳复用。
  */
-import { Button, Dropdown, Input, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
+import { Button, Dropdown, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { ChevronRight20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
@@ -213,7 +213,9 @@ export function PerformanceField(props: {
   );
 }
 
-/** 模型覆写折叠段：provider / model / baseUrl / apiKey，留空跟随全局。 */
+/** 模型覆写折叠段（双层级 2026-09-09）：服务 + 该服务的模型下拉，留空跟随全局。
+ *  旧数据里的 baseUrl/apiKey 覆写键不再提供输入框（连接信息归属服务级），但
+ *  parse/serialize 对未知/遗留键原样保留，编辑往返不丢失。 */
 export function OverrideSection(props: {
   open: boolean;
   onToggle: () => void;
@@ -226,6 +228,13 @@ export function OverrideSection(props: {
   const styles = useFieldStyles();
   const { t } = useTranslation();
   const selectedProvider = props.providers.find((p) => p.id === props.override.providerId);
+  const models = selectedProvider?.models ?? [];
+  // 存量覆写里的模型名不在所选服务列表（服务改配/换服务）→ 追加为额外选项，
+  // 避免下拉显示成"跟随全局"却实际覆写着旧值。
+  const staleModel =
+    props.override.model !== '' && !models.includes(props.override.model)
+      ? props.override.model
+      : null;
   return (
     <div className={styles.field}>
       <button
@@ -266,31 +275,28 @@ export function OverrideSection(props: {
           </label>
           <label className={styles.field}>
             <Text size={200}>{t('characters.model')}</Text>
-            <Input
-              value={props.override.model}
-              onChange={(_, d) => props.onOverrideChange((o) => ({ ...o, model: d.value }))}
+            <Dropdown
+              value={props.override.model === '' ? t('characters.followGlobal') : props.override.model}
+              selectedOptions={[props.override.model]}
+              onOptionSelect={(_, d) =>
+                props.onOverrideChange((o) => ({ ...o, model: d.optionValue ?? '' }))
+              }
               aria-label={t('characters.model')}
-              placeholder={t('characters.followGlobal')}
-            />
-          </label>
-          <label className={styles.field}>
-            <Text size={200}>{t('characters.baseUrl')}</Text>
-            <Input
-              value={props.override.baseUrl}
-              onChange={(_, d) => props.onOverrideChange((o) => ({ ...o, baseUrl: d.value }))}
-              aria-label={t('characters.baseUrl')}
-              placeholder={t('characters.followGlobal')}
-            />
-          </label>
-          <label className={styles.field}>
-            <Text size={200}>{t('characters.apiKey')}</Text>
-            <Input
-              type="password"
-              value={props.override.apiKey}
-              onChange={(_, d) => props.onOverrideChange((o) => ({ ...o, apiKey: d.value }))}
-              aria-label={t('characters.apiKey')}
-              placeholder={t('characters.followGlobal')}
-            />
+            >
+              <Option value="" text={t('characters.followGlobal')}>
+                {t('characters.followGlobal')}
+              </Option>
+              {staleModel ? (
+                <Option value={staleModel} text={staleModel}>
+                  {staleModel}
+                </Option>
+              ) : null}
+              {models.map((m) => (
+                <Option key={m} value={m} text={m}>
+                  {m}
+                </Option>
+              ))}
+            </Dropdown>
           </label>
         </div>
       ) : null}

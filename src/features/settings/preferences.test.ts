@@ -1,5 +1,5 @@
-// 设置域纯逻辑单测（TASK-009）：规范化、值域校验、草稿转换。
-// 节奏范围与 Rust 侧 infra/config.rs 双重兜底一致（FR-009：10–160）。
+// 设置域纯逻辑单测（TASK-009；双层级 provider→models 2026-09-09）：规范化、
+// 值域校验、草稿转换、模型列表增删。
 import { describe, expect, it } from 'vitest';
 import type { ConfigDto, ProviderDto } from '../../api/types';
 import {
@@ -10,6 +10,7 @@ import {
   newProviderId,
   parseAnimBaseMs,
   toDraft,
+  withoutModel,
 } from './preferences';
 
 const provider = (partial: Partial<ProviderDto>): ProviderDto => ({
@@ -17,13 +18,14 @@ const provider = (partial: Partial<ProviderDto>): ProviderDto => ({
   name: '本地中转',
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
-  model: 'test-model',
+  models: ['test-model'],
   ...partial,
 });
 
 const config = (partial: Partial<ConfigDto>): ConfigDto => ({
   providers: [],
   activeProviderId: null,
+  activeModel: null,
   rhythmMsPerChar: 45,
   punctPauseEnabled: true,
   animDurationBase: 450,
@@ -85,13 +87,14 @@ describe('parseAnimBaseMs（anim_duration_base: u32）', () => {
   });
 });
 
-describe('provider 校验（UI-003：name / base_url / model 必填）', () => {
+describe('provider 校验（UI-003：name / base_url / models 非空）', () => {
   it('完整 provider 通过', () => {
     expect(isProviderValid(provider({}))).toBe(true);
   });
-  it('name / model 空白拒绝', () => {
+  it('name / models 空白拒绝（models 空列表或含空串项都算未填完）', () => {
     expect(isProviderValid(provider({ name: '  ' }))).toBe(false);
-    expect(isProviderValid(provider({ model: '' }))).toBe(false);
+    expect(isProviderValid(provider({ models: [] }))).toBe(false);
+    expect(isProviderValid(provider({ models: ['m1', ' '] }))).toBe(false);
   });
   it('base_url 需为合法 http(s) URL', () => {
     expect(isProviderValid(provider({ baseUrl: '' }))).toBe(false);
@@ -101,8 +104,32 @@ describe('provider 校验（UI-003：name / base_url / model 必填）', () => {
   });
 });
 
+describe('模型列表删除（双层级 provider→models）', () => {
+  it('withoutModel 删指定行；删中全局默认模型则回落 activeModel=null', () => {
+    const p = provider({ models: ['m1', 'm2', 'm3'] });
+    const keep = withoutModel({ activeProviderId: 'p1', activeModel: 'm2' }, p, 2);
+    expect(keep.provider.models).toEqual(['m1', 'm2']);
+    // 删的不是默认模型，选中不动
+    expect(keep.activeModel).toBe('m2');
+
+    const hit = withoutModel({ activeProviderId: 'p1', activeModel: 'm2' }, p, 1);
+    expect(hit.provider.models).toEqual(['m1', 'm3']);
+    // 删中默认模型 → 清空选中，解析层回落第一个
+    expect(hit.activeModel).toBeNull();
+
+    const other = withoutModel({ activeProviderId: 'p9', activeModel: 'm2' }, p, 1);
+    // 默认指向别的服务时不动
+    expect(other.activeModel).toBe('m2');
+  });
+  it('原数组不可变', () => {
+    const p = provider({ models: ['m1', 'm2'] });
+    withoutModel({ activeProviderId: 'p1', activeModel: null }, p, 0);
+    expect(p.models).toEqual(['m1', 'm2']);
+  });
+});
+
 describe('toDraft（载入 config → 表单草稿）', () => {
-  it('主题/语言规范化，providers 深拷贝（不可变更新基）', () => {
+  it('主题/语言规范化，providers/models 深拷贝（不可变更新基）', () => {
     const original = config({
       uiTheme: 'weird',
       uiLanguage: 'klingon',
@@ -112,7 +139,9 @@ describe('toDraft（载入 config → 表单草稿）', () => {
     expect(draft.uiTheme).toBe('system');
     expect(draft.uiLanguage).toBe('zh');
     draft.providers[0]!.name = '改动';
+    draft.providers[0]!.models.push('脏数据');
     expect(original.providers[0]!.name).toBe('本地中转');
+    expect(original.providers[0]!.models).toEqual(['test-model']);
   });
 });
 

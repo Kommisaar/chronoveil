@@ -1,8 +1,9 @@
-// 设置视图交互单测（TASK-009；2026-09-09 起自动保存语义）：jsdom 下
-// isTauri=false，走 mock 后端（内存 config，跨用例共享 → 每个用例
-// beforeEach 重置基线）。覆盖：空态引导、providers 新建/校验/修改即落盘
-// （directorModel 保留）、api_key 掩码切换、激活删除拦截、非激活删除、
-// 主题/语言改动即时生效、非法草稿不落盘。
+// 设置视图交互单测（TASK-009；2026-09-09 起自动保存语义 + 双层级
+// provider→models）：jsdom 下 isTauri=false，走 mock 后端（内存 config，
+// 跨用例共享 → 每个用例 beforeEach 重置基线）。覆盖：空态引导、providers
+// 新建/校验/添加模型即落盘（directorModel 保留）、api_key 掩码切换、激活
+// 删除拦截、非激活删除、默认模型二元组切换、删默认模型回落、主题/语言
+// 改动即时生效、非法草稿不落盘。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -26,7 +27,7 @@ const fullProvider = (partial: Partial<ProviderDto>): ProviderDto => ({
   name: '本地中转',
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
-  model: 'test-model',
+  models: ['test-model'],
   ...partial,
 });
 
@@ -56,12 +57,12 @@ describe('SettingsView（TASK-009）', () => {
     expect(screen.getAllByRole('button', { name: '新建' }).length).toBeGreaterThan(0);
   });
 
-  it('验收 2/5/6：新建 provider → 未填齐不落盘 → 填齐后自动落盘，directorModel 原样保留', async () => {
+  it('验收 2/5/6：新建 provider → 加模型前不落盘 → 添加模型后自动落盘，directorModel 原样保留', async () => {
     renderSettings();
     await screen.findByText(/还没有模型服务/);
     fireEvent.click(screen.getAllByRole('button', { name: '新建' })[0]!);
 
-    // 未填齐：卡片级校验提示；越过防抖窗口后仍不落盘（自动保存跳过非法草稿）
+    // 未填齐（无名称）：卡片级校验提示；越过防抖窗口后仍不落盘
     expect(await screen.findByText(/名称为必填/)).toBeTruthy();
     await settle(700);
     expect((await getConfig()).providers).toHaveLength(0);
@@ -70,16 +71,21 @@ describe('SettingsView（TASK-009）', () => {
     fireEvent.change(screen.getByLabelText(/-baseUrl$/), {
       target: { value: 'https://api.test/v1' },
     });
-    fireEvent.change(screen.getByLabelText(/-model$/), { target: { value: 'gpt-x' } });
 
-    // 草稿合法 → 待自动保存状态
+    // 只有 name/baseUrl、还没有模型 → 草稿仍非法 → 整个 provider 都不落盘
+    await settle(700);
+    expect((await getConfig()).providers).toHaveLength(0);
+
+    // 添加模型 → 草稿整体合法 → 待自动保存状态 → 落盘
+    fireEvent.change(screen.getByLabelText(/-newModel$/), { target: { value: 'gpt-x' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
     expect(await screen.findByText('更改将自动保存')).toBeTruthy();
 
     await waitFor(async () => {
       const saved = await getConfig();
       expect(saved.providers).toHaveLength(1);
       expect(saved.providers[0]!.name).toBe('主服务');
-      expect(saved.providers[0]!.model).toBe('gpt-x');
+      expect(saved.providers[0]!.models).toEqual(['gpt-x']);
       // 不呈现的字段整份带回（saveConfig 整份覆写不丢字段）
       expect(saved.directorModel).toBe('director-keep');
     }, AUTOSAVE_WAIT);
@@ -128,11 +134,12 @@ describe('SettingsView（TASK-009）', () => {
     }, AUTOSAVE_WAIT);
   });
 
-  it('验收 2：激活单选切换，自动落盘 active_provider_id', async () => {
+  it('验收 2：模型行「设为默认」切全局默认二元组，自动落盘 active_provider_id + active_model', async () => {
     await saveConfig(
       seedConfig({
-        providers: [fullProvider({}), fullProvider({ id: 'p2', name: '备用' })],
+        providers: [fullProvider({ models: ['m1'] }), fullProvider({ id: 'p2', name: '备用', models: ['m2'] })],
         activeProviderId: 'p1',
+        activeModel: 'm1',
       }),
     );
     renderSettings();
@@ -141,7 +148,26 @@ describe('SettingsView（TASK-009）', () => {
     expect((radios[1] as HTMLInputElement).checked).toBe(false);
     fireEvent.click(radios[1]!);
     await waitFor(async () => {
-      expect((await getConfig()).activeProviderId).toBe('p2');
+      const saved = await getConfig();
+      expect(saved.activeProviderId).toBe('p2');
+      expect(saved.activeModel).toBe('m2');
+    }, AUTOSAVE_WAIT);
+  });
+
+  it('验收 2：删除全局默认模型 → activeModel 回落置 null 并落盘', async () => {
+    await saveConfig(
+      seedConfig({
+        providers: [fullProvider({ models: ['keep', 'gone'] })],
+        activeProviderId: 'p1',
+        activeModel: 'gone',
+      }),
+    );
+    renderSettings();
+    fireEvent.click(await screen.findByRole('button', { name: '删除模型 gone' }));
+    await waitFor(async () => {
+      const saved = await getConfig();
+      expect(saved.providers[0]!.models).toEqual(['keep']);
+      expect(saved.activeModel).toBeNull();
     }, AUTOSAVE_WAIT);
   });
 

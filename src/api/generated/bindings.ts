@@ -209,6 +209,11 @@ export type ConfigDto = { providers: ProviderDto[];
  */
 activeProviderId: string | null; 
 /**
+ * 全局默认模型名（双层级 2026-09-09）：active_provider_id 的 models 之一；
+ * null = 未显式选择（解析回落该服务第一个模型）。
+ */
+activeModel: string | null; 
+/**
  * 打字节奏 ms/字（10–160，FR-009）。
  */
 rhythmMsPerChar: number; punctPauseEnabled: boolean; 
@@ -253,9 +258,14 @@ export type IpcError =
  */
 export type MessageRole = "user" | "assistant"
 /**
- * 单套 LLM Provider（FR-009；OpenAI 兼容）。
+ * 单套 LLM Provider（FR-009；OpenAI 兼容）。双层级（2026-09-09）：一个服务
+ * 提供多个模型（`models`，模型名字符串即身份）。
  */
-export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: string; model: string }
+export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: string; 
+/**
+ * 该服务可用的模型名列表；至少一个才能用于生成。
+ */
+models: string[] }
 /**
  * 会话摘要（FR-007：列表按 updated_at 倒序）。
  */

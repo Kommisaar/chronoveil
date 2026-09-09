@@ -208,7 +208,8 @@ pub struct CharacterInput {
     pub voice_config: Option<String>,
 }
 
-/// 单套 LLM Provider（FR-009；OpenAI 兼容）。
+/// 单套 LLM Provider（FR-009；OpenAI 兼容）。双层级（2026-09-09）：一个服务
+/// 提供多个模型（`models`，模型名字符串即身份）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDto {
@@ -216,7 +217,8 @@ pub struct ProviderDto {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
-    pub model: String,
+    /// 该服务可用的模型名列表；至少一个才能用于生成。
+    pub models: Vec<String>,
 }
 
 /// 应用配置（FR-009 / ADR-012；wire 形态 camelCase，落盘文件仍为 infra 的 snake_case 键）。
@@ -226,6 +228,9 @@ pub struct ConfigDto {
     pub providers: Vec<ProviderDto>,
     /// 全局默认模型指向的 provider id；null = 未选择。
     pub active_provider_id: Option<String>,
+    /// 全局默认模型名（双层级 2026-09-09）：active_provider_id 的 models 之一；
+    /// null = 未显式选择（解析回落该服务第一个模型）。
+    pub active_model: Option<String>,
     /// 打字节奏 ms/字（10–160，FR-009）。
     pub rhythm_ms_per_char: u32,
     pub punct_pause_enabled: bool,
@@ -249,10 +254,11 @@ impl From<&FileConfig> for ConfigDto {
                     name: p.name.clone(),
                     base_url: p.base_url.clone(),
                     api_key: p.api_key.clone(),
-                    model: p.model.clone(),
+                    models: p.models.clone(),
                 })
                 .collect(),
             active_provider_id: c.active_provider_id.clone(),
+            active_model: c.active_model.clone(),
             rhythm_ms_per_char: c.rhythm_ms_per_char,
             punct_pause_enabled: c.punct_pause_enabled,
             anim_duration_base: c.anim_duration_base,
@@ -274,10 +280,12 @@ impl From<ConfigDto> for FileConfig {
                     name: p.name,
                     base_url: p.base_url,
                     api_key: p.api_key,
-                    model: p.model,
+                    models: p.models,
+                    model: None,
                 })
                 .collect(),
             active_provider_id: d.active_provider_id,
+            active_model: d.active_model,
             rhythm_ms_per_char: d.rhythm_ms_per_char,
             punct_pause_enabled: d.punct_pause_enabled,
             anim_duration_base: d.anim_duration_base,
@@ -803,9 +811,10 @@ mod tests {
                 name: "本地中转".into(),
                 base_url: "https://example.invalid/v1".into(),
                 api_key: "sk-test".into(),
-                model: "m1".into(),
+                models: vec!["m1".into(), "m2".into()],
             }],
             active_provider_id: Some("p1".into()),
+            active_model: Some("m2".into()),
             rhythm_ms_per_char: 90,
             punct_pause_enabled: false,
             anim_duration_base: 300,
@@ -815,13 +824,16 @@ mod tests {
         };
         let wire = serde_json::to_value(&dto).unwrap();
         assert_eq!(wire["activeProviderId"], "p1", "wire camelCase");
+        assert_eq!(wire["activeModel"], "m2", "wire camelCase");
         assert_eq!(wire["providers"][0]["baseUrl"], "https://example.invalid/v1");
+        assert_eq!(wire["providers"][0]["models"], serde_json::json!(["m1", "m2"]));
         assert_eq!(wire["rhythmMsPerChar"], 90);
 
         let file: FileConfig = dto.clone().into();
         let back: ConfigDto = (&file).into();
         assert_eq!(dto, back, "DTO ↔ 落盘结构往返无损");
         assert_eq!(file.rhythm_ms_per_char, 90);
+        assert_eq!(file.providers[0].models, vec!["m1".to_string(), "m2".to_string()]);
     }
 
     // ---- 命令实现（不经 Tauri 运行时，直接走 AppState）----
@@ -907,16 +919,18 @@ mod tests {
         assert!(matches!(err, IpcError::Config { .. }));
         assert!(app.storage.list_messages(session.id).unwrap().is_empty());
 
-        // 配置全局默认 Provider（两级配置的底层，FR-009）。
+        // 配置全局默认 Provider（两级配置的底层，FR-009；双层级 provider→models）。
         let mut config = crate::infra::config::Config::new_with_defaults();
         config.providers = vec![crate::infra::config::ProviderConfig {
             id: "p1".into(),
             name: "测试".into(),
             base_url: "http://127.0.0.1:9/v1".into(),
             api_key: "k".into(),
-            model: "m".into(),
+            models: vec!["m".into()],
+            model: None,
         }];
         config.active_provider_id = Some("p1".into());
+        config.active_model = Some("m".into());
         app.config.save(&config).unwrap();
 
         // 发送：用户条立即落库返回（SEQ-001），生成任务交 spawner（测试 no-op 不驱动）。

@@ -147,7 +147,9 @@ impl GenerationRegistry {
 // ---------------------------------------------------------------------------
 
 /// Character.model_config 的 JSON 形态（camelCase 键，全部可选；未知键忽略）。
-/// `providerId` 切到 config.providers 中的另一套；其余键直接覆写对应字段。
+/// `providerId` 切到 config.providers 中的另一套（双层级 2026-09-09：模型取该
+/// 服务的 active/first）；其余键直接覆写对应字段（旧数据里的 baseUrl/apiKey
+/// 键继续生效；UI 已不再产出这两个键）。
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelConfigOverride {
@@ -157,19 +159,20 @@ struct ModelConfigOverride {
     model: Option<String>,
 }
 
-/// 解析生效的 LLM 连接配置：全局默认（active_provider_id 指向者）为底，
-/// Character.model_config 逐字段覆写（两级配置，INT-002 / 验收 4）。
-/// 未配置 Provider、字段为空或 model_config 非法 JSON → 人类可读错误（快速失败）。
+/// 解析生效的 LLM 连接配置：全局默认 (provider, model) 二元组（双层级
+/// 2026-09-09，见 Config::active_selection）为底，Character.model_config 逐字段
+/// 覆写（两级配置，INT-002 / 验收 4）。未配置 Provider/模型、字段为空或
+/// model_config 非法 JSON → 人类可读错误（快速失败）。
 pub fn resolve_effective_llm(
     config: &FileConfig,
     character: &Character,
 ) -> Result<LlmConfig, String> {
-    let provider: &ProviderConfig = config
-        .active_provider()
-        .ok_or_else(|| "未配置全局默认模型：请在设置页选择 Provider".to_string())?;
+    let (provider, active_model): (&ProviderConfig, &str) = config
+        .active_selection()
+        .ok_or_else(|| "未配置全局默认模型：请在设置页选择服务并添加模型".to_string())?;
     let mut base_url = provider.base_url.clone();
     let mut api_key = provider.api_key.clone();
-    let mut model = provider.model.clone();
+    let mut model = active_model.to_string();
 
     if let Some(raw) = character.model_config.as_deref() {
         let trimmed = raw.trim();
@@ -184,7 +187,13 @@ pub fn resolve_effective_llm(
                     .ok_or_else(|| format!("角色 model_config 指向不存在的 provider：{id}"))?;
                 base_url = switched.base_url.clone();
                 api_key = switched.api_key.clone();
-                model = switched.model.clone();
+                // 切服务但未指名模型 → 取该服务第一个模型（active_model 是全局
+                // 默认指向，不跟角色切服务走）。
+                model = switched
+                    .models
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| format!("服务「{id}」没有任何模型：请在设置页添加"))?;
             }
             if let Some(v) = over.base_url {
                 base_url = v;
@@ -484,17 +493,20 @@ mod tests {
                     name: "主".into(),
                     base_url: "https://main.example/v1".into(),
                     api_key: "k1".into(),
-                    model: "m1".into(),
+                    models: vec!["m1a".into(), "m1b".into()],
+                    model: None,
                 },
                 ProviderConfig {
                     id: "p2".into(),
                     name: "备".into(),
                     base_url: "https://backup.example/v1".into(),
                     api_key: "k2".into(),
-                    model: "m2".into(),
+                    models: vec!["m2a".into()],
+                    model: None,
                 },
             ],
             active_provider_id: Some("p1".into()),
+            active_model: Some("m1b".into()),
             ..FileConfig::new_with_defaults()
         }
     }
@@ -521,8 +533,14 @@ mod tests {
     fn resolve_llm_uses_global_default_without_override() {
         let cfg = resolve_effective_llm(&test_config(), &character_with(None)).unwrap();
         assert_eq!(cfg.base_url, "https://main.example/v1");
-        assert_eq!(cfg.model, "m1");
+        assert_eq!(cfg.model, "m1b", "active_model 选中者生效");
         assert_eq!(cfg.api_key, "k1");
+
+        // active_model 未选 → 回落该服务第一个模型。
+        let mut fallback = test_config();
+        fallback.active_model = None;
+        let cfg = resolve_effective_llm(&fallback, &character_with(None)).unwrap();
+        assert_eq!(cfg.model, "m1a");
     }
 
     #[test]
@@ -534,11 +552,11 @@ mod tests {
         assert_eq!(cfg.api_key, "kk");
         assert_eq!(cfg.base_url, "https://main.example/v1", "未覆写字段沿用全局默认");
 
-        // providerId 切换整套 Provider
+        // providerId 切换整套 Provider：模型取目标服务第一个模型
         let switched = character_with(Some(r#"{"providerId":"p2"}"#.into()));
         let cfg = resolve_effective_llm(&test_config(), &switched).unwrap();
         assert_eq!(cfg.base_url, "https://backup.example/v1");
-        assert_eq!(cfg.model, "m2");
+        assert_eq!(cfg.model, "m2a");
 
         // 直接覆写压过 providerId 切换
         let mixed = character_with(Some(r#"{"providerId":"p2","model":"m3"}"#.into()));
@@ -561,10 +579,12 @@ mod tests {
         let err = resolve_effective_llm(&none, &character_with(None)).unwrap_err();
         assert!(err.contains("未配置"), "{err}");
 
-        let mut blank = test_config();
-        blank.providers[0].model = String::new();
-        let err = resolve_effective_llm(&blank, &character_with(None)).unwrap_err();
-        assert!(err.contains("model"), "{err}");
+        // 目标服务没有任何模型 → 快速失败。
+        let mut no_models = test_config();
+        no_models.providers[0].models.clear();
+        no_models.active_model = None;
+        let err = resolve_effective_llm(&no_models, &character_with(None)).unwrap_err();
+        assert!(err.contains("未配置"), "无模型视为未配置：{err}");
 
         let mut missing = test_config();
         missing.active_provider_id = Some("ghost".into());

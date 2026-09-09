@@ -1,7 +1,9 @@
-// 单套 Provider 编辑卡（UI-003「模型服务」，FR-009）：name / base_url /
-// api_key / model 四行 + 激活单选 + 删除。api_key 默认掩码、可见性切换
-// （OQ-001：明文本机存储，掩码仅为输入防窥）。删除确认（含激活占用拦截）
-// 由父级 SettingsView 的 Dialog 承担，本组件只上报意图。
+// 单套 Provider 编辑卡（UI-003「模型服务」，FR-009；双层级 2026-09-09）：
+// name / base_url / api_key 三行 + 「模型」列表（每行：设为默认单选 + 模型名 +
+// 行内删除，底部添加行）+ 删除服务。全局默认是 (provider, model) 二元组，选中
+// 某模型行的单选即写入整对值；api_key 默认掩码、可见性切换（OQ-001：明文本机
+// 存储，掩码仅为输入防窥）。删除确认（含激活占用拦截）与默认选中回落由父级
+// SettingsView 承担，本组件只上报意图。
 import {
   Button,
   Input,
@@ -11,8 +13,14 @@ import {
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import { Delete16Regular, Eye16Regular, EyeOff16Regular } from '@fluentui/react-icons';
+import {
+  Add16Regular,
+  Delete16Regular,
+  Eye16Regular,
+  EyeOff16Regular,
+} from '@fluentui/react-icons';
 import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../api/types';
 import { validateProvider } from './preferences';
@@ -39,6 +47,29 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
   },
+  modelsLabel: {
+    alignSelf: 'start',
+    paddingTop: tokens.spacingVerticalS,
+  },
+  models: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalXS,
+  },
+  modelRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+  },
+  modelInput: {
+    flex: 1,
+    minWidth: 0,
+  },
+  addRow: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalS,
+    marginTop: tokens.spacingVerticalXS,
+  },
   issues: {
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
@@ -47,17 +78,31 @@ const useStyles = makeStyles({
 
 interface ProviderCardProps {
   provider: ProviderDto;
-  /** 该卡是否为当前激活（active_provider_id 指向者） */
-  isActive: boolean;
+  /** 全局默认 (provider, model) 是否指向本服务 */
+  isActiveProvider: boolean;
+  /** 全局默认模型名（仅 isActiveProvider 时用于行选中态展示） */
+  activeModel: string | null;
   onChange: (next: ProviderDto) => void;
-  onActivate: () => void;
+  /** 选中某模型行「设为默认」：父级写入 activeProviderId + activeModel 整对值 */
+  onActivateModel: (model: string) => void;
+  /** 删除第 index 个模型：父级负责默认选中回落 */
+  onRemoveModel: (index: number) => void;
   onDelete: () => void;
 }
 
-export function ProviderCard({ provider, isActive, onChange, onActivate, onDelete }: ProviderCardProps) {
+export function ProviderCard({
+  provider,
+  isActiveProvider,
+  activeModel,
+  onChange,
+  onActivateModel,
+  onRemoveModel,
+  onDelete,
+}: ProviderCardProps) {
   const styles = useStyles();
   const { t } = useTranslation();
   const [keyVisible, setKeyVisible] = useState(false);
+  const [newModel, setNewModel] = useState('');
 
   const validity = validateProvider(provider);
   const issues: string[] = [];
@@ -69,20 +114,31 @@ export function ProviderCard({ provider, isActive, onChange, onActivate, onDelet
         : t('settings.issueBaseUrlInvalid'),
     );
   }
-  if (!validity.model) issues.push(t('settings.issueModel'));
+  if (provider.models.length === 0) issues.push(t('settings.issueModels'));
 
   const patch = (partial: Partial<ProviderDto>) => onChange({ ...provider, ...partial });
+
+  const renameModel = (index: number, name: string) =>
+    patch({ models: provider.models.map((m, i) => (i === index ? name : m)) });
+
+  const addModel = () => {
+    const name = newModel.trim();
+    if (name === '' || provider.models.includes(name)) return;
+    onChange({ ...provider, models: [...provider.models, name] });
+    setNewModel('');
+  };
+
+  const addOnEnter = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addModel();
+    }
+  };
 
   return (
     <div className={styles.root}>
       <div className={styles.head}>
-        <RadioGroup
-          aria-label={t('settings.activeProvider')}
-          value={isActive ? provider.id : ''}
-          onChange={onActivate}
-        >
-          <Radio value={provider.id} label={t('settings.setActive')} />
-        </RadioGroup>
+        <Text weight="semibold">{provider.name.trim() || t('settings.providerNamePlaceholder')}</Text>
         <Button
           size="small"
           appearance="subtle"
@@ -132,14 +188,59 @@ export function ProviderCard({ provider, isActive, onChange, onActivate, onDelet
           }
         />
       </div>
+
       <div className={styles.field}>
-        <Text>{t('settings.model')}</Text>
-        <Input
-          value={provider.model}
-          aria-label={`${provider.id}-model`}
-          aria-invalid={!validity.model}
-          onChange={(_, d) => patch({ model: d.value })}
-        />
+        <Text className={styles.modelsLabel}>{t('settings.models')}</Text>
+        <div className={styles.models}>
+          {provider.models.map((model, index) => {
+            const isDefault =
+              isActiveProvider && activeModel !== null && activeModel === model;
+            return (
+              <div key={`${model}-${index}`} className={styles.modelRow}>
+                <RadioGroup
+                  aria-label={t('settings.activeProvider')}
+                  value={isDefault ? provider.id : ''}
+                  onChange={() => onActivateModel(model)}
+                >
+                  <Radio value={provider.id} label={t('settings.setActive')} />
+                </RadioGroup>
+                <Input
+                  className={styles.modelInput}
+                  value={model}
+                  aria-label={`${provider.id}-model-${index}`}
+                  aria-invalid={model.trim() === ''}
+                  onChange={(_, d) => renameModel(index, d.value)}
+                />
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  icon={<Delete16Regular />}
+                  aria-label={`${t('settings.deleteModel')} ${model}`}
+                  onClick={() => onRemoveModel(index)}
+                />
+              </div>
+            );
+          })}
+          <div className={styles.addRow}>
+            <Input
+              className={styles.modelInput}
+              value={newModel}
+              aria-label={`${provider.id}-newModel`}
+              placeholder={t('settings.modelPlaceholder')}
+              onChange={(_, d) => setNewModel(d.value)}
+              onKeyDown={addOnEnter}
+            />
+            <Button
+              size="small"
+              icon={<Add16Regular />}
+              aria-label={t('settings.addModel')}
+              disabled={newModel.trim() === ''}
+              onClick={addModel}
+            >
+              {t('settings.addModel')}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {issues.length > 0 ? (

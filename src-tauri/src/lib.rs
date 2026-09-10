@@ -34,6 +34,9 @@ pub fn run() {
         .expect("导出 TS bindings 失败");
 
     tauri::Builder::default()
+        // 原生文件对话框插件（Task-04 角色卡导入/导出）：命令层经 DialogExt 的
+        // Rust 侧 blocking API 调用，不经前端 IPC，无需 capabilities 权限项。
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {

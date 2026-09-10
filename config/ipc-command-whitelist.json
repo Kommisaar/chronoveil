@@ -12,6 +12,8 @@
     "create_character",
     "update_character",
     "delete_character",
+    "export_character",
+    "import_character",
     "get_config",
     "save_config"
   ]

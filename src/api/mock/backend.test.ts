@@ -16,7 +16,7 @@
  * 互不污染；时间经 fake timers 冻结，使 createdAt / updatedAt 断言确定。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterInput, ConfigDto } from '../types';
+import type { CharacterInput, ConfigDto, SessionOpeningInput } from '../types';
 
 const BASE = new Date('2026-01-01T12:00:00Z').getTime();
 
@@ -123,6 +123,70 @@ describe('createSession（FR-007）', () => {
     await expect(backend.createSession(999, null)).rejects.toMatchObject({
       message: 'character #999 不存在（或已软删除）',
     });
+  });
+});
+
+describe('createSession 开局包（FR-014 入参校验对齐 Rust create_session_impl）', () => {
+  /** 合法开局包底版（wire 形态：五字段齐全，可空项传 null）。 */
+  function opening(overrides: Partial<SessionOpeningInput> = {}) {
+    return {
+      calendar: null,
+      ficDay: 3,
+      ficPart: '黄昏',
+      location: '旧都 · 灯市',
+      timeNote: null,
+      ...overrides,
+    };
+  }
+
+  it('三参化：带合法开局包照常建会话（mock 不入存储），opening = null（直接开始）等价降级', async () => {
+    const { backend } = await loadMock();
+    const withOpening = await backend.createSession(1, null, opening());
+    expect(withOpening.id).toBe(4);
+    const degraded = await backend.createSession(1, null, null);
+    expect(degraded.id).toBe(5);
+  });
+
+  it('时段不在六值内报 conflict（fiction_time::PARTS 六值为校验基准）', async () => {
+    const { backend } = await loadMock();
+    const payload = await apiErrorOf(
+      backend.createSession(1, null, opening({ ficPart: '半夜三更' })),
+    );
+    expect(payload.kind).toBe('conflict');
+    // 六值边界逐一放行
+    for (const part of ['清晨', '上午', '午后', '黄昏', '夜', '深夜']) {
+      await backend.createSession(1, null, opening({ ficPart: part }));
+    }
+  });
+
+  it('起始日 < 1 报 conflict；显式日历缺月长基准 / 月日名全空报 conflict，合法日历放行', async () => {
+    const { backend } = await loadMock();
+    expect(
+      (await apiErrorOf(backend.createSession(1, null, opening({ ficDay: 0 })))).kind,
+    ).toBe('conflict');
+
+    const badCalendar = {
+      name: '坏历',
+      months: ['霜月'],
+      daysPerMonth: 0,
+      dayNames: [],
+      festivals: null,
+    };
+    expect(
+      (
+        await apiErrorOf(
+          backend.createSession(1, null, opening({ calendar: badCalendar, ficDay: null })),
+        )
+      ).kind,
+    ).toBe('conflict');
+
+    await backend.createSession(1, null, opening({ ficDay: 45, ficPart: '夜', calendar: {
+      name: '旧都历',
+      months: ['霜月', '白蜡月'],
+      daysPerMonth: 30,
+      dayNames: ['晨露日', '萤火日'],
+      festivals: { 45: '灯节' },
+    } }));
   });
 });
 

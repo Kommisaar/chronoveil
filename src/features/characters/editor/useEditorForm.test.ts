@@ -21,6 +21,7 @@ const EDIT_CHARACTER: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: '{"providerId":"p1","model":"m1","legacyKey":{"a":1}}',
   accentColor: '#3322ff',
+  calendarConfig: null,
   updatedAt: 100,
   sessionCount: 3,
 };

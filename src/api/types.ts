@@ -18,6 +18,10 @@ export type {
   MessageRole,
   /** 新建 / 更新角色卡入参（含 avatar；FR-006）。 */
   CharacterInput,
+  /** 会话日历 wire DTO（FR-014 开局向导；camelCase 仅 wire，存储 JSON 由 Rust 产出）。 */
+  CalendarConfigDto,
+  /** 开局包入参（FR-014；null = 降级路径）。 */
+  SessionOpeningInput,
   /** 应用配置（config.json wire 形态；FR-009 / ADR-012）。 */
   ConfigDto,
   /** 单套 LLM Provider（FR-009）。 */

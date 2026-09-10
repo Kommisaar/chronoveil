@@ -20,6 +20,7 @@ import type {
   CharacterSummary,
   ChatMessage,
   ConfigDto,
+  SessionOpeningInput,
   SessionSummary,
 } from './types';
 
@@ -35,13 +36,18 @@ export async function listSessions(): Promise<SessionSummary[]> {
   return isTauri ? unwrap(commands.listSessions()) : mock.listSessions();
 }
 
+/**
+ * 新建会话（FR-007 / FR-014 开局包）：`opening` 缺省或 null = 降级路径——
+ * 后端同样无条件 seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照）。
+ */
 export async function createSession(
   characterId: number,
   title?: string | null,
+  opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
   return isTauri
-    ? unwrap(commands.createSession(characterId, title ?? null))
-    : mock.createSession(characterId, title);
+    ? unwrap(commands.createSession(characterId, title ?? null, opening ?? null))
+    : mock.createSession(characterId, title, opening);
 }
 
 export async function deleteSession(sessionId: number): Promise<void> {

@@ -14,9 +14,9 @@ async listSessions() : Promise<Result<SessionSummary[], IpcError>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createSession(characterId: number, title: string | null) : Promise<Result<SessionSummary, IpcError>> {
+async createSession(characterId: number, title: string | null, opening: SessionOpeningInput | null) : Promise<Result<SessionSummary, IpcError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_session", { characterId, title }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_session", { characterId, title, opening }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -144,6 +144,31 @@ streamEvent: "stream-event"
 /** user-defined types **/
 
 /**
+ * 会话日历 wire DTO（FR-014 开局向导）。**wire camelCase 只管本 DTO**——落库存储
+ * JSON 由存储层序列化 domain `CalendarConfig` 得 snake_case 键，前端永不手写。
+ */
+export type CalendarConfigDto = { 
+/**
+ * 历法名；None = 无命名皮肤。
+ */
+name: string | null; 
+/**
+ * 月名序列（day-1 → 月序双射换算）。
+ */
+months: string[]; 
+/**
+ * 每月天数（固定天数历）；须 > 0。
+ */
+daysPerMonth: number; 
+/**
+ * 日名序列，按 (day-1) 对序列长度取模循环。
+ */
+dayNames: string[]; 
+/**
+ * 节日表：键 = 年内第几天（1 起），值 = 节日名；None = 无节日。
+ */
+festivals: Partial<{ [key in number]: string }> | null }
+/**
  * 新建 / 更新角色卡入参（FR-006；整卡覆盖语义见 UpdateCharacter）。
  */
 export type CharacterInput = { name: string; 
@@ -198,7 +223,12 @@ modelConfig: string | null;
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
  */
-accentColor: string | null; updatedAt: number; 
+accentColor: string | null; 
+/**
+ * 角色卡世界观日历 JSON（FR-013；FR-014 起随摘要透传，供开局向导
+ * 「跟随角色卡」项显示历法名）；None = 内置默认历。
+ */
+calendarConfig: string | null; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */
@@ -290,6 +320,31 @@ export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: s
  * 该服务可用的模型名列表；至少一个才能用于生成。
  */
 models: string[] }
+/**
+ * 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
+ * seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。
+ */
+export type SessionOpeningInput = { 
+/**
+ * 显式会话日历；None = 跟随角色卡快照。
+ */
+calendar: CalendarConfigDto | null; 
+/**
+ * 起始「第 N 天」；None = 1。
+ */
+ficDay: number | null; 
+/**
+ * 时段（`fiction_time::PARTS` 六值之一）；None = 「夜」。
+ */
+ficPart: string | null; 
+/**
+ * 首场景地点原文，可空。
+ */
+location: string | null; 
+/**
+ * 首场景时间原文，可空。
+ */
+timeNote: string | null }
 /**
  * 会话摘要（FR-007：列表按 updated_at 倒序）。
  */

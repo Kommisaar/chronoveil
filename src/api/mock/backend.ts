@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   ConfigDto,
   MessageRole,
+  SessionOpeningInput,
   SessionSummary,
 } from '../types';
 import { ApiError } from '../errors';
@@ -78,13 +79,41 @@ export async function listSessions(): Promise<SessionSummary[]> {
   return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt || b.id - a.id);
 }
 
+/** 与 Rust `fiction_time::PARTS`（BR-003）一致的时段六值（FR-014 入参校验基准）。 */
+const FIC_PARTS: readonly string[] = ['清晨', '上午', '午后', '黄昏', '夜', '深夜'];
+
 export async function createSession(
   characterId: number,
   title?: string | null,
+  opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
   if (!characters.some((c) => c.id === characterId)) {
     throw notFound('character', characterId);
   }
+  // 开局入参校验对齐 Rust create_session_impl（FR-014）：时段六值、起始日 ≥ 1、
+  // 显式日历需满足命名皮肤可用性（对齐 fiction_time::validate）。
+  if (opening) {
+    if (opening.ficPart !== null && !FIC_PARTS.includes(opening.ficPart)) {
+      throw new ApiError({
+        kind: 'conflict',
+        message: `开局时段「${opening.ficPart}」不在六值内（${FIC_PARTS.join('/')}）`,
+      });
+    }
+    if (opening.ficDay !== null && opening.ficDay < 1) {
+      throw new ApiError({ kind: 'conflict', message: `开局「第 ${opening.ficDay} 天」需 ≥ 1` });
+    }
+    const calendar = opening.calendar;
+    if (
+      calendar !== null &&
+      !(calendar.daysPerMonth > 0 && (calendar.months.length > 0 || calendar.dayNames.length > 0))
+    ) {
+      throw new ApiError({
+        kind: 'conflict',
+        message: '开局日历需每月天数 > 0 且月名 / 日名至少其一非空',
+      });
+    }
+  }
+  // opening 本身不入存储（mock 无 scenes 表），校验通过即视为建会话成功，保演示不破。
   const session: SessionSummary = {
     id: nextSessionId++,
     characterId,
@@ -208,6 +237,8 @@ export async function createCharacter(
     renderStyle: input.renderStyle,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
+    // 角色卡日历 JSON 不随 create 输入（角色卡日历编辑属另一切片），新建恒无。
+    calendarConfig: null,
     updatedAt: Date.now(),
     sessionCount: 0,
   };

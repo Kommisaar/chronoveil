@@ -23,6 +23,7 @@ use specta::Type;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::domain::fiction_time;
 use crate::domain::models;
 use crate::domain::ports::StoragePort;
 use crate::infra::config::Config as FileConfig;
@@ -153,6 +154,9 @@ pub struct CharacterSummary {
     pub model_config: Option<String>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
     pub accent_color: Option<String>,
+    /// 角色卡世界观日历 JSON（FR-013；FR-014 起随摘要透传，供开局向导
+    /// 「跟随角色卡」项显示历法名）；None = 内置默认历。
+    pub calendar_config: Option<String>,
     pub updated_at: i64,
     /// 该角色开启的会话数（在世会话）。
     pub session_count: i64,
@@ -170,6 +174,7 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         render_style: c.render_style,
         model_config: c.model_config,
         accent_color: c.accent_color,
+        calendar_config: c.calendar_config,
         updated_at: c.updated_at,
         session_count: 0,
     }
@@ -352,7 +357,90 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
 }
 
-// ---- 会话（FR-007）----
+// ---- 会话（FR-007）+ 开局包（FR-014）----
+
+/// 会话日历 wire DTO（FR-014 开局向导）。**wire camelCase 只管本 DTO**——落库存储
+/// JSON 由存储层序列化 domain `CalendarConfig` 得 snake_case 键，前端永不手写。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarConfigDto {
+    /// 历法名；None = 无命名皮肤。
+    pub name: Option<String>,
+    /// 月名序列（day-1 → 月序双射换算）。
+    pub months: Vec<String>,
+    /// 每月天数（固定天数历）；须 > 0。
+    pub days_per_month: u32,
+    /// 日名序列，按 (day-1) 对序列长度取模循环。
+    pub day_names: Vec<String>,
+    /// 节日表：键 = 年内第几天（1 起），值 = 节日名；None = 无节日。
+    pub festivals: Option<std::collections::BTreeMap<i64, String>>,
+}
+
+impl From<&CalendarConfigDto> for fiction_time::CalendarConfig {
+    fn from(dto: &CalendarConfigDto) -> Self {
+        fiction_time::CalendarConfig {
+            name: dto.name.clone(),
+            months: dto.months.clone(),
+            days_per_month: dto.days_per_month,
+            day_names: dto.day_names.clone(),
+            festivals: dto.festivals.clone().unwrap_or_default(),
+        }
+    }
+}
+
+/// 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
+/// seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOpeningInput {
+    /// 显式会话日历；None = 跟随角色卡快照。
+    pub calendar: Option<CalendarConfigDto>,
+    /// 起始「第 N 天」；None = 1。
+    pub fic_day: Option<i64>,
+    /// 时段（`fiction_time::PARTS` 六值之一）；None = 「夜」。
+    pub fic_part: Option<String>,
+    /// 首场景地点原文，可空。
+    pub location: Option<String>,
+    /// 首场景时间原文，可空。
+    pub time_note: Option<String>,
+}
+
+/// 开局入参 → 领域 [`models::OpeningSeed`]（FR-014）：入口校验集中在此，非法入参
+/// 统一 [`IpcError::Conflict`]——时段六值、起始日 ≥ 1、显式日历需满足命名皮肤
+/// 可用性（对齐 `fiction_time::validate`，与 date_label 回退同一判定）。
+fn opening_seed_from(input: &SessionOpeningInput) -> Result<models::OpeningSeed, IpcError> {
+    if let Some(part) = &input.fic_part {
+        if !fiction_time::is_valid_part(part) {
+            return Err(IpcError::Conflict {
+                message: format!("开局时段「{part}」不在六值内（{:?}）", fiction_time::PARTS),
+            });
+        }
+    }
+    if let Some(day) = input.fic_day {
+        if day < 1 {
+            return Err(IpcError::Conflict { message: format!("开局「第 {day} 天」需 ≥ 1") });
+        }
+    }
+    let calendar = match &input.calendar {
+        Some(dto) => {
+            let cal = fiction_time::CalendarConfig::from(dto);
+            if !fiction_time::validate(&cal) {
+                return Err(IpcError::Conflict {
+                    message: "开局日历需每月天数 > 0 且月名 / 日名至少其一非空".into(),
+                });
+            }
+            Some(cal)
+        }
+        None => None,
+    };
+    Ok(models::OpeningSeed {
+        calendar,
+        fic_day: input.fic_day,
+        fic_part: input.fic_part.clone(),
+        location: input.location.clone(),
+        time_note: input.time_note.clone(),
+    })
+}
 
 fn list_sessions_impl(app: &AppState) -> Result<Vec<SessionSummary>, IpcError> {
     Ok(app
@@ -373,13 +461,15 @@ fn create_session_impl(
     app: &AppState,
     character_id: i64,
     title: Option<String>,
+    opening: Option<&SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
     // 先显式查角色：比外键冲突给出更精确的 NotFound（ADR-009 语义）。
     app.storage.get_character(character_id)?;
+    let opening = opening.map(opening_seed_from).transpose()?;
     let session = app.storage.create_session(&models::NewSession {
         character_id,
         title: title.unwrap_or_default(),
-        opening: None,
+        opening,
     })?;
     Ok(SessionSummary::from(session))
 }
@@ -390,8 +480,9 @@ pub fn create_session(
     state: State<'_, AppState>,
     character_id: i64,
     title: Option<String>,
+    opening: Option<SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
-    create_session_impl(&state, character_id, title)
+    create_session_impl(&state, character_id, title, opening.as_ref())
 }
 
 fn delete_session_impl(app: &AppState, session_id: i64) -> Result<(), IpcError> {
@@ -960,11 +1051,11 @@ mod tests {
         let (app, dir) = temp_state("sessions");
         let character = sample_character(&app, "苏鸢");
 
-        let created = create_session_impl(&app, character.id, None).unwrap();
+        let created = create_session_impl(&app, character.id, None, None).unwrap();
         assert_eq!(created.title, "", "缺省标题为空串（首条用户消息后回填属 TASK-006）");
         assert_eq!(created.character_id, character.id);
 
-        create_session_impl(&app, character.id, Some("旧书店".into())).unwrap();
+        create_session_impl(&app, character.id, Some("旧书店".into()), None).unwrap();
         let listed = list_sessions_impl(&app).unwrap();
         assert_eq!(listed.len(), 2);
 
@@ -977,9 +1068,96 @@ mod tests {
         ));
         // 指向不存在角色 → NotFound（而非裸外键冲突）。
         assert!(matches!(
-            create_session_impl(&app, 999_999, None),
+            create_session_impl(&app, 999_999, None, None),
             Err(IpcError::NotFound { .. })
         ));
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FR-014：开局包经 create_session 落库——显式日历写入会话快照、开场锚行
+    /// idx=0 且 date_label 派生；降级（opening = None）同样有默认锚行。
+    #[test]
+    fn create_session_with_opening_seeds_calendar_and_anchor() {
+        let (app, dir) = temp_state("opening");
+        let character = sample_character(&app, "苏鸢");
+
+        let opening = SessionOpeningInput {
+            calendar: Some(CalendarConfigDto {
+                name: Some("旧都历".into()),
+                months: vec!["霜月".into(), "白蜡月".into()],
+                days_per_month: 30,
+                day_names: vec!["晨露日".into(), "萤火日".into()],
+                festivals: Some(std::collections::BTreeMap::from([(45, "灯节".into())])),
+            }),
+            fic_day: Some(45),
+            fic_part: Some("夜".into()),
+            location: Some("旧都 · 灯市".into()),
+            time_note: None,
+        };
+        let created = create_session_impl(&app, character.id, None, Some(&opening)).unwrap();
+
+        // 会话日历 = 显式指定的 snake_case 存储 JSON（wire camelCase 不入库）。
+        let stored = app.storage.get_session(created.id).unwrap().calendar_config.unwrap();
+        assert!(stored.contains("days_per_month"), "存储 JSON 为 snake_case：{stored}");
+        assert!(!stored.contains("daysPerMonth"), "存储 JSON 不得混入 wire 键：{stored}");
+        // 开场锚行：idx=0、锚位与派生 date_label、在场 = 会话角色。
+        let scene = app.storage.latest_scene(created.id).unwrap().unwrap();
+        assert_eq!(scene.idx, 0);
+        assert_eq!(scene.fic_day, Some(45));
+        assert_eq!(scene.fic_part.as_deref(), Some("夜"));
+        assert_eq!(scene.date_label.as_deref(), Some("白蜡月·晨露日·夜（灯节）"));
+        assert_eq!(scene.location.as_deref(), Some("旧都 · 灯市"));
+        assert_eq!(scene.present, vec![character.id]);
+
+        // 降级路径（opening = None）：默认锚行（day=1 / part=夜）无条件存在。
+        let degraded = create_session_impl(&app, character.id, None, None).unwrap();
+        let scene = app.storage.latest_scene(degraded.id).unwrap().unwrap();
+        assert_eq!((scene.idx, scene.fic_day, scene.fic_part.as_deref()), (0, Some(1), Some("夜")));
+        assert_eq!(scene.date_label.as_deref(), Some("第1日·夜"), "角色无日历 → 数字形式");
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FR-014：开局入参校验（Conflict）——时段六值、起始日 ≥ 1、显式日历皮肤可用性。
+    #[test]
+    fn create_session_rejects_invalid_opening() {
+        let (app, dir) = temp_state("opening_invalid");
+        let character = sample_character(&app, "苏鸢");
+
+        let mut opening = SessionOpeningInput {
+            calendar: None,
+            fic_day: None,
+            fic_part: None,
+            location: None,
+            time_note: None,
+        };
+        // 时段不在六值内 → Conflict。
+        let bad_part = SessionOpeningInput { fic_part: Some("半夜三更".into()), ..opening.clone() };
+        assert!(matches!(
+            create_session_impl(&app, character.id, None, Some(&bad_part)),
+            Err(IpcError::Conflict { .. })
+        ));
+        // 起始日 < 1 → Conflict。
+        let bad_day = SessionOpeningInput { fic_day: Some(0), ..opening.clone() };
+        assert!(matches!(
+            create_session_impl(&app, character.id, None, Some(&bad_day)),
+            Err(IpcError::Conflict { .. })
+        ));
+        // 显式日历缺月长基准（days_per_month = 0）→ Conflict（对齐 has_skin）。
+        opening.calendar = Some(CalendarConfigDto {
+            name: Some("坏历".into()),
+            months: vec!["霜月".into()],
+            days_per_month: 0,
+            day_names: Vec::new(),
+            festivals: None,
+        });
+        assert!(matches!(
+            create_session_impl(&app, character.id, None, Some(&opening)),
+            Err(IpcError::Conflict { .. })
+        ));
+        // 校验失败零落库（连降级锚行也没有）。
+        assert!(list_sessions_impl(&app).unwrap().is_empty());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -990,7 +1168,7 @@ mod tests {
         let character = sample_character(&app, "林深");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new() })
+            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
             .unwrap();
         app.storage
             .insert_message(&NewMessage::new(session.id, models::MessageRole::User, "在吗？"))
@@ -1027,7 +1205,7 @@ mod tests {
         let character = sample_character(&app, "苏鸢");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new() })
+            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
             .unwrap();
 
         // Provider 未配置 → 类型化 Config 错误；用户条与注册表零副作用。
@@ -1106,6 +1284,7 @@ mod tests {
     #[test]
     fn character_summary_serializes_camel_case_with_persona_and_model_config() {
         // TASK-008：摘要扩 persona / model_config（编辑预填），wire 保持 camelCase。
+        // FR-014：calendarConfig 随摘要透传（开局向导「跟随角色卡」显示历法名）。
         let summary = CharacterSummary {
             id: 5,
             name: "苏鸢".into(),
@@ -1116,6 +1295,7 @@ mod tests {
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
+            calendar_config: Some(r#"{"name":"旧都历","days_per_month":30}"#.into()),
             updated_at: 42,
             session_count: 2,
         };
@@ -1123,6 +1303,8 @@ mod tests {
         assert_eq!(json["persona"], "雨夜电话亭的守夜人");
         assert_eq!(json["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
         assert_eq!(json["accentColor"], "#5e2347", "强调色 camelCase wire");
+        assert_eq!(json["calendarConfig"], r#"{"name":"旧都历","days_per_month":30}"#,
+            "日历 JSON 原样透传（存储 snake_case 由 Rust 产出）");
         assert!(json["avatar"].is_null(), "avatar 可空透传");
         // model_config = None（跟随全局）时 wire 为 null。
         let follower = CharacterSummary { model_config: None, ..summary };
@@ -1156,10 +1338,10 @@ mod tests {
 
         // 会话计数汇总（关系侧）。
         app.storage
-            .create_session(&NewSession { character_id: created.id, title: String::new() })
+            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
             .unwrap();
         app.storage
-            .create_session(&NewSession { character_id: created.id, title: String::new() })
+            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
             .unwrap();
         let other = create_character_impl(
             &app,

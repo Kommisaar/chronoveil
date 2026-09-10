@@ -119,7 +119,7 @@ async fn normal_stream_routes_content_reasoning_and_ignores_unknowns() {
     assert_eq!(observed.tokens, vec![("你好".to_string(), false), ("，世界".to_string(), false)]);
     assert_eq!(observed.reasoning, vec![("开始思考".to_string(), false)]);
     assert_eq!(observed.done.len(), 1, "应恰好一个 done 终态");
-    assert!(matches!(observed.done[0], Some(_)), "有 reasoning → think_ms 应有值");
+    assert!(observed.done[0].is_some(), "有 reasoning → think_ms 应有值");
     assert!(observed.errors.is_empty());
 
     match outcome {

@@ -193,7 +193,7 @@ mod tests {
             })
             .unwrap();
         // error / cancel 半条带中断标记（形态透传，ADR-001）
-        let interrupted = storage
+        storage
             .insert_message(&NewMessage {
                 session_id: sid,
                 role: MessageRole::Assistant,

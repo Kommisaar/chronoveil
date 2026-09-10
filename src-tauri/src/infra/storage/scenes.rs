@@ -185,7 +185,7 @@ mod tests {
         drop(storage);
 
         {
-            let conn = Connection::open(&dir.join("test.db")).unwrap();
+            let conn = Connection::open(dir.join("test.db")).unwrap();
             conn.execute(
                 "UPDATE scenes SET deleted_at = 123 WHERE id = ?1",
                 params![gone],

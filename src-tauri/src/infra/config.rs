@@ -370,7 +370,7 @@ mod tests {
         let config = store_in(&dir).load().unwrap();
         assert_eq!(config.rhythm_ms_per_char, 80, "已给键取文件值");
         assert_eq!(config.ui_theme, "dark");
-        assert_eq!(config.punct_pause_enabled, true, "缺键补默认");
+        assert!(config.punct_pause_enabled, "缺键补默认");
         assert_eq!(config.anim_duration_base, 450);
         assert_eq!(config.ui_language, "zh");
         assert!(config.providers.is_empty());

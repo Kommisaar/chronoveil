@@ -4,6 +4,7 @@
  *
  * 语义对齐 Rust 侧：软删 = 从列表移除（mock 无墓碑）；sendMessage 只回执用户条并
  * 追加一条占位回复（真实生成闭环由 TASK-006 接线，mock 仅保界面演示完整）。
+ * 错误形态对齐 wire 契约：统一抛 [`ApiError`]（payload 为 Rust IpcError 的可判别结构）。
  */
 
 import type {
@@ -14,6 +15,7 @@ import type {
   MessageRole,
   SessionSummary,
 } from '../types';
+import { ApiError } from '../commands';
 import { characters, messagesBySession, sessions } from './data';
 
 /** 与 Rust `Config::new_with_defaults`（FR-009；双层级 provider→models）一致的默认配置。 */
@@ -36,11 +38,14 @@ let nextCharacterId = Math.max(...characters.map((c) => c.id)) + 1;
 let nextMessageId =
   Math.max(...Object.values(messagesBySession).flat().map((m) => m.id)) + 1;
 
-class MockError extends Error {}
+/** 与 Rust NotFound 等价（ADR-009：不存在 / 已软删对调用方等价）；entity 取 storage 层常量。 */
+function notFound(entity: 'session' | 'character', id: number): ApiError {
+  return new ApiError({ kind: 'notFound', entity, id });
+}
 
 function sessionOf(sessionId: number): SessionSummary {
   const session = sessions.find((s) => s.id === sessionId);
-  if (!session) throw new MockError(`会话 #${sessionId} 不存在`);
+  if (!session) throw notFound('session', sessionId);
   return session;
 }
 
@@ -69,7 +74,8 @@ function makeMessage(
 // ---- 会话（FR-007）----
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  // 排序对齐 infra/storage/sessions.rs：ORDER BY updated_at DESC, id DESC。
+  return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt || b.id - a.id);
 }
 
 export async function createSession(
@@ -77,7 +83,7 @@ export async function createSession(
   title?: string | null,
 ): Promise<SessionSummary> {
   if (!characters.some((c) => c.id === characterId)) {
-    throw new MockError(`角色 #${characterId} 不存在`);
+    throw notFound('character', characterId);
   }
   const session: SessionSummary = {
     id: nextSessionId++,
@@ -91,7 +97,7 @@ export async function createSession(
 
 export async function deleteSession(sessionId: number): Promise<void> {
   const index = sessions.findIndex((s) => s.id === sessionId);
-  if (index < 0) throw new MockError(`会话 #${sessionId} 不存在`);
+  if (index < 0) throw notFound('session', sessionId);
   sessions.splice(index, 1);
   delete messagesBySession[sessionId];
 }
@@ -99,16 +105,30 @@ export async function deleteSession(sessionId: number): Promise<void> {
 // ---- 消息（ADR-001 读路径）----
 
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
+  // 对齐 ipc.rs list_messages_impl：先取会话，不存在 / 已软删报 NotFound（而非空列表）。
+  sessionOf(sessionId);
   return (messagesBySession[sessionId] ?? []).slice();
+}
+
+/** 会话标题缺省值（FR-007）：与 Rust `generation::default_title` 一致——
+ *  首条用户消息按码点截断到 20 字，截断时补省略号。 */
+const TITLE_MAX_CHARS = 20;
+
+function defaultTitle(content: string): string {
+  const trimmed = content.trim();
+  const chars = Array.from(trimmed);
+  const truncated = chars.slice(0, TITLE_MAX_CHARS).join('');
+  return chars.length > TITLE_MAX_CHARS ? `${truncated}…` : truncated;
 }
 
 export async function sendMessage(
   sessionId: number,
   content: string,
 ): Promise<ChatMessage> {
-  const trimmed = content.trim();
-  if (!trimmed) throw new MockError('消息内容为空');
+  // 检查顺序对齐 ipc.rs send_message_impl：先取会话（NotFound），再校验内容（Conflict）。
   const session = sessionOf(sessionId);
+  const trimmed = content.trim();
+  if (!trimmed) throw new ApiError({ kind: 'conflict', message: '消息内容为空' });
   const userMessage = makeMessage(sessionId, null, 'user', trimmed);
   ;(messagesBySession[sessionId] ??= []).push(userMessage);
   // 占位回复：mock 无真实生成；characterId 派生规则与命令层一致（assistant → 会话角色）。
@@ -122,10 +142,13 @@ export async function sendMessage(
       800,
     ),
   );
+  // FR-007：标题缺省取首条用户消息截断（ipc.rs send_message_impl / default_title）。
+  if (session.title === '') session.title = defaultTitle(trimmed);
   session.updatedAt = userMessage.createdAt;
   return userMessage;
 }
 
+// mock 无异步生成闭环 → 永远无活跃生成；对齐 Rust 注册表「无活跃生成 = 幂等 no-op」。
 export async function cancelGeneration(_sessionId: number): Promise<boolean> {
   return false;
 }
@@ -141,17 +164,24 @@ export async function regenerateLast(sessionId: number): Promise<ChatMessage> {
       break;
     }
   }
-  if (!target) throw new MockError(`会话 #${sessionId} 没有可重新生成的回复`);
+  if (!target) {
+    throw new ApiError({ kind: 'conflict', message: '会话没有可重新生成的回复' });
+  }
+  const oldMessage: ChatMessage = { ...target };
+  // FR-008：重新生成 = 软删旧条 + 新条从零演出（mock 无生成流，同步落地替换）。
   const replaced: ChatMessage = {
     ...target,
     id: nextMessageId++,
     content: '（mock）重新生成的回复，替换了最后一条 assistant 消息。',
     reasoning: 'mock 思考：FR-008 重新生成 = 软删旧条 + 插入新条。',
+    thinkMs: 800,
+    createdAt: Date.now(),
     interrupted: false,
   };
   messages[messages.indexOf(target)] = replaced;
   session.updatedAt = replaced.createdAt;
-  return replaced;
+  // 契约对齐 ipc.rs regenerate_last_impl：返回被替换的旧条（前端据以从界面移除）。
+  return oldMessage;
 }
 
 // ---- 角色 CRUD（FR-006，含 avatar）----
@@ -190,7 +220,7 @@ export async function updateCharacter(
   input: CharacterInput,
 ): Promise<void> {
   const character = characters.find((c) => c.id === id);
-  if (!character) throw new MockError(`角色 #${id} 不存在`);
+  if (!character) throw notFound('character', id);
   character.name = input.name;
   character.avatar = input.avatar;
   character.persona = input.persona;
@@ -206,7 +236,7 @@ export async function updateCharacter(
 // 历史会话与消息保留，聊天侧仍可查看（OQ-002 已消解，不做级联删除）。
 export async function deleteCharacter(id: number): Promise<void> {
   const index = characters.findIndex((c) => c.id === id);
-  if (index < 0) throw new MockError(`角色 #${id} 不存在`);
+  if (index < 0) throw notFound('character', id);
   characters.splice(index, 1);
 }
 
@@ -222,8 +252,12 @@ export async function getConfig(): Promise<ConfigDto> {
 }
 
 export async function saveConfig(next: ConfigDto): Promise<void> {
+  // 值域对齐 infra/config.rs validate（FR-009：10–160），错误形态对齐 IpcError::Config。
   if (next.rhythmMsPerChar < 10 || next.rhythmMsPerChar > 160) {
-    throw new MockError('rhythmMsPerChar 越界（允许 10–160）');
+    throw new ApiError({
+      kind: 'config',
+      message: `rhythm_ms_per_char = ${next.rhythmMsPerChar} 越界（允许 10–160）`,
+    });
   }
   config = { ...next, providers: cloneProviders(next.providers) };
 }

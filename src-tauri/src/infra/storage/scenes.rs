@@ -110,6 +110,23 @@ pub(crate) fn latest(conn: &Connection, session_id: i64) -> Result<Option<Scene>
     }
 }
 
+/// 上一场景 summary 回写（FR-011 边界快照，§7-1）：把收束段摘要回写到指定在世场景行；
+/// 行不存在或已软删 → NotFound（结算整体失败回滚，重试从头再来）。
+pub(crate) fn update_summary(
+    conn: &Connection,
+    scene_id: i64,
+    summary: &str,
+) -> Result<(), StorageError> {
+    let n = conn.execute(
+        "UPDATE scenes SET summary = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+        params![scene_id, summary],
+    )?;
+    if n == 0 {
+        return Err(StorageError::NotFound { entity: "scene", id: scene_id });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

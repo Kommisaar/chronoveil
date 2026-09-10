@@ -22,7 +22,7 @@ use crate::domain::models::{
     Character, CharacterState, Message, MessageRole, NewCharacter, NewCharacterState, NewMessage,
     NewScene, NewSession, Scene, Session, UpdateCharacter,
 };
-use crate::domain::ports::StoragePort;
+use crate::domain::ports::{SettlementWrite, StoragePort};
 
 /// SQLite 单文件持久化。内部互斥串行化访问（rusqlite Connection 非 Sync），
 /// 对外 `&self` 即可调用，天然满足 Tauri `manage` 的 Send + Sync 要求。
@@ -213,6 +213,35 @@ impl StoragePort for Storage {
         self.with_conn(|conn| scenes::latest(conn, session_id))
     }
 
+    fn commit_settlement(&self, write: &SettlementWrite) -> Result<Scene, StorageError> {
+        self.with_conn(|conn| {
+            // 结算单事务（INT-003「未成功的结算无副作用」的字面实现）：四类写入绑成
+            // 一次提交，任一支路失败整体回滚，不留半结算状态（避免 idx 空洞 / 摘要
+            // 回写与消息归属脱节等不一致）。unchecked_transaction 模式同 insert_message。
+            let tx = conn.unchecked_transaction()?;
+            // 1) 上一场景 summary 回写（边界快照：上一行 = 它所辖场景的 header + 消息 + 摘要）。
+            if let (Some(scene_id), Some(summary)) = (&write.close_scene_id, &write.close_summary)
+            {
+                scenes::update_summary(&tx, *scene_id, summary)?;
+            }
+            // 2) 收束段消息归属（半开区间挂到上一行；无上一行则无归属，消息留待自愈）。
+            if let Some(range) = &write.attach {
+                messages::attach_to_scene(&tx, write.scene.session_id, range)?;
+            }
+            // 3) 新场景行（边界快照 header，idx 同会话单调自增）。
+            let scene = scenes::insert(&tx, &write.scene)?;
+            // 4) 状态清算：upsert 覆盖 / 软删清除（ADR-009 可还原）。
+            for upsert in &write.state_upserts {
+                character_states::upsert(&tx, upsert)?;
+            }
+            for id in &write.state_clears {
+                character_states::soft_delete(&tx, *id, now())?;
+            }
+            tx.commit()?;
+            Ok(scene)
+        })
+    }
+
     // ---- character_state（FR-012）----
     fn upsert_character_state(
         &self,
@@ -390,5 +419,209 @@ mod tests {
             .unwrap();
         drop(storage);
         cleanup(&dir);
+    }
+
+    // ---- commit_settlement（FR-011：结算单事务）----
+
+    use crate::domain::models::{CharacterStateScope, NewCharacterState};
+    use crate::domain::ports::AttachRange;
+
+    /// 在世消息的 scene_id 列快照（按 id 升序）：messages.scene_id 的读路径未开进
+    /// 领域结构体（wire 面零变更），测试经只读连接直接断言。
+    fn attached_scene_ids(dir: &Path, session_id: i64) -> Vec<Option<i64>> {
+        let conn = Connection::open(dir.join("test.db")).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT scene_id FROM messages \
+                 WHERE session_id = ?1 AND deleted_at IS NULL ORDER BY id ASC",
+            )
+            .unwrap();
+        let rows = stmt.query_map(rusqlite::params![session_id], |r| r.get(0)).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    }
+
+    /// 夹具：角色 + 会话 + 两条消息（user、assistant 各一），返回各 id。
+    fn settlement_fixture(tag: &str) -> (Storage, PathBuf, i64, i64, i64, i64) {
+        let (storage, dir) = temp_storage(tag);
+        let char_id = storage
+            .create_character(&NewCharacter { name: "苏鸢".into(), ..Default::default() })
+            .unwrap()
+            .id;
+        let session_id = storage
+            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .unwrap()
+            .id;
+        let user_id = storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "推门进去。"))
+            .unwrap()
+            .id;
+        let assistant_id = storage
+            .insert_message(&NewMessage::new(
+                session_id,
+                MessageRole::Assistant,
+                "她抬头。\n\n---\n\n新的开始。",
+            ))
+            .unwrap()
+            .id;
+        (storage, dir, char_id, session_id, user_id, assistant_id)
+    }
+
+    fn new_scene(session_id: i64) -> NewScene {
+        NewScene {
+            session_id,
+            location: Some("旧书店 · 打烊后".into()),
+            time_note: Some("次日清晨".into()),
+            fic_day: Some(2),
+            fic_part: Some("清晨".into()),
+            date_label: Some("第2日·清晨".into()),
+            summary: Some("昨夜争执后两人无言告别".into()),
+            present: vec![1],
+        }
+    }
+
+    /// 结算成功路径：上一行 summary 回写、收束段消息归属、新行 idx 自增、
+    /// 状态 upsert 与软删清除一次落库（FR-011 / INT-003）。
+    #[test]
+    fn commit_settlement_lands_all_branches_in_one_transaction() {
+        let (storage, dir, char_id, session_id, _user_id, assistant_id) =
+            settlement_fixture("settle_ok");
+        // 上一结算的边界快照行（开场段）+ 一条待清除状态。
+        let previous = storage.insert_scene(&new_scene(session_id)).unwrap();
+        let stale = storage
+            .upsert_character_state(&NewCharacterState {
+                character_id: char_id,
+                session_id,
+                scope: CharacterStateScope::State,
+                key: "别扭".into(),
+                value: "欲言又止".into(),
+                expiry: Some("scene_end".into()),
+                source_scene: Some(previous.id),
+            })
+            .unwrap();
+
+        let write = SettlementWrite {
+            scene: NewScene {
+                summary: Some("钟楼下的对峙无果而终".into()),
+                ..new_scene(session_id)
+            },
+            close_scene_id: Some(previous.id),
+            close_summary: Some("昨夜争执后两人无言告别".into()),
+            attach: Some(AttachRange {
+                scene_id: previous.id,
+                after_message_id: 0,
+                upto_message_id: assistant_id,
+            }),
+            state_upserts: vec![NewCharacterState {
+                character_id: char_id,
+                session_id,
+                scope: CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "释然".into(),
+                expiry: Some("event:亮灯".into()),
+                source_scene: Some(previous.id),
+            }],
+            state_clears: vec![stale.id],
+        };
+        let scene = storage.commit_settlement(&write).unwrap();
+
+        // 新行：idx 沿上一行单调自增，边界快照字段原样落库。
+        assert_eq!(scene.idx, previous.idx + 1);
+        assert_eq!(scene.location.as_deref(), Some("旧书店 · 打烊后"));
+        assert_eq!(scene.summary.as_deref(), Some("钟楼下的对峙无果而终"));
+        assert_eq!(scene.present, vec![1]);
+        // 上一行 summary 回写 + 收束段两条消息归属到上一行（边界快照语义）。
+        let reloaded = storage.list_scenes(session_id).unwrap();
+        assert_eq!(reloaded.len(), 2);
+        assert_eq!(reloaded[0].id, previous.id);
+        assert_eq!(reloaded[0].summary.as_deref(), Some("昨夜争执后两人无言告别"));
+        assert_eq!(
+            attached_scene_ids(&dir, session_id),
+            vec![Some(previous.id), Some(previous.id)],
+            "收束段消息挂到上一行"
+        );
+        // 状态清算：新键 upsert、旧键软删（墓碑可还原，ADR-009）。
+        let states = storage.list_character_states(session_id).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].key, "情绪");
+        assert_eq!(states[0].value, "释然");
+        assert_eq!(states[0].source_scene, Some(previous.id));
+        assert_eq!(states[0].deleted_at, None);
+        assert!(storage.soft_delete_character_state(stale.id).is_err(), "清除支路已置墓碑：再删报 NotFound");
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 开场即结算（无上一行）：close / attach / 回写全部缺席，仅落新场景行，idx 从 0 起。
+    #[test]
+    fn commit_settlement_first_boundary_only_inserts_scene() {
+        let (storage, dir, _char_id, session_id, _user_id, _assistant_id) =
+            settlement_fixture("settle_first");
+        let scene = storage
+            .commit_settlement(&SettlementWrite {
+                scene: new_scene(session_id),
+                close_scene_id: None,
+                close_summary: None,
+                attach: None,
+                state_upserts: Vec::new(),
+                state_clears: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(scene.idx, 0);
+        assert_eq!(storage.list_scenes(session_id).unwrap().len(), 1);
+        assert!(
+            attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),
+            "无上一行不产生消息归属（留待后续结算自愈，§7-2）"
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 回滚测试（INT-003 未成功的结算无副作用）：清除支路指向不存在行 → 整体失败，
+    /// 新场景行 / summary 回写 / 消息归属 / upsert 一律不留痕迹。
+    #[test]
+    fn commit_settlement_rolls_back_on_any_branch_failure() {
+        let (storage, dir, char_id, session_id, _user_id, assistant_id) =
+            settlement_fixture("settle_rollback");
+        let previous = storage.insert_scene(&new_scene(session_id)).unwrap();
+        let before_summary = previous.summary.clone();
+        let before_scenes = storage.list_scenes(session_id).unwrap().len();
+
+        let err = storage
+            .commit_settlement(&SettlementWrite {
+                scene: new_scene(session_id),
+                close_scene_id: Some(previous.id),
+                close_summary: Some("不该被写进去的摘要".into()),
+                attach: Some(AttachRange {
+                    scene_id: previous.id,
+                    after_message_id: 0,
+                    upto_message_id: assistant_id,
+                }),
+                state_upserts: vec![NewCharacterState {
+                    character_id: char_id,
+                    session_id,
+                    scope: CharacterStateScope::State,
+                    key: "情绪".into(),
+                    value: "释然".into(),
+                    expiry: None,
+                    source_scene: None,
+                }],
+                state_clears: vec![999_999], // 不存在的状态行 → NotFound → 整体回滚
+            })
+            .unwrap_err();
+        assert!(matches!(err, StorageError::NotFound { .. }), "实际：{err:?}");
+
+        assert_eq!(storage.list_scenes(session_id).unwrap().len(), before_scenes, "无新场景行");
+        assert_eq!(
+            storage.latest_scene(session_id).unwrap().unwrap().summary,
+            before_summary,
+            "summary 回写未发生"
+        );
+        assert!(
+            attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),
+            "消息归属未发生"
+        );
+        assert!(storage.list_character_states(session_id).unwrap().is_empty(), "upsert 未发生");
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

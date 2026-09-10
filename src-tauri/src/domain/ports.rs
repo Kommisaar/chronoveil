@@ -13,6 +13,39 @@ use crate::domain::models::{
     NewSession, Scene, Session, UpdateCharacter,
 };
 
+/// 消息归属半开区间 `(after_message_id, upto_message_id]`（FR-011）：区间内的在世消息
+/// `UPDATE messages SET scene_id = scene_id`。起点取上一道场景线所在消息 id（没有则 0），
+/// 保证已归属的历史消息不被重挂。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachRange {
+    pub scene_id: i64,
+    pub after_message_id: i64,
+    pub upto_message_id: i64,
+}
+
+/// 结算单事务写入包（FR-011 / INT-003「未成功的结算无副作用」）：新场景行 + 上一场景
+/// summary 回写 + 收束段消息归属 + 状态 upsert / 软删，由 [`StoragePort::commit_settlement`]
+/// 绑成一次提交——任一支路失败整体回滚，不留半结算状态。
+///
+/// scenes 行语义为「边界快照」模型（§7-1 拍板）：新行 = `---` 之后新场景的 header
+/// （location / fic_day / fic_part / date_label / present），行 summary = `---` 之前刚
+/// 收束段的远景一句话；收束段的消息挂到上一行（`latest_scene`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettlementWrite {
+    /// 新场景行（边界快照；idx 由存储层按会话单调自增分配）。
+    pub scene: NewScene,
+    /// 收束段归属的场景行（上一行 latest_scene；开场即结算 = None）。
+    pub close_scene_id: Option<i64>,
+    /// 回写到 `close_scene_id` 行的 summary：与 `scene.summary` 同为收束段摘要，
+    /// 使上一行与其归属消息自洽（行内即该场景的 header + 消息 + 摘要）。None = 不回写。
+    pub close_summary: Option<String>,
+    /// 收束段消息归属范围；开场即结算（无上一行）= None，消息留待后续结算自愈（§7-2）。
+    pub attach: Option<AttachRange>,
+    pub state_upserts: Vec<NewCharacterState>,
+    /// 待软删的 character_state 行 id（clear 语义，ADR-009 软删可还原）。
+    pub state_clears: Vec<i64>,
+}
+
 /// SQLite 持久化端口（CMP-003）。实现必须线程安全（&self 即可调用）；
 /// `Send + Sync` 上界供生成编排（TASK-006）把 `Arc<dyn StoragePort>` 带入后台任务。
 pub trait StoragePort: Send + Sync {
@@ -59,6 +92,10 @@ pub trait StoragePort: Send + Sync {
     fn list_scenes(&self, session_id: i64) -> Result<Vec<Scene>, StorageError>;
     /// 最后一个在世场景；没有则 None。
     fn latest_scene(&self, session_id: i64) -> Result<Option<Scene>, StorageError>;
+    /// 结算落库（FR-011 / ADR-005 / INT-003 幂等）：把 [`SettlementWrite`] 的四类写入
+    /// （新场景行、上一场景 summary 回写、收束段消息归属、状态 upsert / 软删）绑成
+    /// **单事务**提交——任一支路失败整体回滚，重试从头再来。
+    fn commit_settlement(&self, write: &SettlementWrite) -> Result<Scene, StorageError>;
 
     // ---- character_state（FR-012：会话内人物状态） ----
     /// upsert：同键（character_id, session_id, key）覆盖 value / expiry / source_scene，

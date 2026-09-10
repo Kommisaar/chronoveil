@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, Row};
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{Message, MessageRole, NewMessage};
+use crate::domain::ports::AttachRange;
 
 pub(crate) const ENTITY: &str = "message";
 
@@ -128,6 +129,21 @@ pub(crate) fn soft_delete_latest_assistant(
         )?;
     }
     Ok(target)
+}
+
+/// 收束段消息归属（FR-011）：半开区间 `(after, upto]` 内的在世消息挂到 `scene_id`。
+/// 幂等：重复 UPDATE 同一归属值不变；软删行（被替换的旧条）不参与。
+pub(crate) fn attach_to_scene(
+    conn: &Connection,
+    session_id: i64,
+    range: &AttachRange,
+) -> Result<usize, StorageError> {
+    let n = conn.execute(
+        "UPDATE messages SET scene_id = ?4 \
+         WHERE session_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3",
+        params![session_id, range.after_message_id, range.upto_message_id, range.scene_id],
+    )?;
+    Ok(n)
 }
 
 pub(crate) fn soft_delete(conn: &Connection, id: i64, ts: i64) -> Result<(), StorageError> {

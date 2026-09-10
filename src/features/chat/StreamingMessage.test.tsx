@@ -280,3 +280,25 @@ describe('卸载与 hub 解耦（切走不取消，ADR-007）', () => {
     expect(streamHub.stateOf(12)?.status).toBe('done');
   });
 });
+
+describe('流式容器排版（TASK-12 / 审计问题 3）', () => {
+  /** 汇集 jsdom 已注入的全部 CSS 文本（Griffel 经 style 元素 insertRule 注入） */
+  function injectedCssText(): string {
+    const parts: string[] = [];
+    for (const el of [...document.head.querySelectorAll('style')]) parts.push(el.textContent ?? '');
+    for (const sheet of [...document.styleSheets]) {
+      try {
+        parts.push([...sheet.cssRules].map((rule) => rule.cssText).join('\n'));
+      } catch {
+        // 不可读的样式表（本仓无跨源，理论不可达）：跳过
+      }
+    }
+    return parts.join('\n');
+  }
+
+  it('body 样式带 white-space:pre-wrap：解析器保留的块内单换行不被折叠', () => {
+    const state = beginSession(30);
+    render(messageTree(state, vi.fn()));
+    expect(injectedCssText()).toMatch(/white-space:\s*pre-wrap/);
+  });
+});

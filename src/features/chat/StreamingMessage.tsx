@@ -39,6 +39,11 @@ const useStyles = makeStyles({
     width: '100%',
     fontSize: tokens.fontSizeBase300,
     lineHeight: '1.8',
+    // 块内单换行随解析器保留上屏（审计问题 3）：解析器的微停规则认 \n，
+    // 缺 pre-wrap 会把刻意保留的换行折叠成空格（历史行 msgBody 与 demo
+    // .bubble 均有）。横向溢出不依赖 white-space 承担：长词断行由下面的
+    // word-break: break-word 负责（pre-wrap 只保留空白，不断词）
+    whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   },
 });

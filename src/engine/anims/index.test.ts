@@ -82,6 +82,26 @@ describe('风格元数据与 engine.css 一致（TASK-06 复核固化）', () =>
       }
     }
   });
+
+  it('主题变量：:root 定义引擎命名空间默认值，语法配色走变量（TASK-12 / 审计问题 3）', () => {
+    // :root 默认 = demo 暗色硬编码原值（无覆写即零回归）；六个变量缺一不可
+    const rootBlock = css.match(/:root \{([^}]*)\}/)?.[1] ?? '';
+    for (const name of [
+      '--cv-scene-line-bg',
+      '--cv-scene-line-ink',
+      '--cv-scene-line-mark',
+      '--cv-action-fg',
+      '--cv-bold-fg',
+      '--cv-decode-fg',
+    ]) {
+      expect(rootBlock).toContain(name);
+    }
+    // 场景线与语法配色本体改引变量：挂载侧（ChatView / personaMarkdown）覆写才有生效点
+    expect(css).toContain('background: var(--cv-scene-line-bg);');
+    expect(css).toContain('color: var(--cv-action-fg);');
+    expect(css).toContain('color: var(--cv-bold-fg);');
+    expect(css).toContain('color: var(--cv-decode-fg);');
+  });
 });
 
 describe('--dur 基准（FR-005：150–1200ms，默认 450ms）', () => {

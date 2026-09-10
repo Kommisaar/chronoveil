@@ -17,7 +17,7 @@ import {
   ArrowUp24Regular,
   RecordStop24Regular,
 } from '@fluentui/react-icons';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   cancelGeneration,
@@ -151,6 +151,22 @@ const useStyles = makeStyles({
 });
 
 /**
+ * 引擎命名空间主题变量的聊天侧覆写（审计问题 3，保守适配）：engine.css 顶部的
+ * --cv-* 默认值 = demo 暗色硬编码，聊天流容器按 Fluent 主题 token 覆写后随
+ * 主题切换。内联 CSS 变量（而非 Griffel 规则）：变量名不在 Griffel 属性白名单，
+ * 且行内样式挂在容器上即对全部引擎直插 DOM（历史行 + 流式行）生效。
+ * - 场景线 ✦ 挖空底必须与所在表面背景一致：聊天表面是 AppShell content 的
+ *   colorNeutralBackground1，暗色主题下 demo 的 #141822 本就是错色矩形；
+ * - ✦ 记号色随 UI 次级前景；
+ * - 线体 / 动作 / 加粗 / decode 等文字色暂不覆写（亮色对比度评估见 engine.css
+ *   变量段注释），保持 demo 观感零回归。
+ */
+const engineThemeVars = {
+  '--cv-scene-line-bg': tokens.colorNeutralBackground1,
+  '--cv-scene-line-mark': tokens.colorNeutralForeground3,
+} as CSSProperties;
+
+/**
  * 历史 assistant 行正文（审计问题 1 接线）：引擎 renderStaticMarkdown 直插 DOM
  * （ADR-011 静态路径，无动画无光标），与流式期完全同语法语义——动作斜体/加粗/
  * 场景线/列表在收尾重拉后不再回退成字面星号。引擎容器内 DOM 不归 React 管
@@ -177,8 +193,8 @@ function HistoryMessageBody({ content }: { content: string }) {
  * 侧栏活性刷新（TASK-010 / FR-007「每条新消息刷新」）：用户条落库、重新生成
  * 替换落库、任一会话生成终态（hub 终态回调，含后台会话）三个事件时点触发
  * store.refreshSessionsQuietly —— 失败静默，不阻塞聊天主路径。
- * 历史 assistant 行正文经引擎静态渲染（TASK-12 / 审计问题 1 / ADR-011），
- * 与流式期同语法语义。
+ * 历史 assistant 行正文经引擎静态渲染（TASK-12 / 审计问题 1 / ADR-011）：
+ * 与流式期同语法语义；引擎主题变量在聊天流容器覆写（审计问题 3）。
  */
 export function ChatView() {
   const styles = useStyles();
@@ -349,7 +365,11 @@ export function ChatView() {
 
   return (
     <div className={styles.root}>
-      <div className={styles.stream} ref={streamRef}>
+      <div
+        className={styles.stream}
+        ref={streamRef}
+        style={engineThemeVars}
+      >
         <div className={styles.streamInner}>
           {messages.map((message) => {
           const isUser = message.role === 'user';

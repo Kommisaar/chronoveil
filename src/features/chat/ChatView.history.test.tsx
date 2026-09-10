@@ -2,7 +2,8 @@
 // - 历史 assistant 行走 renderStaticMarkdown：动作斜体/加粗/场景线/列表与流式
 //   同构，收尾重拉后不再回退成字面星号；
 // - 历史 user 行保持纯文本（markdown-lite 是 assistant 叙事语法）；
-// - 行元信息零回归（说话人/时间/思考折叠/中断标记）。
+// - 行元信息零回归（说话人/时间/思考折叠/中断标记）；
+// - 聊天流容器内联覆写引擎命名空间主题变量（审计问题 3 冒烟）。
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
@@ -153,4 +154,16 @@ it('历史行元信息零回归：说话人/时间/思考折叠/中断标记俱�
   expect(screen.getByText(/思考过程 · 1\.5s/)).toBeTruthy();
   // 中断标记
   expect(screen.getByText('已中断')).toBeTruthy();
+});
+
+it('聊天流容器内联覆写引擎命名空间变量（审计问题 3 冒烟）', async () => {
+  const view = renderView();
+  await screen.findByText('织星者');
+  // 恰有一个挂载点（聊天流容器）携带 --cv-* 覆写，值取 Fluent 主题 token
+  const hosts = [...view.container.querySelectorAll<HTMLElement>('div')].filter(
+    (el) => el.style.getPropertyValue('--cv-scene-line-bg') !== '',
+  );
+  expect(hosts).toHaveLength(1);
+  expect(hosts[0]?.style.getPropertyValue('--cv-scene-line-bg')).toContain('colorNeutralBackground1');
+  expect(hosts[0]?.style.getPropertyValue('--cv-scene-line-mark')).toContain('colorNeutralForeground3');
 });

@@ -78,8 +78,8 @@ impl From<rusqlite::Error> for StorageError {
     }
 }
 
-// 端口实现同上：消费方在 TASK-005 接线后出现。
-#[allow(dead_code)]
+// 端口实现的生产消费方已接线（IPC 命令层 + 生成/导演服务，TASK-005/006、FR-011）；
+// 暂无生产调用方的预留方法逐方法标注 dead_code 豁免并注明预留阶段（勿再整块 allow）。
 impl StoragePort for Storage {
     // ---- characters ----
     fn create_character(&self, new: &NewCharacter) -> Result<Character, StorageError> {
@@ -105,6 +105,8 @@ impl StoragePort for Storage {
         })
     }
 
+    // ADR-009 墓碑还原原语；回收站 / 撤销删除类 UI 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn restore_character(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| characters::restore(conn, id))
     }
@@ -122,6 +124,9 @@ impl StoragePort for Storage {
         self.with_conn(|conn| sessions::get(conn, id))
     }
 
+    // 独立刷新会话 updated_at；生产路径经 insert_message 事务内刷新（FR-007），
+    // 直连调用（如无消息的会话提权类操作）接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn touch_session(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| {
             let ts = now();
@@ -140,6 +145,8 @@ impl StoragePort for Storage {
         })
     }
 
+    // ADR-009 墓碑还原原语；会话回收站 UI 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn restore_session(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| sessions::restore(conn, id))
     }
@@ -189,6 +196,8 @@ impl StoragePort for Storage {
         })
     }
 
+    // 消息级删除（置墓碑）；消息删除类 UI 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn soft_delete_message(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| {
             let ts = now();
@@ -196,15 +205,23 @@ impl StoragePort for Storage {
         })
     }
 
+    // ADR-009 墓碑还原原语；消息回收站 UI 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn restore_message(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| messages::restore(conn, id))
     }
 
     // ---- scenes（FR-011 数据地基）----
+    // FR-011：生产落场景行走 commit_settlement 单事务（内部直调 scenes::insert），
+    // 独立插场景接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn insert_scene(&self, new: &NewScene) -> Result<Scene, StorageError> {
         self.with_conn(|conn| scenes::insert(conn, new))
     }
 
+    // FR-011 场景史回看（IPC / 前端）预留：Task-11 切片为零 IPC/前端改动形态，
+    // 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn list_scenes(&self, session_id: i64) -> Result<Vec<Scene>, StorageError> {
         self.with_conn(|conn| scenes::list_by_session(conn, session_id))
     }
@@ -243,6 +260,9 @@ impl StoragePort for Storage {
     }
 
     // ---- character_state（FR-012）----
+    // FR-012：生产状态写入走 commit_settlement 清算支路（内部直调 character_states::upsert），
+    // 直连端口（状态手动编辑类 UI）接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn upsert_character_state(
         &self,
         new: &NewCharacterState,
@@ -254,6 +274,9 @@ impl StoragePort for Storage {
         self.with_conn(|conn| character_states::list_by_session(conn, session_id))
     }
 
+    // FR-012 手动清除状态预留：生产清除走 commit_settlement 清算支路（内部直调
+    // character_states::soft_delete），直连端口接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
     fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| {
             let ts = now();

@@ -146,16 +146,16 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     });
   });
 
-  it('粒度 1/2：同样文本分块数不同（FR-002）', async () => {
+  it('粒度 1/2：同样文本分块数不同（FR-002；用 CJK——拉丁词有整词不拆约束）', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const r = createRenderer(container, { granularity: 1, msPerChar: 10 });
     renderers.push(r);
     r.beginTurn();
-    r.enqueue('abcd');
+    r.enqueue('甲乙丙丁');
     r.finish();
     await vi.waitFor(() => {
-      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['a', 'b', 'c', 'd']);
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['甲', '乙', '丙', '丁']);
     });
     r.cancel();
 
@@ -164,11 +164,22 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     const r2 = createRenderer(container2, { granularity: 2, msPerChar: 10 });
     renderers.push(r2);
     r2.beginTurn();
-    r2.enqueue('abcd');
+    r2.enqueue('甲乙丙丁');
     r2.finish();
     await vi.waitFor(() => {
-      expect([...container2.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['ab', 'cd']);
+      expect([...container2.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['甲乙', '丙丁']);
     });
+  });
+
+  it('拉丁词整词上屏：粒度合并不拆断英文单词（发现 7，demo splitChunks 对齐）', async () => {
+    const { container, r } = mount();
+    r.beginTurn();
+    r.enqueue('hello world');
+    r.finish();
+    await vi.waitFor(() => {
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['hello', ' world']);
+    });
+    expect(r.charsEmitted).toBe(10); // 口径不含空白（空格不计）
   });
 
   it('setRhythm 改节奏，下一拍生效（边界值钳制 10–160）', async () => {
@@ -352,11 +363,11 @@ describe('回合控制与口径补遗（TASK-06）', () => {
   it('setGranularity 中途调整，下一拍生效', async () => {
     const { container, r } = mount();
     r.beginTurn();
-    r.enqueue('abcd'); // 默认粒度 2
+    r.enqueue('甲乙丙丁'); // 默认粒度 2
     r.setGranularity(1); // 入队后、首拍前调整 → 本回合剩余发射全部逐字
     r.finish();
     await vi.waitFor(() => {
-      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['a', 'b', 'c', 'd']);
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['甲', '乙', '丙', '丁']);
     });
   });
 

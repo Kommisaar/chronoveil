@@ -34,6 +34,7 @@ import type {
   ConfigDto,
 } from '../../api/types';
 import { EmptyState } from '../../components/EmptyState';
+import { renderStaticMarkdown } from '../../engine';
 import { formatClock } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
 import { StreamingMessage } from './StreamingMessage';
@@ -150,6 +151,25 @@ const useStyles = makeStyles({
 });
 
 /**
+ * 历史 assistant 行正文（审计问题 1 接线）：引擎 renderStaticMarkdown 直插 DOM
+ * （ADR-011 静态路径，无动画无光标），与流式期完全同语法语义——动作斜体/加粗/
+ * 场景线/列表在收尾重拉后不再回退成字面星号。引擎容器内 DOM 不归 React 管
+ * （同角色编辑器 PersonaPreviewBox 招式）：正文变化整容器重渲染，不得把 React
+ * 子节点放进同一容器（reconcile 会打架）。user 行不走此路径：markdown-lite 是
+ * assistant 叙事语法，user 按原文直显。
+ */
+function HistoryMessageBody({ content }: { content: string }) {
+  const styles = useStyles();
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (ref.current) renderStaticMarkdown(ref.current, content);
+  }, [content]);
+  // 布局类沿用 msgBody（字号/行距/pre-wrap/断词）：引擎 .para 继承容器的
+  // pre-wrap 与断词，与流式行排版一致
+  return <div ref={ref} className={styles.msgBody} />;
+}
+
+/**
  * 聊天主视图（UI-001 / UC-001 / TASK-006）。
  * 生成闭环接线：发送（用户条落库 → 流式渲染走引擎）→ 终态（done/error/cancel）
  * 落库后重拉列表；停止立即静止；重新生成从零走完整演出（FR-008）。
@@ -157,6 +177,8 @@ const useStyles = makeStyles({
  * 侧栏活性刷新（TASK-010 / FR-007「每条新消息刷新」）：用户条落库、重新生成
  * 替换落库、任一会话生成终态（hub 终态回调，含后台会话）三个事件时点触发
  * store.refreshSessionsQuietly —— 失败静默，不阻塞聊天主路径。
+ * 历史 assistant 行正文经引擎静态渲染（TASK-12 / 审计问题 1 / ADR-011），
+ * 与流式期同语法语义。
  */
 export function ChatView() {
   const styles = useStyles();
@@ -355,11 +377,14 @@ export function ChatView() {
                   </AccordionItem>
                 </Accordion>
               )}
-              <div
-                className={mergeClasses(styles.msgBody, isUser && styles.msgBodyUser)}
-              >
-                {message.content}
-              </div>
+              {isUser ? (
+                // user 行保持纯文本（markdown-lite 是 assistant 叙事语法）
+                <div className={mergeClasses(styles.msgBody, styles.msgBodyUser)}>
+                  {message.content}
+                </div>
+              ) : (
+                <HistoryMessageBody content={message.content} />
+              )}
               {message.interrupted && (
                 <Badge className={styles.interrupted} appearance="outline" shape="rounded">
                   {t('chat.interrupted')}

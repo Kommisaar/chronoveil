@@ -296,3 +296,139 @@ describe('流式思考与积压回放（TASK-006 / FR-003 / ADR-007）', () => {
     r.cancel();
   });
 });
+
+describe('回合控制与口径补遗（TASK-06）', () => {
+  afterEach(() => {
+    // 顶部 afterEach 已停消费者；此处还原 fake timers（若本 describe 内启用）
+    vi.useRealTimers();
+  });
+
+  function mountWith(options: Parameters<typeof createRenderer>[1]): {
+    container: HTMLDivElement;
+    r: Renderer;
+  } {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const r = createRenderer(container, options);
+    renderers.push(r);
+    return { container, r };
+  }
+
+  it('finish 兜底开演：未 beginTurn 直接 enqueue+finish 也完整播完并回报', async () => {
+    const onFinish = vi.fn();
+    const { container, r } = mountWith({ onFinish, msPerChar: 10 });
+    r.enqueue('兜底');
+    expect(container.querySelectorAll('.tok')).toHaveLength(0); // 无消费者：未开演不上屏
+    r.finish(); // 队列非空、无思考、正文未开演 → 兜底 beginBody 排空
+    await vi.waitFor(() => {
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['兜底']);
+      expect(container.querySelector('.stream-cursor')).toBeNull();
+    });
+    expect(onFinish).toHaveBeenCalledWith({ chars: 2 });
+  });
+
+  it('cancel 后 pending 清零，onFinish 不再触发', async () => {
+    const onFinish = vi.fn();
+    const { container, r } = mountWith({ onFinish, msPerChar: 10 });
+    r.beginTurn();
+    r.enqueue('一大段还没播完的文字');
+    r.cancel();
+    expect(r.pending).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 80)); // 留出若干真实 tick 窗口
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('.tok')).toHaveLength(0);
+  });
+
+  it('onFinish 的 chars 口径不含空白：空格与换行不计', async () => {
+    const onFinish = vi.fn();
+    const { r } = mountWith({ onFinish, msPerChar: 10 });
+    r.beginTurn();
+    r.enqueue('甲 乙\n丙');
+    r.finish();
+    // 粒度 2 合并为「甲 」「乙\n」「丙」，trim 后逐 token 计数 → 3
+    await vi.waitFor(() => expect(onFinish).toHaveBeenCalledWith({ chars: 3 }));
+  });
+
+  it('setGranularity 中途调整，下一拍生效', async () => {
+    const { container, r } = mount();
+    r.beginTurn();
+    r.enqueue('abcd'); // 默认粒度 2
+    r.setGranularity(1); // 入队后、首拍前调整 → 本回合剩余发射全部逐字
+    r.finish();
+    await vi.waitFor(() => {
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['a', 'b', 'c', 'd']);
+    });
+  });
+
+  it('setRhythm 关标点微停，下一拍生效：中段停顿消失、提前收尾', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    const onFinish = vi.fn();
+    const { container, r } = mountWith({ onFinish });
+    r.beginTurn();
+    r.enqueue('甲。乙。丙');
+    r.finish();
+
+    vi.advanceTimersByTime(240); // 15 拍：句末微停（150+节奏×0.8）压信用，仅出「甲。」
+    expect(container.querySelectorAll('.tok')).toHaveLength(1);
+    expect(container.querySelector('.stream-cursor')).not.toBeNull(); // 回合未收尾
+
+    r.setRhythm(45, false); // 关微停，下一拍生效
+    vi.advanceTimersByTime(192); // 共 t=432：关停路径应在 t≈352 播完（微停未关则 t≈544）
+    expect(container.querySelectorAll('.tok')).toHaveLength(3); // 「甲。」「乙。」「丙」
+    expect(container.querySelector('.stream-cursor')).toBeNull();
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(onFinish).toHaveBeenCalledWith({ chars: 5 });
+  });
+
+  it('dots 风格：开演插入三点加载态，首个 token 上屏后移除', async () => {
+    const { container, r } = mountWith({ style: 'dots' });
+    r.beginTurn();
+    expect(container.querySelectorAll('.dots .dot')).toHaveLength(3);
+    r.enqueue('字');
+    r.finish();
+    await vi.waitFor(() => {
+      expect(container.querySelectorAll('.tok')).toHaveLength(1);
+      expect(container.querySelector('.dots')).toBeNull();
+    });
+  });
+
+  it('setDuration 范围外钳制写入 --dur（150 下界 / NaN 兜底默认）', () => {
+    const { container, r } = mountWith({});
+    r.setDuration(50);
+    expect(container.style.getPropertyValue('--dur')).toBe('150ms');
+    r.setDuration(Number.NaN);
+    expect(container.style.getPropertyValue('--dur')).toBe('450ms');
+  });
+
+  it('cursor:false：全程不挂光标', async () => {
+    const { container, r } = mountWith({ cursor: false, msPerChar: 10 });
+    r.beginTurn();
+    r.enqueue('无光标');
+    r.finish();
+    await vi.waitFor(() => expect(container.querySelectorAll('.tok')).toHaveLength(2));
+    expect(container.querySelector('.stream-cursor')).toBeNull();
+  });
+
+  it('setCursorEnabled(false)：运行中即时摘除光标', async () => {
+    const { container, r } = mountWith({ msPerChar: 10 });
+    r.beginTurn();
+    r.enqueue('光标开关');
+    r.setCursorEnabled(false);
+    r.finish();
+    await vi.waitFor(() => expect(container.querySelectorAll('.tok')).toHaveLength(2));
+    expect(container.querySelector('.stream-cursor')).toBeNull();
+  });
+
+  it('enqueueUnit：外部预解析单元直入队列，结构单元原子上屏', async () => {
+    const { container, r } = mountWith({ msPerChar: 10 });
+    r.beginTurn();
+    r.enqueueUnit({ hr: true });
+    r.enqueueUnit({ t: '直', a: false, b: false });
+    r.finish();
+    // hr 出队带 260ms+节奏深呼吸，「直」随后上屏：两断言同 waitFor
+    await vi.waitFor(() => {
+      expect(container.querySelector('hr.scene')).not.toBeNull();
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['直']);
+    });
+  });
+});

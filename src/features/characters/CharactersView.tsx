@@ -21,19 +21,32 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   Text,
   Title1,
   makeStyles,
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
+import {
+  ArrowDownloadRegular,
+  ArrowUploadRegular,
+  MoreHorizontalRegular,
+} from '@fluentui/react-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
   deleteCharacter,
+  exportCharacter,
   getConfig,
+  importCharacter,
   listCharacters,
   updateCharacter,
 } from '../../api/commands';
@@ -175,6 +188,20 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
   },
 
+  // —— 卡片菜单（Task-04 导出入口）：海报右上角的 ⋯ 触发器，白字保证暗色海报上可读 ——
+  cardMenuTrigger: {
+    position: 'absolute',
+    top: '8px',
+    right: '8px',
+    zIndex: 1,
+    minWidth: '28px',
+    height: '28px',
+  },
+  cardMenuIcon: {
+    // 触发器图标恒白：海报渐变恒为深色调（与卡内白字同一对比度基准）。
+    color: '#ffffff',
+  },
+
   clickable: {
     cursor: 'pointer',
   },
@@ -211,6 +238,8 @@ export function CharactersView() {
 
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 导入/导出（Task-04）的操作错误：与列表加载错误同款就地红字（None 取消不提示）。
+  const [actionError, setActionError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderDto[]>([]);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   // 可见性与挂载分离：editorOpen=false 只触发退场动画，播完 onClosed 才卸载。
@@ -357,6 +386,32 @@ export function CharactersView() {
     pendingActionRef.current = null;
   };
 
+  // ---- 角色卡导入/导出（Task-04）：对话框在 Rust 侧原生弹出 ----
+
+  /** 导入：成功后沿既有 refresh 单点重拉；取消（null）静默；真错误走就地红字。 */
+  const handleImport = useCallback(async () => {
+    setActionError(null);
+    try {
+      const created = await importCharacter();
+      if (created) await refresh();
+    } catch (e) {
+      setActionError(`${t('characters.importFailed')}：${describeError(e)}`);
+    }
+  }, [refresh, t]);
+
+  /** 导出：成功/取消均静默（卡文件已落在用户选择的位置）；真错误走就地红字。 */
+  const handleExport = useCallback(
+    async (id: number) => {
+      setActionError(null);
+      try {
+        await exportCharacter(id);
+      } catch (e) {
+        setActionError(`${t('characters.exportFailed')}：${describeError(e)}`);
+      }
+    },
+    [t],
+  );
+
   // UI-002：卡片按 updated_at 倒序。
   const sorted = [...characters].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -370,6 +425,9 @@ export function CharactersView() {
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('characters.title')}</Title1>
           <div className={styles.toolbarRight}>
+            <Button icon={<ArrowUploadRegular />} onClick={() => void handleImport()}>
+              {t('characters.import')}
+            </Button>
             <Button
               appearance="primary"
               data-editor-trigger="create"
@@ -382,6 +440,11 @@ export function CharactersView() {
         {loadError ? (
           <Text role="alert" className={styles.errorText}>
             {loadError}
+          </Text>
+        ) : null}
+        {actionError ? (
+          <Text role="alert" className={styles.errorText}>
+            {actionError}
           </Text>
         ) : null}
         {sorted.length === 0 ? (
@@ -421,6 +484,31 @@ export function CharactersView() {
                     }
                   }}
                 >
+                  {/* 卡片菜单（Task-04）：⋯ 触发器置海报右上角；点击/键盘事件不冒泡
+                      到卡片（否则会同时打开编辑器）。 */}
+                  <Menu>
+                    <MenuTrigger>
+                      <MenuButton
+                        aria-label={t('characters.cardMenu')}
+                        appearance="transparent"
+                        size="small"
+                        className={styles.cardMenuTrigger}
+                        icon={<MoreHorizontalRegular className={styles.cardMenuIcon} />}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </MenuTrigger>
+                    <MenuPopover>
+                      <MenuList>
+                        <MenuItem
+                          icon={<ArrowDownloadRegular />}
+                          onClick={() => void handleExport(character.id)}
+                        >
+                          {t('characters.export')}
+                        </MenuItem>
+                      </MenuList>
+                    </MenuPopover>
+                  </Menu>
                   {character.avatar ? (
                     <img
                       className={styles.posterImg}

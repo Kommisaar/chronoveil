@@ -134,6 +134,24 @@ export async function deleteCharacter(id: number): Promise<void> {
   return mock.deleteCharacter(id);
 }
 
+// ---- 角色卡导入/导出（Task-04；对话框由 Rust 侧原生弹出）----
+
+/**
+ * 导出角色卡：Rust 侧弹「保存文件」对话框（默认文件名 `<角色名>.json`）并写出
+ * 卡 JSON。用户取消返回 null；成功返回写出的文件路径。
+ */
+export async function exportCharacter(id: number): Promise<string | null> {
+  return isTauri ? unwrap(commands.exportCharacter(id)) : mock.exportCharacter(id);
+}
+
+/**
+ * 导入角色卡：Rust 侧弹「打开文件」对话框，解析校验后经 create_character
+ * 既有路径建新卡（新 id、允许重名）。用户取消返回 null；成功返回新卡摘要。
+ */
+export async function importCharacter(): Promise<CharacterSummary | null> {
+  return isTauri ? unwrap(commands.importCharacter()) : mock.importCharacter();
+}
+
 // ---- 配置（FR-009 / ADR-012）----
 
 export async function getConfig(): Promise<ConfigDto> {

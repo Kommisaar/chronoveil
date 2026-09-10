@@ -126,3 +126,30 @@ it('删除：软删 + 确认对话框（文案明示历史保留），卡片消�
   // 软删不级联（ADR-009 / OQ-002）：会话仍在，聊天侧仍可查看
   expect(sessions.filter((s) => s.characterId === 2).length).toBe(sessionsBefore);
 });
+
+// ---- 角色卡导入/导出（Task-04；浏览器 dev 走 mock：导出回路径串、导入建样例卡）----
+// 用例放文件末尾：导入会向模块级 mock 种子追加新卡，影响后续断言。
+
+it('导出：卡片菜单「导出角色卡」可触发，静默成功不弹错误（None 取消同静默）', async () => {
+  renderView();
+  await screen.findByText('苏鸢');
+
+  const trigger = screen.getAllByRole('button', { name: '卡片菜单' })[0];
+  expect(trigger).toBeTruthy();
+  fireEvent.click(trigger!);
+  fireEvent.click(await screen.findByRole('menuitem', { name: '导出角色卡' }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole('menuitem', { name: '导出角色卡' })).toBeNull();
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('导入：工具栏「导入角色卡」经内置样例建新卡并刷新清单', async () => {
+  renderView();
+  await screen.findByText('苏鸢');
+
+  fireEvent.click(screen.getByRole('button', { name: '导入角色卡' }));
+  expect(await screen.findByText('织灯人·茉')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
+});

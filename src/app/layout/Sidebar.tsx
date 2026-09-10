@@ -3,8 +3,10 @@
 // 相对时间 meta，点击切换当前会话）。选中态为与活动栏同款的共享指示条
 // （位移动画）+ 选中底色。
 // 会话管理（TASK-007 / FR-007 / ADR-009）：
-// - 新建：Fluent Dialog 就地列出现役角色（listCharacters）→ createSession →
-//   store 全量重拉（updated_at 倒序进列表）→ 新会话成为当前会话（视图已在聊天）；
+// - 新建：Fluent Dialog 两段式开局向导（FR-014，表单内聚在 NewSessionDialog）：
+//   选角色 → 开局表单（历法五选 / 起始锚 / 首场景可选字段，「直接开始」= opening
+//   全空降级）→ createSession → store 全量重拉（updated_at 倒序进列表）→
+//   新会话成为当前会话（视图已在聊天）；
 // - 删除：条目删除钮 → Dialog 确认（文案明示「聊天记录软删除」，ADR-009）→
 //   deleteSession → store.removeSession（当前会话指向被删项时置空，回聊天
 //   空态）→ 全量重拉对齐；
@@ -47,11 +49,12 @@ import {
 } from 'react';
 import type { CSSProperties } from 'react';
 import { createSession, deleteSession, listCharacters } from '../../api/commands';
-import type { CharacterSummary, SessionSummary } from '../../api/types';
+import type { CharacterSummary, SessionOpeningInput, SessionSummary } from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
+import { NewSessionDialog } from './NewSessionDialog';
 
 // 入场动画：淡入 + 8px 上移，逐项错开 16ms、错开总量钳制 240ms（过长
 // 清单只对首屏节奏负责）。关键帧 sidebar-item-enter 落 app.css 全局
@@ -224,48 +227,6 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorPaletteRedForeground1,
   },
-  // 新建会话对话框：选角色列表（现役角色，来自 listCharacters）
-  characterList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalXXS,
-    marginTop: tokens.spacingVerticalS,
-  },
-  characterItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    minHeight: '40px',
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
-    borderRadius: tokens.borderRadiusMedium,
-    textAlign: 'left',
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
-    ':active': { backgroundColor: tokens.colorNeutralBackground1Pressed },
-    ':disabled': { opacity: 0.5, cursor: 'default' },
-  },
-  characterAvatar: {
-    width: '28px',
-    height: '28px',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: tokens.borderRadiusCircular,
-    backgroundColor: tokens.colorNeutralBackground3,
-    color: tokens.colorNeutralForeground2,
-    fontSize: tokens.fontSizeBase300,
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  characterName: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  dialogHint: {
-    marginTop: tokens.spacingVerticalXS,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
 });
 
 /** 会话侧栏（FR-007 多会话管理）：清单走 ui store 单一数据源，挂载即重拉。 */
@@ -385,13 +346,17 @@ export function Sidebar() {
     }
   };
 
-  // 新建会话（验收 1）：createSession → 全量重拉（updated_at 倒序进列表）→
-  // 成为当前会话（selectSession 同时保证视图切到聊天）
-  const createFromCharacter = async (characterId: number): Promise<void> => {
+  // 新建会话（验收 1 / FR-014 开局向导）：createSession（opening = null 即「直接
+  // 开始」降级路径，后端同样 seed 默认锚开场行）→ 全量重拉（updated_at 倒序进列表）
+  // → 成为当前会话（selectSession 同时保证视图切到聊天）
+  const createFromCharacter = async (
+    characterId: number,
+    opening: SessionOpeningInput | null,
+  ): Promise<void> => {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createSession(characterId);
+      const created = await createSession(characterId, null, opening);
       await refreshSessions();
       selectSession(created.id);
       setNewOpen(false);
@@ -496,37 +461,15 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 新建会话：就地 Dialog 列出现役角色（验收 1；不新建共享组件） */}
-      <Dialog open={newOpen} onOpenChange={(_, data) => setNewOpen(data.open)}>
-        <DialogSurface aria-describedby={undefined}>
-          <DialogBody>
-            <DialogTitle>{t('sessions.new')}</DialogTitle>
-            <DialogContent>
-              <div className={styles.dialogHint}>{t('sessions.pickCharacter')}</div>
-              {characters === null ? null : characters.length === 0 ? (
-                <div className={styles.dialogHint}>{t('sessions.noCharacters')}</div>
-              ) : (
-                <div className={styles.characterList}>
-                  {characters.map((character) => (
-                    <button
-                      key={character.id}
-                      type="button"
-                      className={mergeClasses(styles.characterItem, styles.buttonReset)}
-                      disabled={creating}
-                      onClick={() => void createFromCharacter(character.id)}
-                    >
-                      <span className={styles.characterAvatar} aria-hidden="true">
-                        {character.name.slice(0, 1)}
-                      </span>
-                      <span className={styles.characterName}>{character.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </DialogContent>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+      {/* 新建会话（FR-014 两段式开局向导）：选角色 → 开局表单；表单与提交
+          逻辑内聚在 NewSessionDialog（app 层），本组件只负责开关与建会话执行 */}
+      <NewSessionDialog
+        open={newOpen}
+        characters={characters}
+        creating={creating}
+        onOpenChange={setNewOpen}
+        onCreate={(characterId, opening) => void createFromCharacter(characterId, opening)}
+      />
 
       {/* 删除确认：文案明示「聊天记录软删除」（ADR-009） */}
       <Dialog

@@ -19,6 +19,7 @@ describe('App', () => {
 
   it('默认视图为聊天空态', () => {
     render(<App />);
-    expect(screen.getByText('选择左侧会话，或从角色页开始新对话')).toBeTruthy();
+    // 文案随 FR-014 修正：卡片「开新会话」入口已移除，新建入口只在侧栏「+」
+    expect(screen.getByText('选择左侧会话，或点侧栏「+」新建对话')).toBeTruthy();
   });
 });

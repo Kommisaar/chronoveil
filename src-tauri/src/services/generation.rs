@@ -134,6 +134,9 @@ impl GenerationRegistry {
         }
     }
 
+    /// 查询会话是否已有进行中的生成。预留：生产侧同会话互斥由 [`GenerationRegistry::begin`]
+    /// 返回 [`SessionBusy`] 保证，本查询目前仅测试断言消费（命令层前置探测 / 诊断接线预留）。
+    #[allow(dead_code)]
     pub fn is_active(&self, session_id: i64) -> bool {
         self.active
             .lock()

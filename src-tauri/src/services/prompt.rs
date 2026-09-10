@@ -42,6 +42,8 @@ mod tests {
             name: new.name,
             avatar: None,
             persona: new.persona,
+            gender: new.gender,
+            age: new.age,
             render_style: new.render_style,
             model_config: None,
             accent_color: new.accent_color,

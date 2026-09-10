@@ -33,37 +33,29 @@ function parseHex(hex: string): readonly [number, number, number] | null {
   ];
 }
 
-/** 同色压暗：手调色对的明暗关系固定在「暗端 ≈ 亮端 × factor」。 */
-function shade(rgb: readonly [number, number, number], factor: number): string {
-  const [r, g, b] = rgb.map((c) => Math.round(c * factor));
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
 /** 有效性收口：非法 accent 串一律按未设置处理（跟随海报）。 */
 function validAccent(accentColor: string | null): string | null {
   return accentColor !== null && parseHex(accentColor) !== null ? accentColor : null;
 }
 
 /**
- * 每角色最终海报渐变（海报墙卡片与编辑器海报共用）：显式强调色覆盖——
- * 暗端取强调色 × 0.55 程序化压暗（与手调六组的明暗关系一致）；
- * 未设置 / 非法则按 id 取模定色。
+ * 每角色最终海报渐变（海报墙卡片与编辑器海报共用）：显式强调色**原色直出**
+ * （2026-09-09 用户定稿：色板里选的颜色应显示原始颜色，不再程序化压暗）；
+ * 未设置 / 非法则按 id 取模定色（手调色对本身即深色调性）。
  */
 export function posterGradientOf(character: { id: number; accentColor: string | null }): string {
   const accent = validAccent(character.accentColor);
-  const rgb = accent !== null ? parseHex(accent) : null;
-  if (accent !== null && rgb !== null) {
-    return `linear-gradient(150deg, ${shade(rgb, 0.55)} 0%, ${accent} 100%)`;
+  if (accent !== null) {
+    return `linear-gradient(150deg, ${accent} 0%, ${accent} 100%)`;
   }
   return gradientOf(character.id);
 }
 
-/** 卡片元信息小圆点：跟随强调色时用同色浅压暗变体，否则沿用隔壁色对（id + 1）。 */
+/** 卡片元信息小圆点：跟随强调色时原色直出，否则沿用隔壁色对（id + 1）。 */
 export function dotGradientOf(character: { id: number; accentColor: string | null }): string {
   const accent = validAccent(character.accentColor);
-  const rgb = accent !== null ? parseHex(accent) : null;
-  if (accent !== null && rgb !== null) {
-    return `linear-gradient(150deg, ${shade(rgb, 0.8)} 0%, ${accent} 100%)`;
+  if (accent !== null) {
+    return `linear-gradient(150deg, ${accent} 0%, ${accent} 100%)`;
   }
   return gradientOf(character.id + 1);
 }

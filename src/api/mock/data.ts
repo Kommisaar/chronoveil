@@ -10,6 +10,9 @@ export const characters: CharacterSummary[] = [
     id: 1,
     name: '苏鸢',
     avatar: null,
+    gender: '女',
+    age: '24',
+    
     persona: '雨夜电话亭的守夜人，说话克制，旧情藏在对白缝隙里。',
     renderStyle: 'typewriter',
     modelConfig: null,
@@ -21,6 +24,9 @@ export const characters: CharacterSummary[] = [
     id: 2,
     name: '林深',
     avatar: null,
+    gender: '男',
+    age: '31',
+    
     persona: '旧书店老板，业余侦探；观察力锋利，语气温和。',
     renderStyle: 'ink',
     modelConfig: null,
@@ -34,6 +40,9 @@ export const characters: CharacterSummary[] = [
     id: 3,
     name: '夜航西飞的守灯人',
     avatar: null,
+    gender: '男',
+    age: '58',
+    
     persona: '末班航船上的灯塔守护者，用灯光的明灭节奏和水手们约定暗号。',
     renderStyle: 'rise',
     modelConfig: null,
@@ -45,6 +54,9 @@ export const characters: CharacterSummary[] = [
     id: 4,
     name: '阿澈',
     avatar: null,
+    gender: '男',
+    age: '47',
+    
     persona: '巷口修表匠，话少，手稳。',
     renderStyle: 'caret',
     modelConfig: null,
@@ -56,6 +68,9 @@ export const characters: CharacterSummary[] = [
     id: 5,
     name: 'Sir Reginald Ashworth',
     avatar: null,
+    gender: '男',
+    age: '62',
+    
     persona: 'A retired royal cartographer who keeps drawing maps of places that do not exist yet.',
     renderStyle: 'flip',
     modelConfig: null,
@@ -67,6 +82,9 @@ export const characters: CharacterSummary[] = [
     id: 6,
     name: '星轨观测站的算术巫师',
     avatar: null,
+    gender: '女',
+    age: '26',
+    
     persona: '住在山顶废弃天文台，把星图当账本记，相信每颗流星都是一笔待结算的债务。',
     renderStyle: 'decode',
     modelConfig: null,
@@ -78,6 +96,9 @@ export const characters: CharacterSummary[] = [
     id: 7,
     name: '白鸦',
     avatar: null,
+    gender: '女',
+    age: '27',
+    
     persona: '城市传说收集者，只录不评，磁带机从不离身。',
     renderStyle: 'neon',
     modelConfig: null,
@@ -89,6 +110,9 @@ export const characters: CharacterSummary[] = [
     id: 8,
     name: 'Constellationwhisperer',
     avatar: null,
+    gender: null,
+    age: null,
+    
     persona: 'A wandering stargazer whose unbroken single-word name is here on purpose to test word wrapping on narrow cards.',
     renderStyle: 'blur',
     modelConfig: null,
@@ -100,6 +124,9 @@ export const characters: CharacterSummary[] = [
     id: 9,
     name: '老周',
     avatar: null,
+    gender: '男',
+    age: '52',
+    
     persona: '夜班出租车司机，后视镜里看遍这座城市。',
     renderStyle: 'typewriter',
     modelConfig: null,
@@ -111,6 +138,9 @@ export const characters: CharacterSummary[] = [
     id: 10,
     name: '缄默之塔的第十三位图书管理员',
     avatar: null,
+    gender: '女',
+    age: null,
+    
     persona: '管理一座不许说话的塔，用字条和访客交流；塔里第十三层没有书，只有回声。',
     renderStyle: 'dust',
     modelConfig: null,

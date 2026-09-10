@@ -1,13 +1,13 @@
 /**
  * 编辑器共享 UI 件（2026-09-09 编辑器重做时抽出）：字段级组件与样式——
- * 强调色板、预览框、模型覆写折叠段，由 CharacterEditorDialog 排版壳复用。
+ * 强调色取色器、预览框、模型覆写折叠段，由 CharacterEditorDialog 排版壳复用。
  */
 import { Button, Dropdown, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
-import { ChevronRight20Regular } from '@fluentui/react-icons';
+import { ChevronDown20Regular, ChevronRight20Regular, Color20Regular } from '@fluentui/react-icons';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
 import { ANIM_STYLES } from '../../../engine';
-import { POSTER_GRADIENTS } from '../posterGradient';
 import type { ModelOverrideFields } from './useEditorForm';
 
 /** 三壳共用的字段级样式（makeStyles 可跨组件调用）。 */
@@ -40,27 +40,106 @@ export const useFieldStyles = makeStyles({
       borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
     },
   },
-  swatchRow: {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: tokens.spacingHorizontalS,
-    paddingTop: tokens.spacingVerticalXXS,
+  // —— 强调色取色器（Office 风格下拉，2026-09-09）：无开合动画，瞬时开合。
+  chipWrapper: {
+    position: 'relative',
+    display: 'inline-flex',
   },
-  swatch: {
-    width: '32px',
-    height: '32px',
-    padding: '0px',
-    borderRadius: tokens.borderRadiusCircular,
+  chipTrigger: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '2px',
+    // 与同行 Fluent Input 的 medium 高度（30px）对齐，编辑态整排等高
+    height: '30px',
+    padding: '0px 5px',
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorNeutralForeground2,
+    cursor: 'pointer',
+    // 名称行空间紧张时不许把取色器压扁
+    flexShrink: 0,
+    ':hover': { backgroundColor: tokens.colorNeutralBackground2 },
+  },
+  chipColor: {
+    // 正方形 + 禁收缩：弹性布局下不被挤压拉伸
+    width: '20px',
+    height: '20px',
+    flexShrink: 0,
+    borderRadius: '4px',
+    border: `1px solid ${tokens.colorNeutralStrokeAlpha2}`,
+  },
+  palettePanel: {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: '0px',
+    zIndex: 20,
+    width: '268px',
+    paddingTop: tokens.spacingVerticalM,
+    paddingBottom: tokens.spacingVerticalM,
+    paddingLeft: tokens.spacingHorizontalM,
+    paddingRight: tokens.spacingHorizontalM,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalS,
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    borderRadius: tokens.borderRadiusLarge,
+    boxShadow: tokens.shadow16,
+  },
+  paletteTitle: {
+    fontSize: tokens.fontSizeBase200,
+    color: tokens.colorNeutralForeground3,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  paletteGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(10, 1fr)',
+    gap: '4px',
+  },
+  paletteSwatch: {
+    height: '20px',
+    borderRadius: '4px',
     border: `1px solid ${tokens.colorNeutralStrokeAlpha2}`,
     cursor: 'pointer',
+    // 选中环用短过渡：色块本身的增减无动画，动在状态反馈上
+    transitionProperty: 'box-shadow',
+    transitionDuration: tokens.durationFast,
     ':hover': { boxShadow: `0 0 0 2px ${tokens.colorNeutralStroke2}` },
   },
-  swatchSelected: {
+  paletteSwatchSelected: {
     boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandForeground1}`,
     ':hover': {
       boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandForeground1}`,
     },
+  },
+  paletteListItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    padding: '4px',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderRadius: tokens.borderRadiusMedium,
+    cursor: 'pointer',
+    // 裸 button 不继承文字色（UA 默认黑色），必须显式给主题前景色，
+    // 否则暗色面板上是黑字
+    color: tokens.colorNeutralForeground1,
+    ':hover': { backgroundColor: tokens.colorNeutralBackground2 },
+  },
+  paletteListSwatch: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '4px',
+    border: `1px solid ${tokens.colorNeutralStrokeAlpha2}`,
+    flexShrink: 0,
+  },
+  colorInputHidden: {
+    position: 'absolute',
+    width: '1px',
+    height: '1px',
+    opacity: 0,
+    pointerEvents: 'none',
   },
   previewWrap: {
     position: 'relative',
@@ -121,43 +200,197 @@ export const useFieldStyles = makeStyles({
   },
 });
 
-/** 强调色板：首枚「跟随海报」，后六枚为调色板亮端预设。 */
-export function AccentSwatches(props: {
+// —— 强调色取色器调色板：主题色 10 列 × 6 档明暗 + 标准色 10 色。
+// 基色取高饱和活力色（覆盖整个色环），每列程序化混白/混黑生成浅深档；
+// 标准色沿用经典 Office 标准色行。
+const THEME_BASES = [
+  '#ef4444', // 红
+  '#f97316', // 橙
+  '#f59e0b', // 琥珀
+  '#eab308', // 黄
+  '#84cc16', // 草绿
+  '#10b981', // 翠绿
+  '#06b6d4', // 青
+  '#3b82f6', // 蓝
+  '#8b5cf6', // 紫
+  '#ec4899', // 品红
+];
+const STANDARD_COLORS = [
+  '#c00000', '#ff0000', '#ffc000', '#ffff00', '#92d050',
+  '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0',
+];
+
+const parseRgb = (hex: string): readonly [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+const hex2 = (n: number) => n.toString(16).padStart(2, '0');
+
+function mixHex(base: string, target: string, ratio: number): string {
+  const [br, bg, bb] = parseRgb(base);
+  const [tr, tg, tb] = parseRgb(target);
+  const ch = (c: number, t: number) => hex2(Math.round(c + (t - c) * ratio));
+  return `#${ch(br, tr)}${ch(bg, tg)}${ch(bb, tb)}`;
+}
+
+function themeColumn(base: string): string[] {
+  // 由浅到深单调下行（Office 同构）：三档浅色 → 基色居中 → 两档深色。
+  // 之前是「基色 → 变浅 → 又变深」，列内明暗跳变（用户反馈）。
+  return [
+    mixHex(base, '#ffffff', 0.9),
+    mixHex(base, '#ffffff', 0.75),
+    mixHex(base, '#ffffff', 0.55),
+    base,
+    mixHex(base, '#000000', 0.3),
+    mixHex(base, '#000000', 0.55),
+  ];
+}
+
+/** 行主序摊平成 10 列网格（同一行 = 同一档明暗，同一列 = 同一色相）。 */
+const THEME_COLUMNS: string[][] = THEME_BASES.map(themeColumn);
+const THEME_GRID: string[] = [];
+for (let row = 0; row < 6; row += 1) {
+  for (const column of THEME_COLUMNS) {
+    const color = column[row];
+    if (color) THEME_GRID.push(color);
+  }
+}
+
+/** 单格色块：网格与标准色行共用；选中环经 box-shadow 短过渡反馈。 */
+function PaletteSwatch(props: {
+  color: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const styles = useFieldStyles();
+  return (
+    <button
+      type="button"
+      className={mergeClasses(
+        styles.paletteSwatch,
+        props.selected && styles.paletteSwatchSelected,
+      )}
+      style={{ backgroundColor: props.color }}
+      aria-label={props.color}
+      aria-pressed={props.selected}
+      title={props.color}
+      onClick={props.onSelect}
+    />
+  );
+}
+
+/** 强调色取色器（Office 风格，2026-09-09 定稿）：色块 + 下拉箭头的触发钮，
+    弹层含「跟随海报 / 主题颜色 / 标准颜色 / 更多颜色（原生取色器）」。
+    刻意无开合动画（用户定稿）：点击即现、点外部即关，选色后面板保持打开。
+    色块恒显「基础色」纯色（显式强调色，或跟随海报时按 id 派生的亮端）——
+    海报的暗变是 scrim 叠层，不进颜色元数据。存储值仍为 #rrggbb 单色。 */
+export function AccentColorPicker(props: {
   accentColor: string | null;
-  idPosterGradient: string;
+  /** 基础色（未经修饰）：跟随海报态的显示色。 */
+  baseColor: string;
   onChange: (value: string | null) => void;
 }) {
   const styles = useFieldStyles();
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const colorInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 点外部即关（pointerdown 捕获按下瞬间，先于 click 语义）。
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointerDown = (e: PointerEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [open]);
+
+  const select = (value: string | null): void => {
+    // 选取后面板保持打开（用户定稿：方便连续试色）；关闭走点外部/再点色块
+    props.onChange(value);
+  };
+
+  const current = props.accentColor;
   return (
-    <div className={styles.swatchRow}>
+    <div className={styles.chipWrapper} ref={wrapRef}>
       <button
         type="button"
-        className={mergeClasses(
-          styles.swatch,
-          props.accentColor === null && styles.swatchSelected,
-        )}
-        style={{ backgroundImage: props.idPosterGradient }}
-        aria-label={t('characters.accentFollow')}
-        aria-pressed={props.accentColor === null}
-        title={t('characters.accentFollow')}
-        onClick={() => props.onChange(null)}
-      />
-      {POSTER_GRADIENTS.map(([from, to]) => (
-        <button
-          key={to}
-          type="button"
-          className={mergeClasses(
-            styles.swatch,
-            props.accentColor === to && styles.swatchSelected,
-          )}
-          style={{ backgroundImage: `linear-gradient(150deg, ${from} 0%, ${to} 100%)` }}
-          aria-label={to}
-          aria-pressed={props.accentColor === to}
-          title={to}
-          onClick={() => props.onChange(to)}
+        className={styles.chipTrigger}
+        aria-label={t('characters.accentColor')}
+        aria-expanded={open}
+        title={t('characters.accentColor')}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span
+          className={styles.chipColor}
+          style={{ backgroundColor: current ?? props.baseColor }}
         />
-      ))}
+        <ChevronDown20Regular />
+      </button>
+      {open ? (
+        // 弹出动画：palette-pop-in 落在 app.css（Griffel 不透出 keyframes），
+        // 缩放淡入 150ms 减速曲线，锚点在色块左上（transform-origin 同位）
+        <div
+          className={`${styles.palettePanel} palette-pop-in`}
+          role="group"
+          aria-label={t('characters.accentColor')}
+        >
+          <button
+            type="button"
+            className={mergeClasses(
+              styles.paletteListItem,
+              current === null && styles.paletteSwatchSelected,
+            )}
+            onClick={() => select(null)}
+          >
+            <span className={styles.paletteListSwatch} style={{ backgroundColor: props.baseColor }} />
+            <Text size={300}>{t('characters.accentFollow')}</Text>
+          </button>
+          <Text className={styles.paletteTitle}>{t('characters.themeColors')}</Text>
+          <div className={styles.paletteGrid}>
+            {THEME_GRID.map((color) => (
+              <PaletteSwatch
+                key={color}
+                color={color}
+                selected={current === color}
+                onSelect={() => select(color)}
+              />
+            ))}
+          </div>
+          <Text className={styles.paletteTitle}>{t('characters.standardColors')}</Text>
+          <div className={styles.paletteGrid}>
+            {STANDARD_COLORS.map((color) => (
+              <PaletteSwatch
+                key={color}
+                color={color}
+                selected={current === color}
+                onSelect={() => select(color)}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className={styles.paletteListItem}
+            onClick={() => colorInputRef.current?.click()}
+          >
+            <Color20Regular />
+            <Text size={300}>{t('characters.moreColors')}</Text>
+          </button>
+          <input
+            ref={colorInputRef}
+            type="color"
+            value={current ?? '#6b46b8'}
+            onChange={(e) => select(e.target.value.toLowerCase())}
+            className={styles.colorInputHidden}
+            tabIndex={-1}
+            aria-hidden
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

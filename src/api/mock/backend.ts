@@ -173,6 +173,8 @@ export async function createCharacter(
     name: input.name,
     avatar: input.avatar,
     persona: input.persona,
+    gender: input.gender,
+    age: input.age,
     renderStyle: input.renderStyle,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
@@ -192,6 +194,8 @@ export async function updateCharacter(
   character.name = input.name;
   character.avatar = input.avatar;
   character.persona = input.persona;
+  character.gender = input.gender;
+  character.age = input.age;
   character.renderStyle = input.renderStyle;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;

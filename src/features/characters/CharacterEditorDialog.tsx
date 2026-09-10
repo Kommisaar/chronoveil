@@ -41,12 +41,12 @@ import {
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Edit20Regular } from '@fluentui/react-icons';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { SPRING_CURVE } from '../../components/motion';
-import { AccentSwatches, OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
+import { AccentColorPicker, OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
 
 /** FLIP 时长：进场形变 400ms 弹簧（过冲后落定，与卡片入场同一节奏），
@@ -231,6 +231,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: tokens.spacingHorizontalS,
+    rowGap: tokens.spacingVerticalS,
   },
   nameValue: {
     fontSize: tokens.fontSizeBase400,
@@ -242,13 +243,21 @@ const useStyles = makeStyles({
     textOverflow: 'ellipsis',
   },
   nameInput: {
-    width: '240px',
+    width: '200px',
+    minWidth: '0px',
   },
-  accentGroup: {
-    marginLeft: 'auto',
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
+  // 性别 / 年龄行内输入：短宽度，空间不足随行折行
+  metaInput: {
+    width: '96px',
+    minWidth: '0px',
+  },
+  ageInput: {
+    width: '72px',
+    minWidth: '0px',
+  },
+  // 展示态元数据文本：次级于名称（常规字重），禁收缩防挤压变形
+  metaItem: {
+    flexShrink: 0,
   },
   titleRow: {
     display: 'flex',
@@ -323,21 +332,27 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   const { t } = useTranslation();
   const form = useEditorForm({ character, onDirtyChange });
 
-  // 名称行内编辑：编辑态默认展示文本，点铅笔进输入态；Enter 提交回展示态，
-  // Esc 还原进输入前的值。新建（character = null）直接以输入态起步。
-  // 刻意不做失焦提交：Fluent 的焦点管理（tabster）会在开面板时挪走焦点，
-  // blur 一触发就把输入态弹回展示态；表单值本随键入实时更新，「编辑态」
-  // 只是展示形态，不依赖失焦收口。
+  // 身份行（名称/性别/年龄）行内编辑：编辑态默认展示文本，点铅笔进输入态；
+  // Enter 提交回展示态，Esc 还原进输入前的值。新建（character = null）直接
+  // 以输入态起步。刻意不做失焦提交：Fluent 的焦点管理（tabster）会在开
+  // 面板时挪走焦点，blur 一触发就把输入态弹回展示态；表单值本随键入实时
+  // 更新，「编辑态」只是展示形态，不依赖失焦收口。
   const [editingName, setEditingName] = useState(character === null);
-  const nameBeforeEditRef = useRef('');
+  const identityBeforeEditRef = useRef({ name: '', gender: '', age: '' });
   const startEditName = (): void => {
-    nameBeforeEditRef.current = form.name;
+    identityBeforeEditRef.current = { name: form.name, gender: form.gender, age: form.age };
     setEditingName(true);
   };
-  const commitName = (): void => setEditingName(false);
-  const cancelName = (): void => {
-    form.setName(nameBeforeEditRef.current);
+  const commitIdentity = (): void => setEditingName(false);
+  const cancelIdentity = (): void => {
+    form.setName(identityBeforeEditRef.current.name);
+    form.setGender(identityBeforeEditRef.current.gender);
+    form.setAge(identityBeforeEditRef.current.age);
     setEditingName(false);
+  };
+  const identityKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') commitIdentity();
+    if (e.key === 'Escape') cancelIdentity();
   };
 
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -462,22 +477,50 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                       {t('characters.nameLabel')}
                     </Text>
                     {editingName ? (
-                      <Input
-                        className={styles.nameInput}
-                        value={form.name}
-                        onChange={(_, d) => form.setName(d.value)}
-                        aria-label={t('characters.name')}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitName();
-                          if (e.key === 'Escape') cancelName();
-                        }}
-                      />
+                      <>
+                        <Input
+                          className={styles.nameInput}
+                          value={form.name}
+                          onChange={(_, d) => form.setName(d.value)}
+                          aria-label={t('characters.name')}
+                          autoFocus
+                          onKeyDown={identityKeyDown}
+                        />
+                        <Input
+                          className={styles.metaInput}
+                          value={form.gender}
+                          onChange={(_, d) => form.setGender(d.value)}
+                          aria-label={t('characters.gender')}
+                          placeholder={t('characters.genderPlaceholder')}
+                          onKeyDown={identityKeyDown}
+                        />
+                        <Input
+                          className={styles.ageInput}
+                          value={form.age}
+                          onChange={(_, d) => form.setAge(d.value)}
+                          aria-label={t('characters.age')}
+                          placeholder={t('characters.agePlaceholder')}
+                          onKeyDown={identityKeyDown}
+                        />
+                      </>
                     ) : (
                       <>
                         <Text size={300} weight="semibold" className={styles.nameValue}>
                           {form.live.nameText}
                         </Text>
+                        {/* 元数据只展示非空项（用户定稿：空值不占位） */}
+                        {form.gender.trim() ? (
+                          <Text size={300} className={styles.metaItem}>
+                            {t('characters.genderLabel')}
+                            {form.gender}
+                          </Text>
+                        ) : null}
+                        {form.age.trim() ? (
+                          <Text size={300} className={styles.metaItem}>
+                            {t('characters.ageLabel')}
+                            {form.age}
+                          </Text>
+                        ) : null}
                         <Button
                           appearance="subtle"
                           size="small"
@@ -488,19 +531,14 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                         />
                       </>
                     )}
-                    <div className={styles.accentGroup}>
-                      <Text size={300} weight="semibold">
-                        {t('characters.accentColorLabel')}
-                      </Text>
-                      <AccentSwatches
-                        accentColor={form.accentColor}
-                        idPosterGradient={form.live.idPosterGradient}
-                        onChange={form.setAccentColor}
-                      />
-                    </div>
+                    {/* 强调色取色器直接跟在名称后（Office 风格色块下拉） */}
+                    <AccentColorPicker
+                      accentColor={form.accentColor}
+                      baseColor={form.live.baseColor}
+                      onChange={form.setAccentColor}
+                    />
                   </div>
                   {!form.canSave ? <Text size={200}>{t('characters.nameRequired')}</Text> : null}
-                  <Text size={200}>{t('characters.accentHint')}</Text>
                 </div>
                 <label className={field.field}>
                   <Text size={300} weight="semibold">

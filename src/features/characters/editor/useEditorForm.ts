@@ -17,10 +17,9 @@ import { useTranslation } from 'react-i18next';
 import type { CharacterInput, CharacterSummary } from '../../../api/types';
 import { ANIM_STYLES, createRenderer, type AnimStyleId, type Renderer } from '../../../engine';
 import {
+  accentColorOf,
   dotGradientOf,
-  gradientOf,
   posterGradientOf,
-  DEFAULT_POSTER_GRADIENT,
 } from '../posterGradient';
 
 /** model_config JSON 的表单形态（空串 = 该字段跟随全局）。 */
@@ -79,6 +78,8 @@ function serializeModelOverride(fields: ModelOverrideFields): string | null {
 /** 脏比对签名：字段拼接（rest 以 JSON 串参与，键序在同源对象间稳定）。 */
 function formSignature(
   name: string,
+  gender: string,
+  age: string,
   persona: string,
   renderStyle: string,
   accentColor: string | null,
@@ -86,6 +87,8 @@ function formSignature(
 ): string {
   return [
     name,
+    gender,
+    age,
     persona,
     renderStyle,
     accentColor ?? '',
@@ -100,6 +103,10 @@ function formSignature(
 export interface EditorForm {
   name: string;
   setName: (value: string) => void;
+  gender: string;
+  setGender: (value: string) => void;
+  age: string;
+  setAge: (value: string) => void;
   persona: string;
   setPersona: (value: string) => void;
   renderStyle: string;
@@ -122,7 +129,8 @@ export interface EditorForm {
   live: {
     nameText: string;
     posterGradient: string;
-    idPosterGradient: string;
+    /** 基础色（未经修饰）：显式强调色，或跟随海报时按 id 派生的亮端纯色 */
+    baseColor: string;
     dotGradient: string;
     styleLabel: string;
   };
@@ -140,6 +148,8 @@ export function useEditorForm(props: {
     const override = parseModelOverride(character?.modelConfig ?? null);
     return {
       name: character?.name ?? '',
+      gender: character?.gender ?? '',
+      age: character?.age ?? '',
       persona: character?.persona ?? '',
       // 新建默认 render_style 与 Rust NewCharacter::default 一致（typewriter）。
       renderStyle: character?.renderStyle ?? 'typewriter',
@@ -148,6 +158,8 @@ export function useEditorForm(props: {
       override,
       signature: formSignature(
         character?.name ?? '',
+        character?.gender ?? '',
+        character?.age ?? '',
         character?.persona ?? '',
         character?.renderStyle ?? 'typewriter',
         character?.accentColor ?? null,
@@ -157,6 +169,8 @@ export function useEditorForm(props: {
   }, [character]);
 
   const [name, setName] = useState(initial.name);
+  const [gender, setGender] = useState(initial.gender);
+  const [age, setAge] = useState(initial.age);
   const [persona, setPersona] = useState(initial.persona);
   const [renderStyle, setRenderStyle] = useState(initial.renderStyle);
   const [accentColor, setAccentColor] = useState<string | null>(initial.accentColor);
@@ -175,7 +189,7 @@ export function useEditorForm(props: {
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
-  const dirty = formSignature(name, persona, renderStyle, accentColor, override) !== initial.signature;
+  const dirty = formSignature(name, gender, age, persona, renderStyle, accentColor, override) !== initial.signature;
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -215,8 +229,9 @@ export function useEditorForm(props: {
       nameText: name.trim() || t('characters.new'),
       // 强调色即角色主色：设了整卡覆盖（与海报墙同规则），未设按 id 取模。
       posterGradient: posterGradientOf(accentInput),
-      // 「跟随海报」色板展示的正是放弃覆盖后海报回到的样子。
-      idPosterGradient: character ? gradientOf(character.id) : DEFAULT_POSTER_GRADIENT,
+      // 基础色（未经修饰）：海报的暗变是 scrim 叠层，不参与颜色元数据——
+      // 取色器色块显示的是它（显式强调色，或跟随海报时按 id 派生的亮端）。
+      baseColor: accentColorOf(accentInput),
       dotGradient: dotGradientOf(accentInput),
       styleLabel: selectedStyle ? selectedStyle.label : renderStyle,
     };
@@ -225,6 +240,10 @@ export function useEditorForm(props: {
   return {
     name,
     setName,
+    gender,
+    setGender,
+    age,
+    setAge,
   persona,
   setPersona,
   renderStyle,
@@ -246,6 +265,9 @@ export function useEditorForm(props: {
       // avatar 不做编辑 UI：新建 null、编辑原样带回现值。
       avatar: character?.avatar ?? null,
       persona,
+      // 空串归一为 null（列语义：NULL = 未设置）。
+      gender: gender.trim() || null,
+      age: age.trim() || null,
       renderStyle,
       accentColor,
       modelConfig: serializeModelOverride(override),

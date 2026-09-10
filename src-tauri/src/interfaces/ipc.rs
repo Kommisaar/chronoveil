@@ -141,6 +141,10 @@ pub struct CharacterSummary {
     pub avatar: Option<String>,
     /// 人设系统提示词（编辑预填）。
     pub persona: String,
+    /// 性别（可选展示元数据）。
+    pub gender: Option<String>,
+    /// 年龄（可选展示元数据，自由文本）。
+    pub age: Option<String>,
     /// 出场动画风格（18 种之一，FR-005）。
     pub render_style: String,
     /// 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
@@ -160,6 +164,8 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         name: c.name,
         avatar: c.avatar,
         persona: c.persona,
+        gender: c.gender,
+        age: c.age,
         render_style: c.render_style,
         model_config: c.model_config,
         accent_color: c.accent_color,
@@ -196,6 +202,9 @@ pub struct CharacterInput {
     /// None = 不带头像 / 更新时清除头像。
     pub avatar: Option<String>,
     pub persona: String,
+    /// 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
+    pub gender: Option<String>,
+    pub age: Option<String>,
     pub render_style: String,
     pub model_config: Option<String>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
@@ -578,6 +587,8 @@ fn create_character_impl(
         name: input.name,
         avatar: input.avatar,
         persona: input.persona,
+        gender: input.gender,
+        age: input.age,
         render_style: input.render_style,
         model_config: input.model_config,
         accent_color: input.accent_color,
@@ -610,6 +621,8 @@ fn update_character_impl(
             name: input.name,
             avatar: input.avatar,
             persona: input.persona,
+            gender: input.gender,
+            age: input.age,
             render_style: input.render_style,
             model_config: input.model_config,
             accent_color: input.accent_color,
@@ -988,6 +1001,8 @@ mod tests {
             name: "苏鸢".into(),
             avatar: None,
             persona: "雨夜电话亭的守夜人".into(),
+            gender: None,
+            age: None,
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
@@ -1012,6 +1027,8 @@ mod tests {
             name: "苏鸢".into(),
             avatar: Some("data:image/png;base64,AAA".into()),
             persona: "雨夜电话亭的守夜人".into(),
+            gender: Some("女".into()),
+            age: Some("24".into()),
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: None,

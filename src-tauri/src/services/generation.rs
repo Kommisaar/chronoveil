@@ -517,6 +517,8 @@ mod tests {
             name: "苏鸢".into(),
             avatar: None,
             persona: String::new(),
+            gender: None,
+            age: None,
             render_style: "fade".into(),
             model_config,
             accent_color: None,

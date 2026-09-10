@@ -158,3 +158,32 @@ body {
   }
 }
 
+/* 强调色取色器弹层（2026-09-09）：从色块锚点弹性弹出（过冲再回落），
+   与卡片入场/编辑器形变同一根弹簧——曲线即 motion.ts 的 SPRING_CURVE
+   （app.css 引不到 TS 常量，此处内联，改曲线须两处同步）。无退场动画
+   （点外部/选取后瞬时消失）。keyframes 落此文件（Griffel 不透出），应用
+   侧是 pieces.tsx 里 AccentColorPicker 面板的 palette-pop-in 全局类；
+   「减弱动态」以 no-preference 反向门控，令牌取 FluentProvider 注入变量。 */
+@keyframes palette-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(-4px);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .palette-pop-in {
+    animation-name: palette-pop-in;
+    animation-duration: 400ms;
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: top left;
+  }
+}
+

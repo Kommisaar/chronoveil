@@ -10,7 +10,7 @@ use super::now;
 
 pub(crate) const ENTITY: &str = "character";
 
-const COLS: &str = "id, name, avatar, persona, render_style, model_config, \
+const COLS: &str = "id, name, avatar, persona, gender, age, render_style, model_config, \
                     voice_config, calendar_config, accent_color, created_at, updated_at, \
                     deleted_at";
 
@@ -20,14 +20,16 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         name: row.get(1)?,
         avatar: row.get(2)?,
         persona: row.get(3)?,
-        render_style: row.get(4)?,
-        model_config: row.get(5)?,
-        voice_config: row.get(6)?,
-        calendar_config: row.get(7)?,
-        accent_color: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        deleted_at: row.get(11)?,
+        gender: row.get(4)?,
+        age: row.get(5)?,
+        render_style: row.get(6)?,
+        model_config: row.get(7)?,
+        voice_config: row.get(8)?,
+        calendar_config: row.get(9)?,
+        accent_color: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        deleted_at: row.get(13)?,
     })
 }
 
@@ -35,13 +37,15 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
     let ts = now();
     // calendar_config 的入参接线随角色卡编辑任务（NewCharacter 暂无该字段，落库 NULL = 内置默认历）。
     conn.execute(
-        "INSERT INTO characters (name, avatar, persona, render_style, \
+                "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
              model_config, voice_config, accent_color, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
         params![
             new.name,
             new.avatar,
             new.persona,
+            new.gender,
+            new.age,
             new.render_style,
             new.model_config,
             new.voice_config,
@@ -54,6 +58,8 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         name: new.name.clone(),
         avatar: new.avatar.clone(),
         persona: new.persona.clone(),
+        gender: new.gender.clone(),
+        age: new.age.clone(),
         render_style: new.render_style.clone(),
         model_config: new.model_config.clone(),
         voice_config: new.voice_config.clone(),
@@ -95,13 +101,15 @@ pub(crate) fn update(
     upd: &UpdateCharacter,
 ) -> Result<(), StorageError> {
     let n = conn.execute(
-        "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, render_style = ?4, \
-             model_config = ?5, voice_config = ?6, accent_color = ?7, \
-             updated_at = ?8 WHERE id = ?9 AND deleted_at IS NULL",
+                "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, gender = ?4, age = ?5, \
+             render_style = ?6, model_config = ?7, voice_config = ?8, accent_color = ?9, \
+             updated_at = ?10 WHERE id = ?11 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
             upd.persona,
+            upd.gender,
+            upd.age,
             upd.render_style,
             upd.model_config,
             upd.voice_config,
@@ -157,6 +165,8 @@ mod tests {
             name: String::new(),
             avatar: None,
             persona: String::new(),
+            gender: None,
+            age: None,
             render_style: "typewriter".into(),
             model_config: None,
             accent_color: None,
@@ -179,6 +189,8 @@ mod tests {
             name: "艾莉丝".to_string(),
             avatar: Some("data:image/png;base64,xxx".to_string()),
             persona: " 你是时间旅人。".to_string(),
+            gender: Some("女".to_string()),
+            age: Some("24".to_string()),
             render_style: "fade".to_string(),
             model_config: Some(r#"{"temperature":0.8}"#.to_string()),
             accent_color: Some("#6b46b8".to_string()),
@@ -189,6 +201,8 @@ mod tests {
         assert_eq!(got.name, "艾莉丝");
         assert_eq!(got.avatar.as_deref(), Some("data:image/png;base64,xxx"));
         assert_eq!(got.persona, " 你是时间旅人。");
+        assert_eq!(got.gender.as_deref(), Some("女"));
+        assert_eq!(got.age.as_deref(), Some("24"));
         assert_eq!(got.render_style, "fade");
         assert_eq!(got.model_config.as_deref(), Some(r#"{"temperature":0.8}"#));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));

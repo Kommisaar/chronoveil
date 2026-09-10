@@ -134,7 +134,11 @@ export type CharacterInput = { name: string;
 /**
  * None = 不带头像 / 更新时清除头像。
  */
-avatar: string | null; persona: string; renderStyle: string; modelConfig: string | null; 
+avatar: string | null; persona: string; 
+/**
+ * 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
+ */
+gender: string | null; age: string | null; renderStyle: string; modelConfig: string | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
  */
@@ -158,6 +162,14 @@ avatar: string | null;
  * 人设系统提示词（编辑预填）。
  */
 persona: string; 
+/**
+ * 性别（可选展示元数据）。
+ */
+gender: string | null; 
+/**
+ * 年龄（可选展示元数据，自由文本）。
+ */
+age: string | null; 
 /**
  * 出场动画风格（18 种之一，FR-005）。
  */

@@ -289,6 +289,11 @@ const useStyles = makeStyles({
   actionsRow: {
     padding: '12px 24px 16px 24px',
   },
+  // 删除按钮钉到动作行左端（marginRight:auto 把取消/保存推去右侧）；
+  // 原为行内静态 style，收编进 griffel（审计低：静态值不入行内）
+  deleteAction: {
+    marginRight: 'auto',
+  },
 });
 
 export interface CharacterEditorDialogProps {
@@ -606,7 +611,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
             <DialogActions className={styles.actionsRow}>
               {character ? (
                 <Button
-                  style={{ marginRight: 'auto' }}
+                  className={styles.deleteAction}
                   disabled={saving}
                   onClick={() => onDelete(character)}
                 >

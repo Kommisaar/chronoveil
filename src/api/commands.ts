@@ -58,7 +58,8 @@ export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
   return isTauri ? unwrap(commands.listMessages(sessionId)) : mock.listMessages(sessionId);
 }
 
-// ---- 生成（闭环接线属 TASK-006；未接线时 Rust 返回 kind: "unavailable"）----
+// ---- 生成（TASK-006 已接线：send / regenerate 走真实生成闭环，进度经事件流推送；
+//      无活跃生成时 cancel 为幂等 no-op）----
 
 export async function sendMessage(
   sessionId: number,

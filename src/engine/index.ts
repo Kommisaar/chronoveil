@@ -20,7 +20,7 @@ import {
 } from './anims/index';
 import { CreditClock, TICK_MS, microPauseMs } from './clock';
 import { StreamParser } from './parser';
-import { StreamUnit, UnitQueue, isHr, isPara } from './queue';
+import { StreamUnit, UnitQueue, isHr, isItem, isPara } from './queue';
 import { ParagraphStream } from './seal';
 import { Granularity, takeUnit } from './take-unit';
 import { DEFAULT_THINK_TIPS, ThinkChannel } from './think';
@@ -29,11 +29,12 @@ export { ANIM_STYLES, DUR_DEFAULT_MS, DUR_MAX_MS, DUR_MIN_MS, clampDuration } fr
 export type { AnimStyleId, AnimStyleMeta } from './anims/index';
 export { CreditClock, TICK_MS, microPauseMs, speedFactor, tickIntervalMs } from './clock';
 export { StreamParser } from './parser';
+export { renderStaticMarkdown } from './static';
 export { ParagraphStream } from './seal';
 export type { Granularity } from './take-unit';
 export { takeUnit } from './take-unit';
 export { DEFAULT_THINK_TIPS, THINK_PHASE, ThinkChannel, formatThinkDuration } from './think';
-export type { StreamUnit, TextUnit, ParaUnit, HrUnit } from './queue';
+export type { StreamUnit, TextUnit, ParaUnit, HrUnit, ItemUnit } from './queue';
 export { UnitQueue } from './queue';
 
 /** 节奏可调范围（FR-002：10–160ms/字，默认 45ms，全局设置「打字机速度」） */
@@ -329,7 +330,8 @@ class StreamRenderer implements Renderer {
     }
   };
 
-  /** 上屏一个单元（demo renderTok 搬家）：段落封存 / 场景线 / 带动画仪式的 token */
+  /** 上屏一个单元（demo renderTok 搬家）：段落封存 / 场景线 / 列表项 /
+      带动画仪式的 token */
   private renderUnit(u: StreamUnit): void {
     if (isPara(u)) {
       this.sealer.seal(); // 段落封存，后续进新容器
@@ -337,6 +339,12 @@ class StreamRenderer implements Renderer {
     }
     if (isHr(u)) {
       this.sealer.sceneLine();
+      return;
+    }
+    if (isItem(u)) {
+      // 列表项：封存前段，开带列表类的段（• 前缀/序号文本已由解析器吐出）
+      this.sealer.seal();
+      this.sealer.tail(u.ordered ? 'oli' : 'uli');
       return;
     }
     if (this.dotsEl) this.removeDots();

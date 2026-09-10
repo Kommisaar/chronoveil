@@ -7,7 +7,7 @@ import { ChevronDown20Regular, ChevronRight20Regular, Color20Regular } from '@fl
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
-import { ANIM_STYLES } from '../../../engine';
+import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
 import type { ModelOverrideFields } from './useEditorForm';
 
 /** 三壳共用的字段级样式（makeStyles 可跨组件调用）。 */
@@ -164,6 +164,32 @@ export const useFieldStyles = makeStyles({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    pointerEvents: 'none',
+    color: tokens.colorNeutralForeground3,
+    fontSize: tokens.fontSizeBase200,
+  },
+  // 人设静态预览的主题适配：引擎的加粗米白 / 场景线暗底是聊天暗色调硬编码，
+  // 预览容器内用主题 token 覆写保证亮色主题可读（动作蓝灰斜体双主题均可读，不动）
+  personaMarkdown: {
+    '& .tok.bold': { color: tokens.colorNeutralForeground1 },
+    '& hr.scene::after': { backgroundColor: tokens.colorNeutralBackground2 },
+  },
+  // 人设展示态（2026-09-10 用户定稿）：无边框无底色，markdown 直接落在
+  // 面板上，与聊天叙事流同观感；高度随内容自然生长（编辑态 textarea 变高）
+  personaPlain: {
+    fontSize: tokens.fontSizeBase300,
+    lineHeight: '1.8',
+    wordBreak: 'break-word',
+  },
+  // 空人设：给提示文案撑住一块可点击的视觉空间，非空时不占位
+  personaEmpty: {
+    minHeight: '72px',
+  },
+  // 空态提示（人设）：无框后左上对齐更像输入占位符（演出预览的居中提示是框内场景）
+  personaHint: {
+    position: 'absolute',
+    top: '0px',
+    left: '0px',
     pointerEvents: 'none',
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
@@ -407,6 +433,38 @@ export function PreviewBox(props: {
       <div ref={props.previewRef} className={styles.preview} />
       {!props.previewed ? (
         <Text className={styles.previewHint}>{t('characters.previewEmpty')}</Text>
+      ) : null}
+    </div>
+  );
+}
+
+/** 人设 markdown 静态预览：引擎 renderStaticMarkdown 直插 DOM（与聊天同
+    语法语义），文本变化即整容器重渲染；展示态无边框底色（用户定稿），
+    空文本由兄弟节点出提示（showHint=false 供编辑态实时预览复用——textarea
+    已有 placeholder，不重复出提示）——引擎容器内的 DOM 不归 React 管，
+    子节点放同一容器会在 reconcile 时打架（与 PreviewBox 同一招）。 */
+export function PersonaPreviewBox(props: { text: string; showHint?: boolean }) {
+  const { showHint = true } = props;
+  const styles = useFieldStyles();
+  const { t } = useTranslation();
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (ref.current) renderStaticMarkdown(ref.current, props.text);
+  }, [props.text]);
+  const empty = props.text.trim() === '';
+  return (
+    <div className={styles.previewWrap}>
+      <div
+        ref={ref}
+        data-persona-preview
+        className={mergeClasses(
+          styles.personaPlain,
+          empty && styles.personaEmpty,
+          styles.personaMarkdown,
+        )}
+      />
+      {empty && showHint ? (
+        <Text className={styles.personaHint}>{t('characters.personaPlaceholder')}</Text>
       ) : null}
     </div>
   );

@@ -151,6 +151,16 @@ hr.scene::after {
   font-size: 10px;
 }
 
+/* 列表项（2026-09-10 语法扩展）：悬挂缩进——首行从标记文本（• / 序号）起头，
+   换行对齐到缩进位；标记宽度按 1.2em 近似，长序号会有轻微偏差（lite 取舍）。
+   列表项之间收紧行距，与普通段落间隔区分 */
+.para.uli, .para.oli {
+  padding-left: 1.2em;
+  text-indent: -1.2em;
+}
+.para.uli + .para.uli, .para.uli + .para.oli,
+.para.oli + .para.uli, .para.oli + .para.oli { margin-top: .25em; }
+
 /* 光标 */
 .stream-cursor {
   display: inline-block;

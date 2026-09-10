@@ -43,10 +43,10 @@ import {
 } from '@fluentui/react-components';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Edit20Regular } from '@fluentui/react-icons';
+import { Checkmark20Regular, Edit20Regular } from '@fluentui/react-icons';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { SPRING_CURVE } from '../../components/motion';
-import { AccentColorPicker, OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
+import { AccentColorPicker, OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
 
 /** FLIP 时长：进场形变 400ms 弹簧（过冲后落定，与卡片入场同一节奏），
@@ -66,7 +66,9 @@ const useStyles = makeStyles({
     // Fluent DialogSurface 自带 max-width: 600px，删掉它面板会被压回 600
     maxWidth: '880px',
     width: 'min(880px, calc(100vw - 48px))',
-    maxHeight: 'min(640px, 92vh)',
+    // 高度恒定（2026-09-10 用户定稿）：展示↔编辑切换、覆写开合时外框
+    // 纹丝不动，只有表单区内部重排/滚动；海报永远满高成海报卡
+    height: 'min(640px, 92vh)',
     padding: '0px',
     overflow: 'hidden',
     // 大圆角：Fluent 默认 XLarge(8px) 在 880px 宽的面板上太方，海报
@@ -145,16 +147,16 @@ const useStyles = makeStyles({
       animationFillMode: 'forwards',
     },
   },
-  // 左右分栏：左海报满高 + 右栏（标题/表单/动作）。maxHeight inherit 把
-  // surface 的高度上限传下来约束网格行高：右栏内容超高时（如新建态的
-  // 「名称必填」提示）由 content 自己滚动，而不是行高撑破 surface、动作行
-  // 被 overflow hidden 剪掉（DialogBody 自带的松上限压不住这种内容）。
+  // 左右分栏：左海报满高 + 右栏（标题/表单/动作）。surface 高度恒定后这里
+  // 撑满 100%，且显式行高 minmax(0,1fr)：不写行高时隐式行按内容收缩，
+  // 容器 640 行却只有内容高，动作行悬空、海报不满高。content 自身滚动。
   split: {
     display: 'grid',
     gridTemplateColumns: '280px minmax(0, 1fr)',
+    gridTemplateRows: 'minmax(0, 1fr)',
     gap: '0px',
     alignItems: 'stretch',
-    maxHeight: 'inherit',
+    height: '100%',
   },
   // —— 左：电影海报占满整列 ——
   poster: {
@@ -355,6 +357,11 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
     if (e.key === 'Escape') cancelIdentity();
   };
 
+  // 人设（2026-09-10）：默认 markdown 渲染展示（与聊天同语法语义），按钮
+  // 切到输入态——与名称行同一「展示态 + 行内编辑」语言；多行文本没有
+  // Enter 提交语义，收起走同一按钮（编辑中变对钩）。新建以输入态起步。
+  const [editingPersona, setEditingPersona] = useState(character === null);
+
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
@@ -540,18 +547,36 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                   </div>
                   {!form.canSave ? <Text size={200}>{t('characters.nameRequired')}</Text> : null}
                 </div>
-                <label className={field.field}>
-                  <Text size={300} weight="semibold">
-                    {t('characters.persona')}
-                  </Text>
-                  <Textarea
-                    value={form.persona}
-                    rows={3}
-                    onChange={(_, d) => form.setPersona(d.value)}
-                    aria-label={t('characters.persona')}
-                    placeholder={t('characters.personaPlaceholder')}
-                  />
-                </label>
+                <div className={field.field}>
+                  <div className={styles.nameRow}>
+                    <Text size={300} weight="semibold">
+                      {t('characters.persona')}
+                    </Text>
+                    <Button
+                      appearance="subtle"
+                      size="small"
+                      icon={editingPersona ? <Checkmark20Regular /> : <Edit20Regular />}
+                      aria-label={
+                        editingPersona ? t('characters.personaDone') : t('characters.personaEdit')
+                      }
+                      title={
+                        editingPersona ? t('characters.personaDone') : t('characters.personaEdit')
+                      }
+                      onClick={() => setEditingPersona((v) => !v)}
+                    />
+                  </div>
+                  {editingPersona ? (
+                    <Textarea
+                      value={form.persona}
+                      rows={4}
+                      onChange={(_, d) => form.setPersona(d.value)}
+                      aria-label={t('characters.persona')}
+                      placeholder={t('characters.personaPlaceholder')}
+                    />
+                  ) : (
+                    <PersonaPreviewBox text={form.persona} />
+                  )}
+                </div>
                 <div className={field.field}>
                   <Text size={300} weight="semibold">
                     {t('characters.renderStyle')}

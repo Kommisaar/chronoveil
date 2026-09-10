@@ -59,6 +59,14 @@ describe('takeUnit 发射粒度合并（FR-002）', () => {
     expect(takeUnit(q, 4)).toEqual({ hr: true });
   });
 
+  it('列表项单元原子出队（2026-09-10 扩展）', () => {
+    const q = new UnitQueue();
+    q.enqueue({ item: true, ordered: false });
+    q.enqueue(textUnit('a'));
+    expect(takeUnit(q, 4)).toEqual({ item: true, ordered: false });
+    expect(tok(takeUnit(q, 4))?.t).toBe('a');
+  });
+
   it('合并不会跨越结构单元', () => {
     const q = new UnitQueue();
     q.enqueue(textUnit('a'));

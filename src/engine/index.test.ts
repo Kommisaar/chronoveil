@@ -60,6 +60,23 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     expect(paras[1]?.textContent).toBe('后语');
   });
 
+  it('列表（2026-09-10 扩展）：流式渲染产出 uli/oli 段落，项目符随正文吐出', async () => {
+    const { container, r } = mount();
+    r.beginTurn();
+    r.enqueue('- 甲\n- 乙\n\n1. 丙');
+    r.finish();
+    await vi.waitFor(
+      () => {
+        // 文本断言一并放进 waitFor：结构单元先行上屏，文本还在节奏队列
+        expect(container.querySelectorAll('.para.uli')).toHaveLength(2);
+        expect(container.querySelector('.para.oli')?.textContent).toContain('1. 丙');
+      },
+      { timeout: 4000 },
+    );
+    const ulis = [...container.querySelectorAll('.para.uli')];
+    expect(ulis[0]?.textContent).toContain('• 甲');
+  });
+
   it('未闭合星号：段落封存按字面吐出（ADR-008 字面路）', async () => {
     const { container, r } = mount();
     r.beginTurn();

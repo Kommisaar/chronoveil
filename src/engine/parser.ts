@@ -1,13 +1,18 @@
 /**
  * markdown-lite 流式解析（FR-004 / ADR-008，TASK-004）。
  * 支持子集：`*斜体*`（动作）、`**加粗**`、空行分段、`---`/`===`/`——` 场景线；
+ * 2026-09-10 扩展扁平列表：`- ` 无序（吐 `• ` 项目符文本）、`数字. ` 有序
+ * （序号按原文保留，不重排），不嵌套；标记只在行首成立（流首 / 单换行后 /
+ * 空行分段后）。
  * 刻意不支持表格/链接/图片（半语法状态必然错乱、外链违背本地化铁律）。
  *
  * 未闭合标记 = 延迟判定（ADR-008，2026-09-07 决策，替代 demo 的完整文本预解析）：
  * 遇 `*`/`**` 先不吐字（尾巴攒着），直到能判定——闭合出现则按样式渲染出队；
  * 段落封存 / 流结束仍未闭合则按字面星号吐出。与 `<think>` 半标签跨包同一哲学。
+ * 列表标记候选同哲学：`-`/数字先攒着，见到空格才定型为列表项；候选失败
+ * （`-x`、`1.5`）按字面吐出，`-`/`=`/`—` 开头的候选失败移交场景线判定。
  *
- * 产出为字符级单元流（{t,a,b} + {para}/{hr}），合并成发射粒度是 take-unit 的事。
+ * 产出为字符级单元流（{t,a,b} + {para}/{hr}/{item}），合并成发射粒度是 take-unit 的事。
  */
 import { StreamUnit, textUnit } from './queue';
 
@@ -15,8 +20,10 @@ import { StreamUnit, textUnit } from './queue';
 const SCENE_LINE_RE = /^\s*(-{3,}|={3,}|—{2,})\s*$/;
 /** 场景线候选字符集：空白与三种划线（块首只有这些字符时才可能成为场景线） */
 const SCENE_LINE_CHARS_RE = /[-=—\s]/;
+/** 无序列表项目符（解析时随正文吐出，悬挂缩进样式见 engine.css） */
+const LIST_BULLET = '• ';
 
-type ParserMode = 'none' | 'stars' | 'content' | 'divider';
+type ParserMode = 'none' | 'stars' | 'content' | 'divider' | 'listdash' | 'listdot';
 
 /**
  * 流式 markdown-lite 解析器。
@@ -35,6 +42,8 @@ export class StreamParser {
   private nlRun = 0;
   /** 当前块是否已有实质内容（场景线候选只在块首成立） */
   private blockHasContent = false;
+  /** 下一个非换行字符是否处于行首（流首 / 单换行后 / 空行分段后）——列表标记只在行首成立 */
+  private lineStart = true;
 
   /** 喂入到达的文本片段（网络包粒度任意），返回可立即出队的单元 */
   push(text: string): StreamUnit[] {
@@ -46,9 +55,11 @@ export class StreamParser {
       }
       if (this.nlRun >= 2) {
         out.push(...this.sealParagraph());
+        this.lineStart = true;
       } else if (this.nlRun === 1) {
         // 单个换行是块内普通字符（demo：split(/\n{2,}/) 只切空行）
         this.feedChar('\n', out);
+        this.lineStart = true;
       }
       this.nlRun = 0;
       this.feedChar(ch, out);
@@ -68,7 +79,8 @@ export class StreamParser {
       if (SCENE_LINE_RE.test(this.hold)) sceneLine = true;
       else out.push(...literalUnits(this.hold));
     } else if (this.mode !== 'none') {
-      // 未闭合标记走到段落封存：按字面星号吐出（含开标记星与正文）
+      // 未闭合标记走到段落封存：按字面吐出（星号候选含开标记星与正文，
+      // 列表候选只剩 hold 里的 '-' / 数字串）
       out.push(...literalUnits(this.hold + this.content + '*'.repeat(this.closerStars)));
     }
     this.clearMarker();
@@ -104,6 +116,7 @@ export class StreamParser {
     this.clearMarker();
     this.nlRun = 0;
     this.blockHasContent = false;
+    this.lineStart = true;
   }
 
   private clearMarker(): void {
@@ -119,6 +132,15 @@ export class StreamParser {
   }
 
   private feedChar(ch: string, out: StreamUnit[]): void {
+    // 行首语义只在进入本函数前成立（push 在单换行/空行后置位）；任何字符
+    // 一经消费即离开行首——先取快照再清，本调用内仍可判列表候选
+    const atLineStart = this.lineStart;
+    this.lineStart = false;
+    if (this.mode === 'listdash' || this.mode === 'listdot') {
+      if (this.feedListCandidate(ch, out)) return;
+      // 候选失败：已攒字符按字面吐出（或移交场景线吸收），ch 交回常规路径
+    }
+
     if (this.mode === 'divider') {
       if (SCENE_LINE_CHARS_RE.test(ch)) {
         this.hold += ch;
@@ -134,6 +156,20 @@ export class StreamParser {
       if (ch === '*') {
         this.mode = 'stars';
         this.hold = '*';
+        this.blockHasContent = true;
+        return;
+      }
+      // 行首列表标记候选（'- ' / '数字. '）：先于场景线判定（'-' 同为
+      // 场景线候选字符，候选失败会移交回去）
+      if (atLineStart && ch === '-') {
+        this.mode = 'listdash';
+        this.hold = '-';
+        this.blockHasContent = true;
+        return;
+      }
+      if (atLineStart && ch >= '0' && ch <= '9') {
+        this.mode = 'listdot';
+        this.hold = ch;
         this.blockHasContent = true;
         return;
       }
@@ -185,6 +221,49 @@ export class StreamParser {
       this.closerStars = 0;
     }
     this.content += ch;
+  }
+
+  /** 列表标记候选（'- ' / '数字. '，2026-09-10 扩展）：消费返回 true；
+      失败时归还已攒字符——场景线字符集内的移交 divider 继续判定，否则按
+      字面吐出（`-x`、`1.5` 与未扩展前逐字一致）——并返回 false 交回常规路径。 */
+  private feedListCandidate(ch: string, out: StreamUnit[]): boolean {
+    if (this.mode === 'listdash') {
+      if (ch === ' ') {
+        this.clearMarker();
+        out.push({ item: true, ordered: false });
+        out.push(...literalUnits(LIST_BULLET));
+        return true;
+      }
+      const dash = this.hold; // '-'
+      this.clearMarker();
+      if (SCENE_LINE_CHARS_RE.test(ch)) {
+        // '--'、'-—' 等仍是场景线候选：移交 divider 吸收当前字符
+        this.mode = 'divider';
+        this.hold = dash;
+        this.feedChar(ch, out);
+        return true;
+      }
+      out.push(...literalUnits(dash));
+      return false;
+    }
+    // listdot：数字串 + 至多一个 '.'，空格定型；序号文本按原文保留
+    if (ch >= '0' && ch <= '9') {
+      this.hold += ch;
+      return true;
+    }
+    if (ch === '.' && !this.hold.includes('.')) {
+      this.hold += ch;
+      return true;
+    }
+    const marker = this.hold;
+    this.clearMarker();
+    if (ch === ' ' && marker.endsWith('.')) {
+      out.push({ item: true, ordered: true });
+      out.push(...literalUnits(`${marker} `));
+      return true;
+    }
+    out.push(...literalUnits(marker));
+    return false;
   }
 
   /** 闭合：按样式（a=斜体 / b=加粗）出队攒住的正文 */

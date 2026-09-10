@@ -14,7 +14,6 @@
 import {
   Badge,
   Button,
-  Card,
   Dialog,
   DialogActions,
   DialogBody,
@@ -29,10 +28,16 @@ import {
   Text,
   Title1,
   makeStyles,
-  mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { Add16Regular } from '@fluentui/react-icons';
+import {
+  Add16Regular,
+  Color20Regular,
+  Globe20Regular,
+  Pause20Regular,
+  Sparkle20Regular,
+  Timer20Regular,
+} from '@fluentui/react-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfig, saveConfig } from '../../api/commands';
@@ -48,6 +53,7 @@ import {
   withoutModel,
 } from './preferences';
 import { ProviderCard } from './ProviderCard';
+import { SettingsCard, SettingsDivider, SettingsRow } from './SettingsCard';
 
 /** 自动保存防抖：停止修改后延迟落盘（滑杆拖动/逐键输入不逐帧写盘）。 */
 const AUTOSAVE_DEBOUNCE_MS = 600;
@@ -56,35 +62,35 @@ const useStyles = makeStyles({
   title: {
     marginBottom: tokens.spacingVerticalL,
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: tokens.spacingVerticalL,
-  },
-  span2: {
-    gridColumn: '1 / -1',
-  },
-  card: {
+  // 2026-09-10 行结构卡片：单列纵排（参照外部截图的宽卡片行布局），
+  // 不再两栏并排——行式布局需要宽度才舒展
+  stack: {
     display: 'flex',
     flexDirection: 'column',
-    gap: tokens.spacingVerticalM,
+    gap: tokens.spacingVerticalL,
   },
-  field: {
-    display: 'grid',
-    gridTemplateColumns: '160px minmax(0, 1fr)',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalM,
+  slider: {
+    width: '240px',
   },
-  cardHead: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: tokens.spacingHorizontalS,
+  animInput: {
+    width: '140px',
+  },
+  // 动效基准非法时的卡片级行内提示（与底部汇总合计两处，验收 5）
+  rowIssue: {
+    padding: '0 20px 12px',
+    color: tokens.colorPaletteRedForeground1,
+    fontSize: tokens.fontSizeBase200,
   },
   providerList: {
     display: 'flex',
     flexDirection: 'column',
     gap: tokens.spacingVerticalM,
+  },
+  // 服务卡行区与卡边的内距（ProviderCard 列表 / 空态共用）
+  providerBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '16px 20px',
   },
   // 无 provider 空态（验收 7）：虚线框引导新建
   empty: {
@@ -101,6 +107,7 @@ const useStyles = makeStyles({
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
   },
+  // 修改即保存状态（置于服务卡底部提示位）：minHeight 防状态切换跳动
   status: {
     display: 'flex',
     alignItems: 'center',
@@ -296,136 +303,164 @@ export function SettingsView() {
 
       {draft && loaded ? (
         <>
-          <div className={styles.grid}>
-            <Card className={styles.card}>
-              <Text weight="semibold">{t('settings.appearance')}</Text>
-              <div className={styles.field}>
-                <Text>{t('settings.theme')}</Text>
-                <RadioGroup
-                  layout="horizontal"
-                  aria-label={t('settings.theme')}
-                  value={draft.uiTheme}
-                  onChange={(_, d) => {
-                    patch({ uiTheme: d.value });
-                    // 改动即生效（既有 ui store 动作，AppProviders 消费），落盘交自动保存
-                    setTheme(d.value as ThemeSetting);
-                  }}
-                >
-                  <Radio value="system" label={t('settings.themeSystem')} />
-                  <Radio value="light" label={t('settings.themeLight')} />
-                  <Radio value="dark" label={t('settings.themeDark')} />
-                </RadioGroup>
-              </div>
-              <div className={styles.field}>
-                <Text>{t('settings.language')}</Text>
-                <RadioGroup
-                  layout="horizontal"
-                  aria-label={t('settings.language')}
-                  value={draft.uiLanguage}
-                  onChange={(_, d) => {
-                    patch({ uiLanguage: d.value });
-                    setLanguage(d.value as LanguageSetting);
-                  }}
-                >
-                  <Radio value="system" label={t('settings.languageSystem')} />
-                  <Radio value="zh" label={t('settings.languageZh')} />
-                  <Radio value="en" label={t('settings.languageEn')} />
-                </RadioGroup>
-              </div>
-            </Card>
+          <div className={styles.stack}>
+            <SettingsCard title={t('settings.appearance')}>
+              <SettingsRow
+                icon={<Color20Regular />}
+                title={t('settings.theme')}
+                description={t('settings.themeDesc')}
+                control={
+                  <RadioGroup
+                    layout="horizontal"
+                    aria-label={t('settings.theme')}
+                    value={draft.uiTheme}
+                    onChange={(_, d) => {
+                      patch({ uiTheme: d.value });
+                      // 改动即生效（既有 ui store 动作，AppProviders 消费），落盘交自动保存
+                      setTheme(d.value as ThemeSetting);
+                    }}
+                  >
+                    <Radio value="system" label={t('settings.themeSystem')} />
+                    <Radio value="light" label={t('settings.themeLight')} />
+                    <Radio value="dark" label={t('settings.themeDark')} />
+                  </RadioGroup>
+                }
+              />
+              <SettingsDivider />
+              <SettingsRow
+                icon={<Globe20Regular />}
+                title={t('settings.language')}
+                description={t('settings.languageDesc')}
+                control={
+                  <RadioGroup
+                    layout="horizontal"
+                    aria-label={t('settings.language')}
+                    value={draft.uiLanguage}
+                    onChange={(_, d) => {
+                      patch({ uiLanguage: d.value });
+                      setLanguage(d.value as LanguageSetting);
+                    }}
+                  >
+                    <Radio value="system" label={t('settings.languageSystem')} />
+                    <Radio value="zh" label={t('settings.languageZh')} />
+                    <Radio value="en" label={t('settings.languageEn')} />
+                  </RadioGroup>
+                }
+              />
+            </SettingsCard>
 
-            <Card className={styles.card}>
-              <Text weight="semibold">{t('settings.rhythmCard')}</Text>
-              <div className={styles.field}>
-                <Text>{t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}</Text>
-                <Slider
-                  min={10}
-                  max={160}
-                  step={5}
-                  value={draft.rhythmMsPerChar}
-                  aria-label={t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}
-                  onChange={(_, d) => patch({ rhythmMsPerChar: d.value })}
-                />
-              </div>
-              <div className={styles.field}>
-                <Text>{t('settings.punctPause')}</Text>
-                <Switch
-                  checked={draft.punctPauseEnabled}
-                  aria-label={t('settings.punctPause')}
-                  onChange={(_, d) => patch({ punctPauseEnabled: d.checked })}
-                />
-              </div>
-              <div className={styles.field}>
-                <Text>{t('settings.animBase')}</Text>
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={animBaseText}
-                  aria-label={t('settings.animBase')}
-                  onChange={(_, d) => {
-                    setAnimBaseText(d.value);
-                    const parsed = parseAnimBaseMs(d.value);
-                    if (parsed !== null) patch({ animDurationBase: parsed });
-                  }}
-                />
-              </div>
+            <SettingsCard title={t('settings.rhythmCard')}>
+              <SettingsRow
+                icon={<Timer20Regular />}
+                title={t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}
+                description={t('settings.rhythmDesc')}
+                control={
+                  <Slider
+                    className={styles.slider}
+                    min={10}
+                    max={160}
+                    step={5}
+                    value={draft.rhythmMsPerChar}
+                    aria-label={t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}
+                    onChange={(_, d) => patch({ rhythmMsPerChar: d.value })}
+                  />
+                }
+              />
+              <SettingsDivider />
+              <SettingsRow
+                icon={<Pause20Regular />}
+                title={t('settings.punctPause')}
+                description={t('settings.punctPauseDesc')}
+                control={
+                  <Switch
+                    checked={draft.punctPauseEnabled}
+                    aria-label={t('settings.punctPause')}
+                    onChange={(_, d) => patch({ punctPauseEnabled: d.checked })}
+                  />
+                }
+              />
+              <SettingsDivider />
+              <SettingsRow
+                icon={<Sparkle20Regular />}
+                title={t('settings.animBaseRow')}
+                description={t('settings.animBaseDesc')}
+                control={
+                  <Input
+                    className={styles.animInput}
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={animBaseText}
+                    aria-label={t('settings.animBase')}
+                    onChange={(_, d) => {
+                      setAnimBaseText(d.value);
+                      const parsed = parseAnimBaseMs(d.value);
+                      if (parsed !== null) patch({ animDurationBase: parsed });
+                    }}
+                  />
+                }
+              />
               {animBase === null ? (
-                <Text className={styles.issues} role="alert">
+                <Text className={styles.rowIssue} role="alert">
                   {t('settings.issueAnimBase')}
                 </Text>
               ) : null}
-            </Card>
+            </SettingsCard>
 
-            <Card className={mergeClasses(styles.card, styles.span2)}>
-              <div className={styles.cardHead}>
-                <Text weight="semibold">{t('settings.provider')}</Text>
-                <Button size="small" icon={<Add16Regular />} onClick={addProvider}>
-                  {t('settings.addProvider')}
-                </Button>
-              </div>
-
-              {draft.providers.length === 0 ? (
-                <div className={styles.empty}>
-                  <Text>{t('settings.providerEmpty')}</Text>
-                  <Button icon={<Add16Regular />} onClick={addProvider}>
+            <SettingsCard
+              title={t('settings.provider')}
+              footer={{
+                // 修改即保存状态行（原先独占一行的状态区挪进底部提示位）
+                hint: (
+                  <div className={styles.status}>
+                    {saveError ? (
+                      <Text className={styles.issues} role="alert">
+                        {t('settings.saveFailed')}: {saveError}
+                      </Text>
+                    ) : saving ? (
+                      <Text>{t('settings.saving')}</Text>
+                    ) : dirty && hasIssues ? (
+                      <Badge appearance="tint" color="warning">
+                        {t('settings.dirty')}
+                      </Badge>
+                    ) : dirty ? (
+                      <Text>{t('settings.autosaveHint')}</Text>
+                    ) : null}
+                  </div>
+                ),
+                actions: (
+                  <Button appearance="primary" icon={<Add16Regular />} onClick={addProvider}>
                     {t('settings.addProvider')}
                   </Button>
-                </div>
-              ) : (
-                <div className={styles.providerList}>
-                  {draft.providers.map((provider) => (
-                    <ProviderCard
-                      key={provider.id}
-                      provider={provider}
-                      isActiveProvider={draft.activeProviderId === provider.id}
-                      activeModel={draft.activeModel}
-                      onChange={(p) => changeProvider(provider.id, p)}
-                      onActivateModel={(model) => activateModel(provider.id, model)}
-                      onRemoveModel={(index) => removeModel(provider.id, index)}
-                      onDelete={() => setDeleteTarget(provider)}
-                    />
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-
-          {/* 修改即保存的状态行：保存中 / 失败 / 非法未存 / 待自动保存 */}
-          <div className={styles.status}>
-            {saveError ? (
-              <Text className={styles.issues} role="alert">
-                {t('settings.saveFailed')}: {saveError}
-              </Text>
-            ) : saving ? (
-              <Text>{t('settings.saving')}</Text>
-            ) : dirty && hasIssues ? (
-              <Badge appearance="tint" color="warning">
-                {t('settings.dirty')}
-              </Badge>
-            ) : dirty ? (
-              <Text>{t('settings.autosaveHint')}</Text>
-            ) : null}
+                ),
+              }}
+            >
+              <div className={styles.providerBody}>
+                {draft.providers.length === 0 ? (
+                  <div className={styles.empty}>
+                    <Text>{t('settings.providerEmpty')}</Text>
+                    <Button icon={<Add16Regular />} onClick={addProvider}>
+                      {t('settings.addProvider')}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className={styles.providerList}>
+                    {draft.providers.map((provider) => (
+                      <ProviderCard
+                        key={provider.id}
+                        provider={provider}
+                        isActiveProvider={draft.activeProviderId === provider.id}
+                        activeModel={draft.activeModel}
+                        onChange={(p) => changeProvider(provider.id, p)}
+                        onActivateModel={(model) => activateModel(provider.id, model)}
+                        onRemoveModel={(index) => removeModel(provider.id, index)}
+                        onDelete={() => setDeleteTarget(provider)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </SettingsCard>
           </div>
 
           {hasIssues && !saving ? (

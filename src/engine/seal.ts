@@ -10,11 +10,12 @@ export class ParagraphStream {
 
   constructor(private readonly root: HTMLElement) {}
 
-  /** 尾段容器（惰性创建 .para）；封存后再次访问会得到全新容器 */
-  tail(): HTMLElement {
+  /** 尾段容器（惰性创建 .para；kind 给出时带列表类，见 engine.css 悬挂缩进）；
+      封存后再次访问会得到全新容器 */
+  tail(kind?: 'uli' | 'oli'): HTMLElement {
     if (!this.current) {
       const para = document.createElement('div');
-      para.className = 'para';
+      para.className = kind ? `para ${kind}` : 'para';
       this.root.appendChild(para);
       this.current = para;
     }

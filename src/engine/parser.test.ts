@@ -171,3 +171,73 @@ describe('markdown-lite 流式解析：分段与场景线（FR-004）', () => {
     expect(units).toEqual([{ hr: true }]);
   });
 });
+
+describe('markdown-lite 流式解析：扁平列表（2026-09-10 扩展）', () => {
+  function items(units: StreamUnit[]): boolean[] {
+    return units.filter((u) => 'item' in u).map((u) => (u as { ordered: boolean }).ordered);
+  }
+
+  it('- 无序列表项：item 单元 + • 项目符，标记本身吞掉', () => {
+    const p = new StreamParser();
+    const units = p.push('- 甲');
+    expect(items(units)).toEqual([false]);
+    expect(text(units)).toBe('• 甲');
+  });
+
+  it('连续行各成一项，单换行处开启新列表项', () => {
+    const p = new StreamParser();
+    const units = p.push('- 甲\n- 乙\n- 丙');
+    expect(items(units)).toEqual([false, false, false]);
+    expect(text(units)).toBe('• 甲\n• 乙\n• 丙');
+  });
+
+  it('有序列表：序号按原文保留、不重排', () => {
+    const p = new StreamParser();
+    const units = p.push('1. 甲\n2. 乙');
+    expect(items(units)).toEqual([true, true]);
+    expect(text(units)).toBe('1. 甲\n2. 乙');
+  });
+
+  it('多位序号成立，非换行行首序号不成立', () => {
+    const p = new StreamParser();
+    expect(items(p.push('12. 起'))).toEqual([true]);
+    expect(items(p.push('前缀- 甲'))).toEqual([]);
+    expect(text(p.push('前缀- 甲'))).toBe('前缀- 甲');
+  });
+
+  it('-x / 1.5 候选失败按字面直出', () => {
+    const p = new StreamParser();
+    expect(items(p.push('-x'))).toEqual([]);
+    expect(text(p.push('-x'))).toBe('-x');
+    expect(items(p.push('1.5 倍'))).toEqual([]);
+    expect(text(p.push('1.5 倍'))).toBe('1.5 倍');
+  });
+
+  it('--- 仍是场景线：列表候选失败移交场景线判定', () => {
+    const p = new StreamParser();
+    const units = [...p.push('---'), ...p.flush()];
+    expect(units.filter((u) => 'hr' in u)).toHaveLength(1);
+    expect(items(units)).toEqual([]);
+  });
+
+  it('空行结束列表，后续普通段落不再成项', () => {
+    const p = new StreamParser();
+    const units = p.push('- 甲\n\n正文');
+    expect(items(units)).toEqual([false]);
+    expect(units.filter(isPara)).toHaveLength(1);
+    expect(text(units)).toBe('• 甲正文');
+  });
+
+  it('列表项内 *斜体* 照常生效', () => {
+    const p = new StreamParser();
+    const units = p.push('- *动*作');
+    const italic = units.filter((u) => 't' in u && u.a).map((u) => ('t' in u ? u.t : ''));
+    expect(italic.join('')).toBe('动');
+  });
+
+  it('流末未定型的 - 候选按字面吐出（flush）', () => {
+    const p = new StreamParser();
+    p.push('-');
+    expect(text(p.flush())).toBe('-');
+  });
+});

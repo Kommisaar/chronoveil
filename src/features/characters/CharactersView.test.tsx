@@ -66,8 +66,15 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
   renderView();
   fireEvent.click(await screen.findByText('林深'));
 
-  // persona 预填：CharacterSummary 扩字段随列表返回（TASK-008 Rust 侧）
+  // persona 默认渲染展示：预览容器由引擎直插 DOM（markdown 静态渲染）
+  const personaPreview = document.querySelector('[data-persona-preview]');
+  expect(personaPreview?.textContent).toContain('旧书店老板');
+
+  // 「编辑人设」切到纯文本输入态：textarea 预填原文（CharacterSummary 扩字段
+  // 随列表返回，TASK-008 Rust 侧）；编辑态不渲染不着色，渲染只在展示态发生
+  fireEvent.click(screen.getByRole('button', { name: '编辑人设' }));
   expect(textareaOf('人设（系统提示词）').value).toContain('旧书店老板');
+  expect(document.querySelector('[data-persona-syntax]')).toBeNull();
 
   // render_style 下拉消费 engine 的 ANIM_STYLES（18 选 1）
   fireEvent.click(screen.getByRole('combobox', { name: '出场动画' }));

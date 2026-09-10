@@ -4,7 +4,7 @@
  * 实体/命令负载类型统一从 `./generated/bindings.ts` 再导出——该文件由 tauri-specta
  * 从 Rust DTO（src-tauri/src/interfaces/ipc.rs）生成，勿手改；此处只保留：
  * - 稳定的类型出口（调用方 import 路径不随生成细节变动）；
- * - 纯 UI 层枚举（RenderStyle / ThemeSetting / LanguageSetting，FR-005 / FR-009）。
+ * - 纯 UI 层枚举（ThemeSetting / LanguageSetting，FR-009）。
  */
 
 export type {
@@ -25,8 +25,6 @@ export type {
   /** 命令错误（可判别结构；IPC 命令统一返回）。 */
   IpcError,
 } from './generated/bindings';
-
-export type RenderStyle = string; // 18 种风格之一（FR-005），具体枚举由引擎定义
 
 /** 界面偏好档位（FR-009；config.json 键 ui_theme / ui_language） */
 export type ThemeSetting = 'system' | 'light' | 'dark';

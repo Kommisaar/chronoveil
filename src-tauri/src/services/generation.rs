@@ -778,7 +778,7 @@ mod tests {
             })
             .unwrap();
         storage
-            .create_session(&NewSession { character_id: character.id, title: String::new() })
+            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
             .unwrap()
             .id
     }
@@ -1216,23 +1216,25 @@ mod tests {
             .run()
             .await;
 
-        // done 放行时刻采样：1 条在世 assistant + 1 条在世场景行（结算先于 done，ADR-005）。
+        // done 放行时刻采样：1 条在世 assistant + 2 条在世场景行（开场锚行 FR-014 +
+        // 结算新行；结算先于 done，ADR-005）。
         let events = log.events.lock().unwrap().clone();
         assert!(
-            matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 1))),
+            matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 2))),
             "done 放行前 scenes 已落库，实际：{:?}",
             events.last()
         );
         // 场景行字段（边界快照 + date_label 派生）。
         let scenes = storage.list_scenes(session_id).unwrap();
-        assert_eq!(scenes.len(), 1);
-        assert_eq!(scenes[0].location.as_deref(), Some("旧书店 · 打烊后"));
-        assert_eq!(scenes[0].time_note.as_deref(), Some("次日清晨"));
-        assert_eq!(scenes[0].fic_day, Some(2));
-        assert_eq!(scenes[0].fic_part.as_deref(), Some("清晨"));
-        assert_eq!(scenes[0].date_label.as_deref(), Some("第2日·清晨"));
-        assert_eq!(scenes[0].summary.as_deref(), Some("雨夜争执后无言告别"));
-        assert_eq!(scenes[0].present, vec![1], "§7-7：在场恒为会话角色");
+        assert_eq!(scenes.len(), 2, "scenes[0] = 开场锚行（FR-014），scenes[1] = 结算新行");
+        let settled = scenes.last().unwrap();
+        assert_eq!(settled.location.as_deref(), Some("旧书店 · 打烊后"));
+        assert_eq!(settled.time_note.as_deref(), Some("次日清晨"));
+        assert_eq!(settled.fic_day, Some(2));
+        assert_eq!(settled.fic_part.as_deref(), Some("清晨"));
+        assert_eq!(settled.date_label.as_deref(), Some("第2日·清晨"));
+        assert_eq!(settled.summary.as_deref(), Some("雨夜争执后无言告别"));
+        assert_eq!(settled.present, vec![1], "§7-7：在场恒为会话角色");
         // 状态清算落库。
         let states = storage.list_character_states(session_id).unwrap();
         assert_eq!(states.len(), 1);
@@ -1288,9 +1290,13 @@ mod tests {
             0,
             "无场景线不得调用导演"
         );
-        assert!(storage.list_scenes(session_id).unwrap().is_empty(), "零结算");
+        // FR-014：账上只有建会话 seed 的开场锚行，本次零结算未追加任何行。
+        let scenes = storage.list_scenes(session_id).unwrap();
+        assert_eq!(scenes.len(), 1, "零结算：仅存开场锚行");
+        assert_eq!(scenes[0].summary.as_deref(), None);
+        assert_eq!(scenes[0].fic_day, Some(1));
         let events = log.events.lock().unwrap().clone();
-        assert!(matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 0))));
+        assert!(matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 1))));
     }
 
     // ---- 测试辅助 ----

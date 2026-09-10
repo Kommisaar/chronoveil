@@ -136,7 +136,7 @@ mod tests {
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id;
         (storage, dir, char_id, session_id)
@@ -244,7 +244,7 @@ mod tests {
             .unwrap();
         // 干扰项：另一会话不可见
         let other_session = storage
-            .create_session(&NewSession { character_id: cid, title: String::new() })
+            .create_session(&NewSession { character_id: cid, title: String::new(), opening: None })
             .unwrap()
             .id;
         storage

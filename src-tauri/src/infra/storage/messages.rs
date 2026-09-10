@@ -183,7 +183,7 @@ mod tests {
             .unwrap()
             .id;
         storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id
     }

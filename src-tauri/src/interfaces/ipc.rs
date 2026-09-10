@@ -379,6 +379,7 @@ fn create_session_impl(
     let session = app.storage.create_session(&models::NewSession {
         character_id,
         title: title.unwrap_or_default(),
+        opening: None,
     })?;
     Ok(SessionSummary::from(session))
 }

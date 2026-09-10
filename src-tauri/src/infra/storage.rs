@@ -421,6 +421,7 @@ mod tests {
             .create_session(&NewSession {
                 character_id: 999_999,
                 title: String::new(),
+                opening: None,
             })
             .unwrap_err();
         assert!(matches!(err, StorageError::Conflict(_)), "实际：{err:?}");
@@ -471,7 +472,7 @@ mod tests {
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id;
         let user_id = storage
@@ -554,9 +555,9 @@ mod tests {
         assert_eq!(scene.present, vec![1]);
         // 上一行 summary 回写 + 收束段两条消息归属到上一行（边界快照语义）。
         let reloaded = storage.list_scenes(session_id).unwrap();
-        assert_eq!(reloaded.len(), 2);
-        assert_eq!(reloaded[0].id, previous.id);
-        assert_eq!(reloaded[0].summary.as_deref(), Some("昨夜争执后两人无言告别"));
+        assert_eq!(reloaded.len(), 3, "开场锚行（FR-014 seed）+ 上一行 + 新行");
+        let previous_row = reloaded.iter().find(|s| s.id == previous.id).unwrap();
+        assert_eq!(previous_row.summary.as_deref(), Some("昨夜争执后两人无言告别"));
         assert_eq!(
             attached_scene_ids(&dir, session_id),
             vec![Some(previous.id), Some(previous.id)],
@@ -574,7 +575,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 开场即结算（无上一行）：close / attach / 回写全部缺席，仅落新场景行，idx 从 0 起。
+    /// 「无上一行」支路（close / attach / 回写全部缺席）：仅落新场景行。
+    /// FR-014 起建会话必 seed 开场锚行，本用例在锚行之上验证 None 支路不失败。
     #[test]
     fn commit_settlement_first_boundary_only_inserts_scene() {
         let (storage, dir, _char_id, session_id, _user_id, _assistant_id) =
@@ -589,8 +591,8 @@ mod tests {
                 state_clears: Vec::new(),
             })
             .unwrap();
-        assert_eq!(scene.idx, 0);
-        assert_eq!(storage.list_scenes(session_id).unwrap().len(), 1);
+        assert_eq!(scene.idx, 1, "开场锚行（idx 0）之上自增");
+        assert_eq!(storage.list_scenes(session_id).unwrap().len(), 2);
         assert!(
             attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),
             "无上一行不产生消息归属（留待后续结算自愈，§7-2）"

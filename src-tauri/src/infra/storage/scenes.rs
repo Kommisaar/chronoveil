@@ -144,7 +144,7 @@ mod tests {
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id;
         (storage, dir, session_id)
@@ -164,30 +164,36 @@ mod tests {
     }
 
     /// 验收 3：插入 idx 单调自增；按会话列表按 idx 升序；latest 取最大 idx。
+    /// FR-014 起建会话即 seed 开场锚行（idx 0），后续插入自 1 起单调。
     #[test]
     fn insert_idx_monotonic_and_latest() {
         let (storage, dir, sid) = setup("scene_idx");
+        let seeded = storage.latest_scene(sid).unwrap().unwrap();
+        assert_eq!(seeded.idx, 0, "开场锚行 = idx 0（FR-014 无条件 seed）");
         let s0 = storage.insert_scene(&scene(sid, 1, "开场")).unwrap();
         let s1 = storage.insert_scene(&scene(sid, 2, "推进")).unwrap();
         let s2 = storage.insert_scene(&scene(sid, 3, "高潮")).unwrap();
-        assert_eq!((s0.idx, s1.idx, s2.idx), (0, 1, 2), "idx 从 0 起单调自增");
+        assert_eq!((s0.idx, s1.idx, s2.idx), (1, 2, 3), "锚行之后 idx 单调自增");
         assert_eq!(s0.present, vec![1, 2], "在场数组往返一致");
 
         let list = storage.list_scenes(sid).unwrap();
         let idxes: Vec<i64> = list.iter().map(|s| s.idx).collect();
-        assert_eq!(idxes, vec![0, 1, 2]);
+        assert_eq!(idxes, vec![0, 1, 2, 3]);
 
         let latest = storage.latest_scene(sid).unwrap().unwrap();
         assert_eq!(latest.id, s2.id, "latest = 最大 idx 的在世场景");
         assert_eq!(latest.summary.as_deref(), Some("高潮"));
 
-        // 空会话 latest = None
+        // 新会话不再有空账本（FR-014）：latest = 开场锚行（降级缺省 day=1 · 夜）。
         let char_id = storage.list_characters().unwrap()[0].id;
         let other = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap();
         let _ = storage.insert_message(&NewMessage::new(other.id, MessageRole::User, "hi"));
-        assert!(storage.latest_scene(other.id).unwrap().is_none());
+        let anchor = storage.latest_scene(other.id).unwrap().unwrap();
+        assert_eq!(anchor.idx, 0);
+        assert_eq!(anchor.fic_day, Some(1));
+        assert_eq!(anchor.fic_part.as_deref(), Some("夜"));
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -211,30 +217,33 @@ mod tests {
         }
         let storage = Storage::open(&dir.join("test.db")).unwrap();
         let list = storage.list_scenes(sid).unwrap();
-        assert_eq!(list.len(), 1, "墓碑行不得入列表（ADR-009）");
-        assert_eq!(list[0].id, keep);
+        assert_eq!(list.len(), 2, "墓碑行不得入列表（ADR-009）；开场锚行 + 留存行");
+        assert_eq!(list[1].id, keep);
         assert_eq!(storage.latest_scene(sid).unwrap().unwrap().id, keep);
 
         // idx 以墓碑行计序：新场景继续 2 之后，不与墓碑重号
         let next = storage.insert_scene(&scene(sid, 3, "新场")).unwrap();
-        assert_eq!(next.idx, 2, "墓碑行参与 MAX 计序");
-        assert_eq!(storage.list_scenes(sid).unwrap().len(), 2);
+        assert_eq!(next.idx, 3, "墓碑行参与 MAX 计序");
+        assert_eq!(storage.list_scenes(sid).unwrap().len(), 3);
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 多会话隔离：A 会话的场景不出现在 B 会话查询里。
+    /// 多会话隔离：A 会话的场景不出现在 B 会话查询里；B 的新账本 = 自己的开场锚行。
     #[test]
     fn scenes_isolated_per_session() {
         let (storage, dir, sid_a) = setup("scene_iso");
         let char_id = storage.list_characters().unwrap()[0].id;
         let sid_b = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id;
         storage.insert_scene(&scene(sid_a, 1, "A 场")).unwrap();
-        assert!(storage.list_scenes(sid_b).unwrap().is_empty());
-        assert!(storage.latest_scene(sid_b).unwrap().is_none());
+        // FR-014：B 的唯一行 = 建会话 seed 的开场锚行，A 的场景行不串会话。
+        let b_scenes = storage.list_scenes(sid_b).unwrap();
+        assert_eq!(b_scenes.len(), 1);
+        assert_eq!(b_scenes[0].idx, 0);
+        assert_eq!(b_scenes[0].location, None, "B 的行是锚行，而非 A 的「A 场」行");
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }

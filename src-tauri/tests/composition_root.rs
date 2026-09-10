@@ -39,6 +39,7 @@ fn composition_root_end_to_end() {
         .create_session(&NewSession {
             character_id: character.id,
             title: "雨夜来电".into(),
+            opening: None,
         })
         .unwrap();
     let message = app

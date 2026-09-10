@@ -947,7 +947,7 @@ mod tests {
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new() })
+            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
             .unwrap()
             .id;
         storage
@@ -1031,8 +1031,9 @@ mod tests {
         run_settlement(&deps, &ticket, &trigger).await;
 
         // 边界快照新行：idx 自增、四字段 + 派生 date_label + summary + present。
+        // （scenes[0] = 建会话 seed 的开场锚行，FR-014。）
         let scenes = storage.list_scenes(session_id).unwrap();
-        assert_eq!(scenes.len(), 2);
+        assert_eq!(scenes.len(), 3, "开场锚行 + 上一行 + 结算新行");
         let newest = scenes.last().unwrap();
         assert_eq!(newest.idx, previous.idx + 1);
         assert_eq!(newest.location.as_deref(), Some("旧书店 · 打烊后"));
@@ -1043,7 +1044,7 @@ mod tests {
         assert_eq!(newest.summary.as_deref(), Some("钟楼下的对峙无果而终"));
         assert_eq!(newest.present, vec![char_id], "§7-7：在场恒为会话角色");
         // 上一行 summary 回写（边界快照：上一行与其归属消息自洽）。
-        assert_eq!(scenes[0].summary.as_deref(), Some("钟楼下的对峙无果而终"));
+        assert_eq!(scenes[1].summary.as_deref(), Some("钟楼下的对峙无果而终"));
         // 状态清算：upsert 新键（source_scene = 收束场景）、clear 旧键（软删）。
         let states = storage.list_character_states(session_id).unwrap();
         assert_eq!(states.len(), 1, "「别扭」已清除、「情绪」已 upsert");
@@ -1093,8 +1094,12 @@ mod tests {
 
         assert!(attempts.load(Ordering::SeqCst) >= 2, "Json 失败后必须重试");
         let scenes = storage.list_scenes(session_id).unwrap();
-        assert_eq!(scenes.len(), 1, "重试成功后恰好结算一次（INT-003 幂等）");
-        assert_eq!(scenes[0].summary.as_deref(), Some("重试后的裁决"));
+        assert_eq!(
+            scenes.len(),
+            2,
+            "重试成功后恰好结算一次（INT-003 幂等）；scenes[0] = 开场锚行（FR-014）"
+        );
+        assert_eq!(scenes[1].summary.as_deref(), Some("重试后的裁决"));
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1124,7 +1129,10 @@ mod tests {
         registry.cancel(session_id);
         task.await.unwrap();
 
-        assert!(storage.list_scenes(session_id).unwrap().is_empty(), "被取消的结算零落库");
+        // FR-014：取消的结算零落库，账上只剩建会话 seed 的开场锚行。
+        let scenes = storage.list_scenes(session_id).unwrap();
+        assert_eq!(scenes.len(), 1, "被取消的结算零落库（仅存开场锚行）");
+        assert_eq!(scenes[0].summary.as_deref(), None, "锚行未收到结算回写");
         assert!(storage.list_character_states(session_id).unwrap().is_empty());
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);

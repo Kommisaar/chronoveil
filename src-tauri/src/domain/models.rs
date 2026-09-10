@@ -146,12 +146,32 @@ pub struct UpdateCharacter {
     pub voice_config: Option<String>,
 }
 
+/// 开局包（FR-014）：建会话可选携带的「显式日历 + 开场锚」。
+/// 命令层（interfaces/ipc.rs）把 wire DTO 校验后折叠成本结构；存储层
+/// （infra/storage/sessions.rs）在同一事务内落会话行 + 开场场景行。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpeningSeed {
+    /// 显式指定会话日历（FR-014：向导显式指定 > 角色卡快照兜底）；None = 快照兜底。
+    pub calendar: Option<crate::domain::fiction_time::CalendarConfig>,
+    /// 开场锚：起始「第 N 天」（None = 1）。
+    pub fic_day: Option<i64>,
+    /// 开场锚：时段六值之一（None = 「夜」）。
+    pub fic_part: Option<String>,
+    /// 首场景地点原文，可空。
+    pub location: Option<String>,
+    /// 首场景时间原文，可空。
+    pub time_note: Option<String>,
+}
+
 /// 新建会话入参。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewSession {
     pub character_id: i64,
     /// 标题，可空串（缺省由调用方取首条用户消息截断后经 update_session_title 回填）。
     pub title: String,
+    /// 开局包（FR-014）；None = 降级路径——同样无条件 seed 默认锚开场行
+    /// （day=1 / part=夜 / date_label 走角色卡快照日历），保证 latest_scene 存在。
+    pub opening: Option<OpeningSeed>,
 }
 
 /// 插入消息入参：携带终态落库全部字段（ADR-001）。

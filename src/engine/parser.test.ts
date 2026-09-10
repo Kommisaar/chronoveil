@@ -240,4 +240,70 @@ describe('markdown-lite 流式解析：扁平列表（2026-09-10 扩展）', () 
     p.push('-');
     expect(text(p.flush())).toBe('-');
   });
+
+  // —— 发现 5（demo 对齐）：`- ` 遇空格进待决 hold，下一个非空白字符裁决 ——
+
+  it('行首 `- - -` 不是列表项：整体按字面吐出（demo 语义）', () => {
+    const p = new StreamParser();
+    const units = [...p.push('- - -'), ...p.flush()];
+    expect(items(units)).toEqual([]);
+    expect(units.filter((u) => 'hr' in u)).toHaveLength(0); // 空格打散，不成场景线
+    expect(text(units)).toBe('- - -');
+  });
+
+  it('`- - -` 逐字符喂入（半包任意切分）与整块喂入同构', () => {
+    for (const chunk of ['- - -', '- ', '- -', '-', '- - -']) {
+      const p = new StreamParser();
+      let units: StreamUnit[] = [];
+      for (const ch of chunk) units = [...units, ...p.push(ch)];
+      units = [...units, ...p.flush()];
+      expect(text(units), `按 "${chunk}" 切分`).toBe(chunk);
+      expect(items(units)).toEqual([]);
+    }
+  });
+
+  it('待决后普通正文仍定型列表项：`- 甲` 语义不变', () => {
+    const p = new StreamParser();
+    const units = p.push('- 甲');
+    expect(items(units)).toEqual([false]);
+    expect(text(units)).toBe('• 甲');
+  });
+
+  it('标记后余量空白按正文保留：`-  甲` 出 `•  甲`（与即刻定型版一致）', () => {
+    const p = new StreamParser();
+    const units = p.push('-  甲');
+    expect(items(units)).toEqual([false]);
+    expect(text(units)).toBe('•  甲');
+  });
+
+  it('待决后空格换行无正文：整行按字面，不成列表项', () => {
+    const p = new StreamParser();
+    const units = [...p.push('- \n\n正文'), ...p.flush()];
+    expect(items(units)).toEqual([]);
+    expect(text(units)).toBe('- 正文');
+    expect(units.filter(isPara)).toHaveLength(1);
+  });
+
+  it('流末停在 `- `：待决 hold 按字面吐出（含空格）', () => {
+    const p = new StreamParser();
+    p.push('- ');
+    expect(text(p.flush())).toBe('- ');
+    const q = new StreamParser();
+    q.push('- ');
+    expect(items(q.flush())).toEqual([]);
+  });
+
+  it('`- =` 同为潜在场景线形态：候选失败按字面吐出', () => {
+    const p = new StreamParser();
+    const units = [...p.push('- ='), ...p.flush()];
+    expect(items(units)).toEqual([]);
+    expect(text(units)).toBe('- =');
+  });
+
+  it('待决失败后再遇正文：`- - 甲` 整体按字面（divider 被正文破坏）', () => {
+    const p = new StreamParser();
+    const units = [...p.push('- - 甲'), ...p.flush()];
+    expect(items(units)).toEqual([]);
+    expect(text(units)).toBe('- - 甲');
+  });
 });

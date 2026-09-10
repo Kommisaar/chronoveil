@@ -11,6 +11,10 @@
  * 段落封存 / 流结束仍未闭合则按字面星号吐出。与 `<think>` 半标签跨包同一哲学。
  * 列表标记候选同哲学：`-`/数字先攒着，见到空格才定型为列表项；候选失败
  * （`-x`、`1.5`）按字面吐出，`-`/`=`/`—` 开头的候选失败移交场景线判定。
+ * 无序候选更进一层（2026-09-10 审计发现 5，demo 对齐）：`- ` 之后仍不立即定型
+ * （`- - -` 这类「短横+空格」开头的行是潜在场景线形态，demo 按普通文本处理），
+ * 攒进待决 hold，等下一个非空白字符裁决——是 `-`/`=` 则候选失败按字面吐出，
+ * 否则补发 {item} + 项目符。
  *
  * 产出为字符级单元流（{t,a,b} + {para}/{hr}/{item}），合并成发射粒度是 take-unit 的事。
  */
@@ -44,6 +48,8 @@ export class StreamParser {
   private blockHasContent = false;
   /** 下一个非换行字符是否处于行首（流首 / 单换行后 / 空行分段后）——列表标记只在行首成立 */
   private lineStart = true;
+  /** listdash 待决（发现 5）：`- ` 已攒、未见裁决字符（hold = '- ' + 后续空白） */
+  private dashHeld = false;
 
   /** 喂入到达的文本片段（网络包粒度任意），返回可立即出队的单元 */
   push(text: string): StreamUnit[] {
@@ -124,6 +130,7 @@ export class StreamParser {
     this.hold = '';
     this.content = '';
     this.closerStars = 0;
+    this.dashHeld = false;
   }
 
   /** 开标记星数：1=斜体，2=加粗（hold 即开标记星串） */
@@ -225,13 +232,40 @@ export class StreamParser {
 
   /** 列表标记候选（'- ' / '数字. '，2026-09-10 扩展）：消费返回 true；
       失败时归还已攒字符——场景线字符集内的移交 divider 继续判定，否则按
-      字面吐出（`-x`、`1.5` 与未扩展前逐字一致）——并返回 false 交回常规路径。 */
+      字面吐出（`-x`、`1.5` 与未扩展前逐字一致）——并返回 false 交回常规路径。
+      无序候选遇空格进待决 hold（发现 5），由下一个非空白字符裁决。 */
   private feedListCandidate(ch: string, out: StreamUnit[]): boolean {
     if (this.mode === 'listdash') {
-      if (ch === ' ') {
+      if (this.dashHeld) {
+        // 待决中：空白继续攒（裁决只看第一个非空白字符）
+        if (/\s/.test(ch)) {
+          this.hold += ch;
+          return true;
+        }
+        const held = this.hold;
         this.clearMarker();
+        if (ch === '-' || ch === '=') {
+          // 潜在场景线形态（`- - -`、`- ===` 等）：候选失败，攒住的字面移交
+          // divider 继续判定（divider 在封存/流末/被破坏时按字面吐出，与 demo
+          // 的纯文本语义一致，也保住「块尾仍可吸收后续划线字符」的既有行为）
+          this.mode = 'divider';
+          this.hold = held;
+          this.feedChar(ch, out);
+          return true;
+        }
+        // 正常列表项定型：补发 {item} + 项目符；hold 前两字符是标记本体
+        // （`- `，即刻定型版同样吞掉首空格），余量空白按正文吐出。
+        // ch 交回常规路径（可能是 `*` 开标记、正文等）。
         out.push({ item: true, ordered: false });
-        out.push(...literalUnits(LIST_BULLET));
+        out.push(...literalUnits(LIST_BULLET + held.slice(2)));
+        this.feedChar(ch, out);
+        return true;
+      }
+      if (ch === ' ') {
+        // 首个空格不立即定型（发现 5）：`- ` 可能是 `- - -` 场景线形态的
+        // 前缀，进待决 hold 等下一个非空白字符裁决
+        this.hold += ch;
+        this.dashHeld = true;
         return true;
       }
       const dash = this.hold; // '-'

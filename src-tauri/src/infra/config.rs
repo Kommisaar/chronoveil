@@ -157,8 +157,6 @@ impl Config {
     /// 导演调用模型解析（INT-003）：`director_model` 非空用之；否则跟随主模型
     /// （active (provider, model) 二元组，双层级 2026-09-09）。均未配置 → None
     /// （调用方再报「未配置模型」）。
-    // 消费方在 TASK-005 / 导演服务接线后出现；测试已覆盖语义。
-    #[allow(dead_code)]
     pub fn effective_director_model(&self) -> Option<&str> {
         let explicit = self
             .director_model
@@ -244,15 +242,16 @@ impl ConfigStore {
         }
     }
 
-    /// 自定义路径（测试注入临时目录用）。
+    /// 自定义路径构造。当前零调用方（含测试：测试经 `in_app_home` 注入临时目录），
+    /// 作为与 `in_app_home` 对称的构造入口保留（审计待确认清单项，勿径删）。
     #[allow(dead_code)]
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
 
-    /// 当前配置文件路径（诊断 / 展示用）。
-    // 消费方在 TASK-005 接线后出现；测试已覆盖。
-    #[allow(dead_code)]
+    /// 当前配置文件路径（诊断 / 展示用）；目前仅测试消费（state 装配断言 + 配置单测），
+    /// 生产调用方接线前按测试专用豁免。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn path(&self) -> &Path {
         &self.path
     }

@@ -64,7 +64,99 @@ impl Default for CalendarConfig {
 impl CalendarConfig {
     /// 是否具备可用的命名皮肤（至少有月名或日名，且有月长基准可做双射换算）。
     fn has_skin(&self) -> bool {
-        self.days_per_month > 0 && (!self.months.is_empty() || !self.day_names.is_empty())
+        validate(self)
+    }
+}
+
+/// 命名皮肤可用性判定（FR-014 开局向导与 date_label 回退共用同一规则）：
+/// `days_per_month > 0` 且月名 / 日名至少其一非空（对齐原 `has_skin`）。
+pub fn validate(calendar: &CalendarConfig) -> bool {
+    calendar.days_per_month > 0 && (!calendar.months.is_empty() || !calendar.day_names.is_empty())
+}
+
+/// 内置四预设历法（FR-014 开局向导一期：零 LLM 依赖、离线可用、建会话同步完成）。
+///
+/// 形态约束（schema 事实源即本文件的 [`CalendarConfig`]）：festivals 键 = 年内第几天
+/// 整数（1 起）；每月天数固定（四预设统一 12 月 × 30 日 = 360 日一年），保证
+/// day ↔ (月序, 日序) 双射。自动拟历（廉价结构化调用起草）留二期。
+///
+/// 以函数逐次构造（`String` / `BTreeMap` 无 const 构造）；调用方每次拿独立副本，
+/// 可直接改写或落库。
+pub mod presets {
+    use std::collections::BTreeMap;
+
+    use super::CalendarConfig;
+
+    fn names<const N: usize>(items: [&str; N]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    /// 现代公历：均匀化 360 日年（12 月 × 30 日）；国庆 = (10-1)×30+1 = 271。
+    pub fn modern() -> CalendarConfig {
+        CalendarConfig {
+            name: Some("现代公历".into()),
+            months: names([
+                "一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月",
+                "十一月", "十二月",
+            ]),
+            days_per_month: 30,
+            day_names: names(["周一", "周二", "周三", "周四", "周五", "周六", "周日"]),
+            festivals: BTreeMap::from([(1, "元旦".to_string()), (271, "国庆节".to_string())]),
+        }
+    }
+
+    /// 七曜和历：和风月名 + 七曜日名；七五三 = (11-1)×30+15 = 315，大晦日 = 360。
+    pub fn seven() -> CalendarConfig {
+        CalendarConfig {
+            name: Some("七曜和历".into()),
+            months: names([
+                "睦月", "如月", "弥生", "卯月", "皋月", "水无月", "文月", "叶月", "长月",
+                "神无月", "霜月", "师走",
+            ]),
+            days_per_month: 30,
+            day_names: names([
+                "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日",
+            ]),
+            festivals: BTreeMap::from([(315, "七五三".to_string()), (360, "大晦日".to_string())]),
+        }
+    }
+
+    /// 干支历：古典月名 + 十二支日名取模循环；上元 = 正月十五 = 15，除夕 = 360。
+    pub fn ganzhi() -> CalendarConfig {
+        CalendarConfig {
+            name: Some("干支历".into()),
+            months: names([
+                "正月", "杏月", "桃月", "槐月", "榴月", "荷月", "巧月", "桂月", "菊月", "阳月",
+                "葭月", "腊月",
+            ]),
+            days_per_month: 30,
+            day_names: names([
+                "子日", "丑日", "寅日", "卯日", "辰日", "巳日", "午日", "未日", "申日", "酉日",
+                "戌日", "亥日",
+            ]),
+            festivals: BTreeMap::from([(15, "上元".to_string()), (360, "除夕".to_string())]),
+        }
+    }
+
+    /// 架空「旧都历」（概念文档 §7.6 样例）；灯节 = (2-1)×30+15 = 45，守夜 = 360。
+    pub fn fantasy() -> CalendarConfig {
+        CalendarConfig {
+            name: Some("旧都历".into()),
+            months: names([
+                "霜月", "白蜡月", "融雪月", "雨月", "长夏月", "蝉鸣月", "风起月", "收获月",
+                "雾月", "炉火月", "冻雨月", "岁末月",
+            ]),
+            days_per_month: 30,
+            day_names: names([
+                "晨露日", "萤火日", "潮汐日", "风息日", "炉边日", "集日", "安息日",
+            ]),
+            festivals: BTreeMap::from([(45, "灯节".to_string()), (360, "守夜".to_string())]),
+        }
+    }
+
+    /// 全部内置预设（顺序即向导选项展示顺序，「跟随角色卡」之外的四个）。
+    pub fn all() -> Vec<CalendarConfig> {
+        vec![modern(), seven(), ganzhi(), fantasy()]
     }
 }
 
@@ -231,5 +323,69 @@ mod tests {
             ..CalendarConfig::default()
         };
         assert_eq!(date_label(&cal, 2, "午后"), "风息日·午后", "无月名表只出日段（day-1 取模）");
+    }
+
+    // ---- FR-014：validate helper 与内置预设 ----
+
+    #[test]
+    fn validate_aligns_has_skin() {
+        // 空配置 / 缺月长基准 / 月日名全空 = 不可用；月名或日名其一即可。
+        assert!(!validate(&CalendarConfig::default()));
+        assert!(
+            !validate(&CalendarConfig {
+                months: vec!["白蜡月".into()],
+                ..CalendarConfig::default()
+            }),
+            "days_per_month = 0 不可做双射换算"
+        );
+        assert!(validate(&CalendarConfig {
+            months: vec!["白蜡月".into()],
+            days_per_month: 30,
+            ..CalendarConfig::default()
+        }));
+        assert!(validate(&CalendarConfig {
+            day_names: vec!["晨露日".into()],
+            days_per_month: 30,
+            ..CalendarConfig::default()
+        }), "月名 / 日名至少其一非空即可");
+    }
+
+    /// 四预设 date_label 抽查：节日括注、跨月换算、日名取模逐一命中。
+    #[test]
+    fn presets_date_label_spot_checks() {
+        use presets;
+
+        // 现代公历：day 1 = 一月·周一（元旦）；日名按年内日序取模（270 % 7 = 周五）。
+        assert_eq!(date_label(&presets::modern(), 1, "夜"), "一月·周一·夜（元旦）");
+        assert_eq!(date_label(&presets::modern(), 2, "清晨"), "一月·周二·清晨");
+        assert_eq!(date_label(&presets::modern(), 271, "夜"), "十月·周五·夜（国庆节）");
+
+        // 七曜和历：315 = 霜月·日曜日（七五三，314 % 7）；360 = 师走·水曜日（大晦日）。
+        assert_eq!(date_label(&presets::seven(), 315, "夜"), "霜月·日曜日·夜（七五三）");
+        assert_eq!(date_label(&presets::seven(), 360, "深夜"), "师走·水曜日·深夜（大晦日）");
+
+        // 干支历：15 = 正月·寅日（上元，14 % 12）；360 = 腊月·亥日（除夕，359 % 12）。
+        assert_eq!(date_label(&presets::ganzhi(), 15, "夜"), "正月·寅日·夜（上元）");
+        assert_eq!(date_label(&presets::ganzhi(), 360, "夜"), "腊月·亥日·夜（除夕）");
+
+        // 旧都历：45 = 白蜡月·潮汐日（灯节，44 % 7）；360 = 岁末月·潮汐日（守夜）。
+        assert_eq!(date_label(&presets::fantasy(), 45, "夜"), "白蜡月·潮汐日·夜（灯节）");
+        assert_eq!(date_label(&presets::fantasy(), 360, "夜"), "岁末月·潮汐日·夜（守夜）");
+    }
+
+    /// 预设 → JSON → parse 往返无损：锁定存储 JSON 为 snake_case 键（wire camelCase
+    /// 只管 DTO，落库由 Rust 序列化 domain 结构得到）。
+    #[test]
+    fn presets_roundtrip_through_storage_json() {
+        for preset in presets::all() {
+            assert!(validate(&preset), "内置预设必须可用：{:?}", preset.name);
+            let json = serde_json::to_string(&preset).unwrap();
+            assert!(
+                json.contains("days_per_month"),
+                "存储 JSON 键为 snake_case：{json}"
+            );
+            assert!(!json.contains("daysPerMonth"), "存储 JSON 不得混入 wire camelCase：{json}");
+            assert_eq!(parse(Some(&json)), preset, "往返无损：{:?}", preset.name);
+        }
     }
 }

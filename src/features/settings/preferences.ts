@@ -7,10 +7,12 @@
  */
 
 import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
+import { RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
-/** 打字节奏允许范围（FR-009：10–160 ms/字；与 infra/config.rs 双重兜底）。 */
-export const RHYTHM_MIN = 10;
-export const RHYTHM_MAX = 160;
+/** 打字节奏允许范围（FR-009：10–160 ms/字；与 infra/config.rs 双重兜底）。
+ *  单一来源为引擎的 RHYTHM_MIN_MS / RHYTHM_MAX_MS，此处仅别名再导出，不再另行定义。 */
+export const RHYTHM_MIN = RHYTHM_MIN_MS;
+export const RHYTHM_MAX = RHYTHM_MAX_MS;
 
 const THEME_VALUES: readonly ThemeSetting[] = ['system', 'light', 'dark'];
 const LANGUAGE_VALUES: readonly LanguageSetting[] = ['system', 'zh', 'en'];

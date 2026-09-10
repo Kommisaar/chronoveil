@@ -368,7 +368,7 @@ async fn generate_once(
         let replaced = deps.storage.latest_assistant_message(session_id)?;
         history
             .into_iter()
-            .filter(|m| replaced.as_ref().map_or(true, |old| m.id != old.id))
+            .filter(|m| replaced.as_ref().is_none_or(|old| m.id != old.id))
             .collect()
     } else {
         history
@@ -619,6 +619,50 @@ mod tests {
 
         registry.finish(2);
         assert!(!registry.is_active(2));
+    }
+
+    /// 终态收尾后槽位释放：同会话可立即再次 begin（生产回路：begin → run → finish → 下一轮）。
+    #[test]
+    fn registry_slot_freed_after_finish_allows_rebegin() {
+        let registry = GenerationRegistry::new();
+        let t1 = registry.begin(1).unwrap();
+        registry.finish(1);
+        assert!(!registry.is_active(1));
+
+        let t2 = registry.begin(1).unwrap();
+        assert_ne!(t1.message_id, t2.message_id, "再次 begin 分配新临时 id");
+        assert!(registry.is_active(1));
+    }
+
+    /// 临时 message_id 严格递减取值、全局唯一（跨会话、跨轮次都不重复）。
+    #[test]
+    fn registry_message_ids_unique_and_decreasing() {
+        let registry = GenerationRegistry::new();
+        let mut last = 0;
+        for sid in [1, 2, 1, 3, 2] {
+            let t = registry.begin(sid).expect("上一轮已 finish，槽位应空闲");
+            registry.finish(sid);
+            assert!(t.message_id < last, "id 严格递减：{} 应小于 {last}", t.message_id);
+            last = t.message_id;
+        }
+    }
+
+    /// 未知会话的 finish / is_active 均为无害 no-op。
+    #[test]
+    fn registry_unknown_session_ops_are_noop() {
+        let registry = GenerationRegistry::new();
+        registry.finish(999);
+        assert!(!registry.is_active(999));
+    }
+
+    /// 标题截断边界：恰好 20 字不补省略号；21 字截断补省略号；纯空白 trim 后为空。
+    #[test]
+    fn default_title_exact_boundary_no_ellipsis() {
+        let exact: String = "夜".repeat(TITLE_MAX_CHARS);
+        assert_eq!(default_title(&exact), exact, "恰好 20 字原样保留");
+        let over: String = "夜".repeat(TITLE_MAX_CHARS + 1);
+        assert_eq!(default_title(&over), format!("{exact}…"), "21 字截断补省略号");
+        assert_eq!(default_title("   \n\t "), "", "纯空白 trim 后为空串");
     }
 
     // ---- 事件闸门 + 思考计量（FR-003 / SEQ-001）----

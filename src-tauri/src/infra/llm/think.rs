@@ -207,4 +207,47 @@ mod tests {
         assert_eq!(body, "一二三");
         assert_eq!(think, "思一思二");
     }
+
+    /// 极端切块：逐字符喂入（每个字符一个 chunk），标签识别与路由不受切块粒度影响。
+    #[test]
+    fn char_by_char_feed_matches_whole_string() {
+        let owned: Vec<String> =
+            "你好<think>深度思考</think>再见".chars().map(String::from).collect();
+        let chunks: Vec<&str> = owned.iter().map(String::as_str).collect();
+        let (body, think) = run(&chunks);
+        assert_eq!(body, "你好再见");
+        assert_eq!(think, "深度思考");
+    }
+
+    /// 误判恢复：`<thin` + `g` 判定非标签后，误判尾巴 `<thin` 原样进正文，
+    /// 且后续真正的 `<think>` 仍能正常识别（误判不烧毁状态机）。
+    #[test]
+    fn false_prefix_recovers_and_later_real_tag_still_works() {
+        let mut s = ThinkSplitter::new();
+        let out = s.feed("<thin");
+        assert_eq!(out.body, "", "疑似前缀攒住不输出");
+        let out = s.feed("g");
+        assert_eq!(out.body, "<thing", "误判尾巴与新字符按字面放行");
+        let out = s.feed("<think>真思考");
+        assert_eq!(out.body, "");
+        assert_eq!(out.think, "真思考");
+        let out = s.flush();
+        assert!(out.body.is_empty() && out.think.is_empty());
+    }
+
+    /// 空思考段：`<think></think>` 直陈闭合，两通道都不产出标签本身。
+    #[test]
+    fn empty_think_segment_yields_nothing() {
+        let (body, think) = run(&["前<think></think>后"]);
+        assert_eq!(body, "前后");
+        assert_eq!(think, "");
+    }
+
+    /// 空 chunk 喂入无害。
+    #[test]
+    fn empty_feed_is_noop() {
+        let mut s = ThinkSplitter::new();
+        let out = s.feed("");
+        assert!(out.body.is_empty() && out.think.is_empty());
+    }
 }

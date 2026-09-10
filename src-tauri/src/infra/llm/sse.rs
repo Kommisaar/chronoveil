@@ -214,4 +214,85 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0], SseItem::Delta(ChatDelta { content: Some("a".into()), reasoning: None }));
     }
+
+    /// `data:` 冒号后空格可省略（SSE 规范只认冒号定界）：`data:{json}` 与 `data:[DONE]` 同样生效。
+    #[test]
+    fn data_field_without_space_after_colon_is_parsed() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &["data:{\"choices\":[{\"delta\":{\"content\":\"无空格\"}}]}\n\ndata:[DONE]\n\n".as_bytes()],
+        );
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            items[0],
+            SseItem::Delta(ChatDelta { content: Some("无空格".into()), reasoning: None })
+        );
+        assert_eq!(items[1], SseItem::Done);
+    }
+
+    /// 冒号后多个空格同样被 trim_start 吞掉，不影响负载解析。
+    #[test]
+    fn extra_spaces_after_colon_are_trimmed() {
+        let delta = parse_delta("   {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}");
+        assert!(delta.is_some(), "parse_delta 层容忍前导空白");
+        let mut p = SseParser::new();
+        let items = feed_all(&mut p, &[b"data:   [DONE]\n\n"]);
+        assert_eq!(items, vec![SseItem::Done]);
+    }
+
+    /// 同一事件的多条 `data:` 行按「每行独立解析」处理（非 SSE 规范的拼接语义）：
+    /// JSON 被拆到两行时两行均非法 → 全部忽略，不炸流；各自完整的行各自产出。
+    #[test]
+    fn json_split_across_two_data_lines_is_ignored_per_line() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &["data: {\"choices\":[{\"delta\":\n\
+               data: {\"content\":\"拆开\"}}]}\n\n\
+               data: {\"choices\":[{\"delta\":{\"content\":\"完整\"}}]}\n\n"
+                .as_bytes()],
+        );
+        assert_eq!(items.len(), 1, "拆开的半截 JSON 两行都忽略，只留完整行");
+        assert_eq!(items[0], SseItem::Delta(ChatDelta { content: Some("完整".into()), reasoning: None }));
+    }
+
+    /// 空负载（`data:` / `data: ` 行）忽略，不产出也不报错。
+    #[test]
+    fn empty_data_payload_is_ignored() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &[b"data:\n\ndata: \n\ndata: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n"],
+        );
+        assert_eq!(items.len(), 1);
+    }
+
+    /// 字段名大小写敏感（SSE 规范）：`DATA:` 不是 data 行，整行忽略。
+    #[test]
+    fn uppercase_data_field_is_ignored() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &["DATA: {\"choices\":[{\"delta\":{\"content\":\"大写\"}}]}\n\ndata: [DONE]\n\n".as_bytes()],
+        );
+        assert_eq!(items, vec![SseItem::Done]);
+    }
+
+    /// `data: [DONE]` 恰好无换行收尾：feed 不产出，finish 冲刷出哨兵。
+    #[test]
+    fn done_without_trailing_newline_is_flushed_by_finish() {
+        let mut p = SseParser::new();
+        assert_eq!(p.feed(b"data: [DONE]"), Vec::new(), "无换行不成行");
+        assert_eq!(p.finish(), vec![SseItem::Done]);
+        assert!(p.finish().is_empty(), "冲刷后缓冲清空，二次 finish 为空");
+    }
+
+    /// 空 chunk 喂入是无害 no-op。
+    #[test]
+    fn empty_feed_is_noop() {
+        let mut p = SseParser::new();
+        assert_eq!(p.feed(b""), Vec::new());
+        assert_eq!(p.finish(), Vec::new());
+    }
 }

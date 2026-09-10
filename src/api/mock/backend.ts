@@ -240,6 +240,33 @@ export async function deleteCharacter(id: number): Promise<void> {
   characters.splice(index, 1);
 }
 
+// ---- 角色卡导入/导出（Task-04；浏览器 dev 无原生对话框，走内存演示）----
+
+/** 导入样例卡：与 Rust 卡文件里 character 对象同形（CharacterInput 形状）。 */
+const SAMPLE_IMPORT: CharacterInput = {
+  name: '织灯人·茉',
+  avatar: null,
+  persona: '提灯走巷的织灯匠，替人修补熄灭的旧灯，也顺路收集灯下没人认领的故事。',
+  gender: '女',
+  age: '不详',
+  renderStyle: 'rise',
+  modelConfig: null,
+  accentColor: null,
+  voiceConfig: null,
+};
+
+/** 导出 mock：不弹对话框，返回模拟路径串供界面演示（数据不变）。 */
+export async function exportCharacter(id: number): Promise<string | null> {
+  const character = characters.find((c) => c.id === id);
+  if (!character) throw new MockError(`角色 #${id} 不存在`);
+  return `~/Downloads/${character.name}.json`;
+}
+
+/** 导入 mock：不弹对话框，从内置样例卡经 createCharacter 既有路径建新卡。 */
+export async function importCharacter(): Promise<CharacterSummary | null> {
+  return createCharacter({ ...SAMPLE_IMPORT });
+}
+
 // ---- 配置（FR-009 / ADR-012；双层级 provider→models）----
 
 /** providers 逐项浅拷 + models 数组拷贝：调用方改返回值/草稿不污染内存基线。 */

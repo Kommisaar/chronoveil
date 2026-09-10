@@ -38,6 +38,9 @@ export const zh = {
   characters: {
     title: '角色',
     new: '新建角色',
+    import: '导入角色卡',
+    export: '导出角色卡',
+    cardMenu: '卡片菜单',
     renderStyle: '出场动画',
     sessionCount: '{{count}} 个会话',
     empty: '还没有角色，点击「新建角色」创建一张角色卡',
@@ -90,6 +93,8 @@ export const zh = {
     keepEditing: '继续编辑',
     saveFailed: '保存失败',
     deleteFailed: '删除失败',
+    importFailed: '导入失败',
+    exportFailed: '导出失败',
   },
   settings: {
     title: '设置',

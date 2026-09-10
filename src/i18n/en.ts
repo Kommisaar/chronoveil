@@ -43,6 +43,9 @@ export const en = {
     sessionCount: '{{count}} sessions',
     empty: 'No characters yet — click "New character" to create a card',
     loadFailed: 'Failed to load characters',
+    import: 'Import character card',
+    export: 'Export character card',
+    cardMenu: 'Card menu',
     createTitle: 'New character',
     editTitle: 'Edit character',
     name: 'Name',
@@ -92,6 +95,8 @@ export const en = {
     keepEditing: 'Keep editing',
     saveFailed: 'Save failed',
     deleteFailed: 'Delete failed',
+    importFailed: 'Import failed',
+    exportFailed: 'Export failed',
   },
   settings: {
     title: 'Settings',

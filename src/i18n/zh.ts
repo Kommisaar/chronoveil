@@ -143,7 +143,7 @@ export const zh = {
     issueBaseUrlInvalid: 'Base URL 需为合法的 http(s) 地址',
     issueModels: '至少添加一个模型',
     issueRhythm: '节奏需在 10–160 之间',
-    issueAnimBase: '动效基准需为非负整数（毫秒）',
+    issueAnimBase: '动效基准需为 150–1200 之间的整数（毫秒）',
     saving: '保存中…',
     autosaveHint: '更改将自动保存',
     dirty: '未保存',

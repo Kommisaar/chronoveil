@@ -145,7 +145,7 @@ export const en = {
     issueBaseUrlInvalid: 'Base URL must be a valid http(s) URL',
     issueModels: 'Add at least one model',
     issueRhythm: 'Rhythm must be between 10 and 160',
-    issueAnimBase: 'Motion base must be a non-negative integer (ms)',
+    issueAnimBase: 'Motion base must be an integer between 150 and 1200 (ms)',
     saving: 'Saving…',
     autosaveHint: 'Changes are saved automatically',
     dirty: 'Unsaved changes',

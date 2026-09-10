@@ -72,18 +72,21 @@ describe('isRhythmValid（FR-009：10–160）', () => {
   });
 });
 
-describe('parseAnimBaseMs（anim_duration_base: u32）', () => {
-  it('非负整数解析', () => {
+describe('parseAnimBaseMs（引擎渲染值域 150–1200，FR-005）', () => {
+  it('域内整数解析', () => {
     expect(parseAnimBaseMs('450')).toBe(450);
-    expect(parseAnimBaseMs(' 0 ')).toBe(0);
-    expect(parseAnimBaseMs('4294967295')).toBe(4294967295);
+    expect(parseAnimBaseMs(' 150 ')).toBe(150);
+    expect(parseAnimBaseMs('1200')).toBe(1200);
   });
-  it('非法文本拒绝', () => {
+  it('越域（引擎渲染侧会静默钳边）与非法文本拒绝，走 issueAnimBase 错误路径', () => {
     expect(parseAnimBaseMs('')).toBeNull();
     expect(parseAnimBaseMs('abc')).toBeNull();
     expect(parseAnimBaseMs('-1')).toBeNull();
     expect(parseAnimBaseMs('12.5')).toBeNull();
-    expect(parseAnimBaseMs('4294967296')).toBeNull();
+    expect(parseAnimBaseMs('50')).toBeNull(); // 低于引擎下界
+    expect(parseAnimBaseMs('0')).toBeNull();
+    expect(parseAnimBaseMs('5000')).toBeNull(); // 高于引擎上界
+    expect(parseAnimBaseMs('4294967295')).toBeNull(); // u32 内但越引擎值域
   });
 });
 

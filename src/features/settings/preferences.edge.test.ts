@@ -3,6 +3,7 @@
 // parseAnimBaseMs 余量输入、RHYTHM 常量、newProviderId 无 randomUUID 回退。
 import { describe, expect, it } from 'vitest';
 import type { ProviderDto } from '../../api/types';
+import { DUR_MAX_MS, DUR_MIN_MS } from '../../engine';
 import {
   RHYTHM_MAX,
   RHYTHM_MIN,
@@ -71,11 +72,18 @@ describe('withoutModel 越界下标（防御：列表与选中都不动）', () 
 });
 
 describe('parseAnimBaseMs 余量输入', () => {
-  it('前导零与带符号/杂质的输入', () => {
-    expect(parseAnimBaseMs('00')).toBe(0);
+  it('前导零（0 越出引擎值域）与带符号/杂质的输入', () => {
+    expect(parseAnimBaseMs('00')).toBeNull();
     expect(parseAnimBaseMs('+5')).toBeNull();
     expect(parseAnimBaseMs('5件')).toBeNull();
     expect(parseAnimBaseMs('5.0')).toBeNull();
+  });
+});
+
+describe('parseAnimBaseMs 值域与引擎钳制一致（发现 4 顺手对齐）', () => {
+  it('引擎 DUR_MIN_MS/DUR_MAX_MS 边界值放行', () => {
+    expect(parseAnimBaseMs(String(DUR_MIN_MS))).toBe(DUR_MIN_MS);
+    expect(parseAnimBaseMs(String(DUR_MAX_MS))).toBe(DUR_MAX_MS);
   });
 });
 

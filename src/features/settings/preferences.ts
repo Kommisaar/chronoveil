@@ -6,6 +6,7 @@
  * 不静默扩大存储值域。
  */
 
+import { DUR_MAX_MS, DUR_MIN_MS } from '../../engine';
 import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
 import { RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
@@ -36,14 +37,18 @@ export function isRhythmValid(value: number): boolean {
   return Number.isInteger(value) && value >= RHYTHM_MIN && value <= RHYTHM_MAX;
 }
 
-const U32_MAX = 0xffffffff; // Rust 侧 anim_duration_base: u32，越界会令反序列化失败
-
-/** 动效基准文本 → 毫秒（非负整数、u32 上界）；不可解析返回 null（禁保存）。 */
+/**
+ * 动效基准文本 → 毫秒；不可解析或越出引擎渲染值域返回 null（禁保存，走
+ * issueAnimBase 既有错误提示）。值域取引擎 DUR_MIN_MS/DUR_MAX_MS（150–1200，
+ * features → engine 合法依赖）：此前校验域 0–u32::MAX 与渲染侧不一致，用户存
+ * 50/5000 会被引擎静默钳边，现改为保存前即拒绝。Rust 侧 anim_duration_base:
+ * u32 的反序列化不受影响（值域在 u32 内）。
+ */
 export function parseAnimBaseMs(text: string): number | null {
   const trimmed = text.trim();
   if (!/^\d+$/.test(trimmed)) return null;
   const value = Number(trimmed);
-  return value >= 0 && value <= U32_MAX ? value : null;
+  return value >= DUR_MIN_MS && value <= DUR_MAX_MS ? value : null;
 }
 
 /** 单套 Provider 逐项有效性（UI-003；双层级 2026-09-09：模型列表非空且逐项非空）。 */

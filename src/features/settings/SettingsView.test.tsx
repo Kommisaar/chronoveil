@@ -194,12 +194,17 @@ describe('SettingsView（TASK-009）', () => {
     renderSettings();
     const anim = await screen.findByLabelText('动效基准（ms）');
     fireEvent.change(anim, { target: { value: '12.5' } });
-    // 字段级提示与底部汇总行各出现一次
-    expect(await screen.findAllByText(/动效基准需为非负整数/)).toHaveLength(2);
+    // 字段级提示与底部汇总行各出现一次（文案：引擎渲染值域 150–1200）
+    expect(await screen.findAllByText(/动效基准需为 150–1200/)).toHaveLength(2);
     // 非法草稿不落盘：越过防抖窗口后磁盘仍为基线值
     await settle(700);
     expect((await getConfig()).animDurationBase).toBe(baseline.animDurationBase);
+    // 越出引擎渲染值域（此前会被引擎静默钳边）同样拒绝
+    fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '5000' } });
+    expect(await screen.findAllByText(/动效基准需为 150–1200/)).toHaveLength(2);
+    await settle(700);
+    expect((await getConfig()).animDurationBase).toBe(baseline.animDurationBase);
     fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '300' } });
-    await waitFor(() => expect(screen.queryByText(/动效基准需为非负整数/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/动效基准需为 150–1200/)).toBeNull());
   });
 });

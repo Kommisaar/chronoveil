@@ -181,7 +181,7 @@ mod tests {
 
         let got = storage.get_character(id).unwrap();
         assert_eq!(got.name, "艾莉");
-        assert_eq!(got.render_style, "typewriter");
+        assert_eq!(got.render_style, "type");
         assert_eq!(got.deleted_at, None);
 
         // 更新：全字段覆盖 + 头像写入再清除

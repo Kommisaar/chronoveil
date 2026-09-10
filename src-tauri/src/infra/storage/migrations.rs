@@ -19,6 +19,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     (4, include_str!("../../../migrations/0004_drop_character_greeting.sql")),
     // 角色卡元数据（2026-09-09）：characters 扩列 gender / age（可空自由文本）
     (5, include_str!("../../../migrations/0005_character_gender_age.sql")),
+    // render_style 遗留默认值订正（Task-10）：'typewriter' 是 18 表外串（真实 id 为
+    // 'type'），存量行订正为引擎可识别风格；列默认值随 0001 历史保留（插入恒显式传值）
+    (6, include_str!("../../../migrations/0006_render_style_type.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。
@@ -114,7 +117,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5], "旧版本记录保留，新版本追加");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6], "旧版本记录保留，新版本追加");
 
         // 旧数据逐字段原样（验收 1：迁移不丢数据）
         let (name, persona): (String, String) = conn
@@ -178,5 +181,45 @@ mod tests {
                 "{table}.deleted_at 缺失（ADR-009）"
             );
         }
+    }
+
+    /// 0006（Task-10）：存量遗留串 'typewriter'（18 表外，渲染端静默回落 fade）
+    /// 订正为真实风格 id 'type'；其他风格值原样保留。
+    #[test]
+    fn migration_0006_renames_legacy_typewriter_style() {
+        let conn = Connection::open_in_memory().unwrap();
+        // 手工推进到版本 5，让 run() 只应用 0006。
+        for (version, sql) in &MIGRATIONS[..5] {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+                [version],
+            )
+            .unwrap();
+        }
+        for (name, style) in [("旧卡", "typewriter"), ("标准卡", "type"), ("别格卡", "neon")] {
+            conn.execute(
+                "INSERT INTO characters (name, persona, render_style, created_at, updated_at) \
+                     VALUES (?1, '', ?2, 0, 0)",
+                params![name, style],
+            )
+            .unwrap();
+        }
+
+        run(&conn).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT render_style FROM characters ORDER BY id")
+            .unwrap();
+        let styles: Vec<String> = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            styles,
+            vec!["type".to_string(), "type".to_string(), "neon".to_string()],
+            "遗留 'typewriter' 订正为 'type'，其余风格不动"
+        );
     }
 }

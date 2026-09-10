@@ -124,7 +124,7 @@ impl Default for NewCharacter {
             persona: String::new(),
             gender: None,
             age: None,
-            render_style: "typewriter".to_string(),
+            render_style: "type".to_string(),
             model_config: None,
             accent_color: None,
             voice_config: None,

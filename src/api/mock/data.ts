@@ -14,7 +14,7 @@ export const characters: CharacterSummary[] = [
     age: '24',
     
     persona: '雨夜电话亭的守夜人，说话克制，旧情藏在对白缝隙里。',
-    renderStyle: 'typewriter',
+    renderStyle: 'type',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 3 * min,
@@ -128,7 +128,7 @@ export const characters: CharacterSummary[] = [
     age: '52',
     
     persona: '夜班出租车司机，后视镜里看遍这座城市。',
-    renderStyle: 'typewriter',
+    renderStyle: 'type',
     modelConfig: null,
     accentColor: null,
     updatedAt: now - 45 * 24 * 60 * min,

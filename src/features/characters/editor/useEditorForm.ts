@@ -151,8 +151,9 @@ export function useEditorForm(props: {
       gender: character?.gender ?? '',
       age: character?.age ?? '',
       persona: character?.persona ?? '',
-      // 新建默认 render_style 与 Rust NewCharacter::default 一致（typewriter）。
-      renderStyle: character?.renderStyle ?? 'typewriter',
+      // 新建默认 render_style 与 Rust NewCharacter::default 一致（'type' 打字机，
+      // 迁移 0006 起存量遗留串已在库侧订正）。
+      renderStyle: character?.renderStyle ?? 'type',
       // null = 跟随海报派生（accent_color 列语义，迁移 0003）。
       accentColor: character?.accentColor ?? null,
       override,
@@ -161,7 +162,7 @@ export function useEditorForm(props: {
         character?.gender ?? '',
         character?.age ?? '',
         character?.persona ?? '',
-        character?.renderStyle ?? 'typewriter',
+        character?.renderStyle ?? 'type',
         character?.accentColor ?? null,
         override,
       ),

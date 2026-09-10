@@ -292,7 +292,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5], "schema_version 各版本只记录一次");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6], "schema_version 各版本只记录一次");
 
         let tables: Vec<String> = {
             let mut stmt = conn

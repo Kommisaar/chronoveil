@@ -39,7 +39,7 @@ describe('useEditorForm 新建态（character = null）', () => {
     expect(result.current.gender).toBe('');
     expect(result.current.age).toBe('');
     expect(result.current.persona).toBe('');
-    expect(result.current.renderStyle).toBe('typewriter');
+    expect(result.current.renderStyle).toBe('type');
     expect(result.current.accentColor).toBeNull();
     expect(result.current.override).toEqual({
       providerId: '',
@@ -58,8 +58,8 @@ describe('useEditorForm 新建态（character = null）', () => {
     expect(result.current.live.nameText).toBe('新建角色');
     expect(result.current.live.baseColor).toBe(gradientPairOf(0)[1]);
     expect(result.current.live.posterGradient).toContain('#332a6e');
-    // 18 表外的遗留风格串：标签原样展示（不猜别名）
-    expect(result.current.live.styleLabel).toBe('typewriter');
+    // 默认 'type' 命中 18 风格表 → 展示表内标签「打字机」
+    expect(result.current.live.styleLabel).toBe('打字机');
   });
 
   it('buildInput：name/gender/age trim，空串归一 null，avatar/voiceConfig 恒 null', () => {
@@ -259,11 +259,15 @@ describe('useEditorForm 开合与预览演出', () => {
       result.current.playPreview();
     });
     expect(result.current.previewed).toBe(true);
-    // 新建默认 'typewriter' 是 18 表外遗留串 → 回落 fade
-    expect(container.getAttribute('data-anim')).toBe('fade');
+    // 新建默认 'type'（打字机）命中 18 风格表
+    expect(container.getAttribute('data-anim')).toBe('type');
     act(() => result.current.setRenderStyle('ink'));
     act(() => result.current.playPreview());
     expect(container.getAttribute('data-anim')).toBe('ink');
+    // 表外遗留串（如迁移前的 'typewriter'）回落 fade，兜底不炸
+    act(() => result.current.setRenderStyle('typewriter'));
+    act(() => result.current.playPreview());
+    expect(container.getAttribute('data-anim')).toBe('fade');
     container.remove();
   });
 

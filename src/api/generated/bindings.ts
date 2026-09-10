@@ -94,6 +94,22 @@ async deleteCharacter(id: number) : Promise<Result<null, IpcError>> {
     else return { status: "error", error: e  as any };
 }
 },
+async exportCharacter(id: number) : Promise<Result<string | null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_character", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async importCharacter() : Promise<Result<CharacterSummary | null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_character") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getConfig() : Promise<Result<ConfigDto, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_config") };

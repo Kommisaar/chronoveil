@@ -15,7 +15,7 @@ import type {
   MessageRole,
   SessionSummary,
 } from '../types';
-import { ApiError } from '../commands';
+import { ApiError } from '../errors';
 import { characters, messagesBySession, sessions } from './data';
 
 /** 与 Rust `Config::new_with_defaults`（FR-009；双层级 provider→models）一致的默认配置。 */

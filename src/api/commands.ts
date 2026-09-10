@@ -7,11 +7,13 @@
  * - 纯浏览器（`pnpm run dev`）→ `./mock/backend` 内存实现。
  *
  * 约定：签名保持稳定，切换实现时调用方不动。命令错误统一解包为 [`ApiError`]
- * （携带可判别的 `payload: IpcError`），调用方 `catch` 后读 `payload.kind` 分型。
+ * （定义于 `./errors`，携带可判别的 `payload: IpcError`），调用方 `catch` 后读
+ * `payload.kind` 分型。
  */
 
 import { commands, type IpcError, type Result } from './generated/bindings';
 import { isTauri } from './client';
+import { ApiError } from './errors';
 import * as mock from './mock/backend';
 import type {
   CharacterInput,
@@ -20,29 +22,6 @@ import type {
   ConfigDto,
   SessionSummary,
 } from './types';
-
-/** 命令错误：`payload` 为 Rust 侧 IpcError 的结构化 wire 形态（可按 kind 分型）。 */
-export class ApiError extends Error {
-  readonly payload: IpcError;
-
-  constructor(payload: IpcError) {
-    super(ApiError.describe(payload));
-    this.name = 'ApiError';
-    this.payload = payload;
-  }
-
-  private static describe(e: IpcError): string {
-    switch (e.kind) {
-      case 'notFound':
-        return `${e.entity} #${e.id} 不存在（或已软删除）`;
-      case 'conflict':
-      case 'storage':
-      case 'config':
-      case 'unavailable':
-        return e.message;
-    }
-  }
-}
 
 async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
   const outcome = await promise;

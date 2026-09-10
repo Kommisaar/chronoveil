@@ -30,6 +30,8 @@ pub struct AppState {
     sink: OnceLock<Arc<dyn EventSink>>,
 }
 
+/// 组合根装配错误：`AppState::init*` 的失败路径（home 解析 / 建目录 / 开库 / 配置装载），
+/// 启动期快速失败并给出可读原因（ADR-012）。
 #[derive(Debug)]
 pub enum AppStateError {
     /// 无法解析用户 home 目录。

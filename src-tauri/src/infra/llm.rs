@@ -17,9 +17,8 @@
 //! - 最终失败经 `EventSink` 上报一次 `error`（含 reason/interrupted），并以
 //!   `StreamFailure` 返回错误与最后尝试的半条内容。
 
-// 本模块 API 的消费方：TASK-005（IPC 事件通道）与 TASK-006（生成编排）已接线。
-// 保留 dead_code 豁免：complete_json / extract_json 的消费方在导演服务（阶段 5）。
-#![allow(dead_code)]
+// 本模块 API 的消费方已全部接线：TASK-005（IPC 事件通道）、TASK-006（生成编排）
+// 与导演服务（FR-011 阶段 5，complete_json / extract_json）。
 
 pub mod sse;
 pub mod think;
@@ -87,6 +86,7 @@ impl Default for LlmConfig {
 // 错误（验收 8：401 / 429 / 5xx / 超时 各自可判别）
 // ---------------------------------------------------------------------------
 
+/// LLM 网关错误：按可重试性与处置方式分型（验收 8：401 / 429 / 5xx / 超时各自可判别）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LlmError {
     /// 客户端配置非法（缺 base_url / model 等）。

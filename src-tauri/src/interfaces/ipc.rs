@@ -28,8 +28,7 @@ use crate::domain::ports::StoragePort;
 use crate::infra::config::Config as FileConfig;
 use crate::infra::config::ProviderConfig as FileProvider;
 use crate::infra::llm::{EventSink, LlmClient};
-use crate::services::character_io;
-use crate::services::generation::{self, GenerationDeps, PendingGeneration};
+use crate::services::{character_io, director, generation::{self, GenerationDeps, PendingGeneration}};
 use crate::state::AppState;
 
 /// 生成任务驱动器：命令层传 `tauri::async_runtime::spawn`，测试传 no-op（不经运行时）。
@@ -458,7 +457,20 @@ fn tauri_spawner() -> GenerationSpawner {
 }
 
 fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> GenerationDeps {
-    GenerationDeps { storage: app.storage.clone(), sink, llm: Arc::new(llm) }
+    // 导演模型解析（FR-011 / INT-003）：跟随主模型、不做角色级覆写（§7-5）。
+    // 解析失败 = 未配置 → None，生成闭环跳过结算（导演是可选能力，不阻塞生成）。
+    let director_llm = app
+        .config
+        .load()
+        .ok()
+        .and_then(|config| director::resolve_director_llm(&config).ok())
+        .map(Arc::new);
+    GenerationDeps {
+        storage: app.storage.clone(),
+        sink,
+        llm: Arc::new(llm),
+        director_llm,
+    }
 }
 
 /// 两级模型配置解析（INT-002 / 验收 4）：config.json 全局默认 ← Character.model_config 覆写。

@@ -29,7 +29,7 @@ use serde::Deserialize;
 
 use crate::domain::chat::TerminalState;
 use crate::domain::error::StorageError;
-use crate::domain::models::{Character, MessageRole, NewMessage};
+use crate::domain::models::{Character, Message, MessageRole, NewMessage};
 use crate::domain::ports::StoragePort;
 use crate::infra::config::{Config as FileConfig, ProviderConfig};
 use crate::infra::llm::{
@@ -309,6 +309,10 @@ pub struct GenerationDeps {
     pub storage: Arc<dyn StoragePort + Send + Sync>,
     pub sink: Arc<dyn EventSink>,
     pub llm: Arc<LlmClient>,
+    /// 结算专用导演客户端（FR-011 / INT-003）：模型经 `resolve_director_llm` 解析
+    /// （跟随主模型、不做角色级覆写，§7-5），命令层在 PendingGeneration 构造时解析；
+    /// None = 未配置 → 生成闭环跳过结算（导演是可选能力，不阻塞正文生成）。
+    pub director_llm: Option<Arc<LlmClient>>,
 }
 
 /// 已登记、待驱动的一次生成。命令层构造后交给异步运行时 spawn。
@@ -394,7 +398,16 @@ async fn generate_once(
                 interrupt_flag: TerminalState::Done.interrupt_flag().map(str::to_string),
             };
             match persist_terminal(deps, regenerate, &new) {
-                Ok(_) => sink.release(),
+                Ok(inserted) => {
+                    // FR-011 / ADR-005 线性阻塞：结算插在落库与 done 放行之间——done 事件
+                    // 仍被终态闸门扣住，结算成功（或放弃）后才 release，前端看到终态时
+                    // scenes / character_state 已在库（重试期间流式态自然停留在等待）。
+                    // regenerate=true 同样参与结算（替换后的新整条才是叙事事实，§1）；
+                    // §7-3 已知限制：重新生成撞上已结算边界时，旧边界触发的场景行 / 消息
+                    // 归属不回滚（v1 无 soft_delete_scene 端口，接受并在此记录）。
+                    super::director::run_settlement(deps, ticket, &inserted).await;
+                    sink.release();
+                }
                 Err(e) => sink.release_with(LlmEvent::Error {
                     session_id,
                     message_id,
@@ -453,11 +466,12 @@ async fn generate_once(
 
 /// 终态落库：普通发送为插入；重新生成 / 断流重试为「整条替换」（软删旧条 + 插新条，FR-008）。
 /// 「库中同一逻辑位置任一时刻只有一条记录」（SEQ-001）由存储层单事务保证。
-fn persist_terminal(deps: &GenerationDeps, regenerate: bool, new: &NewMessage) -> Result<(), StorageError> {
+/// 返回落库行（结算需要触发消息的真实 id 作归属区间终点，FR-011）。
+fn persist_terminal(deps: &GenerationDeps, regenerate: bool, new: &NewMessage) -> Result<Message, StorageError> {
     if regenerate {
-        deps.storage.replace_last_assistant_message(new).map(|_| ())
+        deps.storage.replace_last_assistant_message(new)
     } else {
-        deps.storage.insert_message(new).map(|_| ())
+        deps.storage.insert_message(new)
     }
 }
 
@@ -466,7 +480,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewCharacter, NewSession};
     use crate::infra::config::ProviderConfig;
-    use crate::infra::llm::mock::{delta_json, status_head, MockServer, sse_data, sse_head};
+    use crate::infra::llm::mock::{delta_json, json_body, status_head, MockServer, sse_data, sse_head};
     use crate::infra::storage::test_support::temp_storage;
     use crate::infra::storage::Storage;
     use std::io::Write;
@@ -732,24 +746,23 @@ mod tests {
         .unwrap()
     }
 
-    /// 事件记录器：同时记录「事件发出时刻」库中在世 assistant 条数，
-    /// 验证 SEQ-001 的「终态落库先行，事件放行在后」。
+    /// 事件记录器：同时记录「事件发出时刻」库中在世 assistant 条数与在世场景行数，
+    /// 验证 SEQ-001 的「终态落库先行，事件放行在后」与 FR-011 的「done 放行前结算已在库」。
     struct EventLog {
-        events: std::sync::Mutex<Vec<(LlmEvent, usize)>>,
+        events: std::sync::Mutex<Vec<(LlmEvent, usize, usize)>>,
         storage: Arc<Storage>,
         session_id: i64,
     }
 
     impl EventSink for EventLog {
         fn emit(&self, event: LlmEvent) {
-            let rows = self
-                .storage
-                .list_messages(self.session_id)
-                .unwrap()
-                .into_iter()
+            let messages = self.storage.list_messages(self.session_id).unwrap();
+            let rows = messages
+                .iter()
                 .filter(|m| m.role == MessageRole::Assistant)
                 .count();
-            self.events.lock().unwrap().push((event, rows));
+            let scenes = self.storage.list_scenes(self.session_id).unwrap().len();
+            self.events.lock().unwrap().push((event, rows, scenes));
         }
     }
 
@@ -768,7 +781,12 @@ mod tests {
     }
 
     fn deps_for(storage: &Arc<Storage>, log: Arc<EventLog>, url: &str) -> GenerationDeps {
-        GenerationDeps { storage: storage.clone(), sink: log, llm: Arc::new(client(url)) }
+        GenerationDeps {
+            storage: storage.clone(),
+            sink: log,
+            llm: Arc::new(client(url)),
+            director_llm: None,
+        }
     }
 
     fn log_for(storage: &Arc<Storage>, session_id: i64) -> Arc<EventLog> {
@@ -822,7 +840,7 @@ mod tests {
         let events = log.events.lock().unwrap().clone();
         let kinds: Vec<&str> = events
             .iter()
-            .map(|(e, _)| match e {
+            .map(|(e, _, _)| match e {
                 LlmEvent::Token { .. } => "token",
                 LlmEvent::Reasoning { .. } => "reasoning",
                 LlmEvent::Done { .. } => "done",
@@ -869,7 +887,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|(e, _)| matches!(e, LlmEvent::Token { .. }))
+                .any(|(e, _, _)| matches!(e, LlmEvent::Token { .. }))
         });
         assert!(registry.cancel(session_id));
         task.await.unwrap();
@@ -888,7 +906,7 @@ mod tests {
         let events = log.events.lock().unwrap().clone();
         assert!(matches!(
             events.last(),
-            Some((LlmEvent::Error { reason, interrupted: true, .. }, _)) if reason == CANCEL_REASON
+            Some((LlmEvent::Error { reason, interrupted: true, .. }, _, _)) if reason == CANCEL_REASON
         ));
         assert!(!registry.is_active(session_id));
     }
@@ -932,7 +950,7 @@ mod tests {
 
         let events = log.events.lock().unwrap().clone();
         assert!(
-            matches!(events.last(), Some((LlmEvent::Done { .. }, 1))),
+            matches!(events.last(), Some((LlmEvent::Done { .. }, 1, _))),
             "done 放行前旧条已被替换为恰好 1 条在世 assistant"
         );
     }
@@ -1116,7 +1134,7 @@ mod tests {
         let events = log.events.lock().unwrap().clone();
         assert!(matches!(
             events.last(),
-            Some((LlmEvent::Error { interrupted: true, .. }, 1))
+            Some((LlmEvent::Error { interrupted: true, .. }, 1, _))
         ));
     }
 
@@ -1146,8 +1164,130 @@ mod tests {
         let events = log.events.lock().unwrap().clone();
         assert!(matches!(
             events.last(),
-            Some((LlmEvent::Error { interrupted: false, .. }, 0))
+            Some((LlmEvent::Error { interrupted: false, .. }, 0, _))
         ));
+    }
+
+    // ---- FR-011 结算接线（ADR-005：done 放行前 scenes / character_state 已在库）----
+
+    /// assistant 正文含 `---` → 结算在 done 放行前完成：EventLog 在事件发出时刻采样，
+    /// done 记录点上恰好 1 条在世场景行；裁决字段与状态清算逐项落库。
+    #[tokio::test]
+    async fn scene_line_settles_before_done_release() {
+        let (raw, _dir) = temp_storage("gen_settle");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "我们走进旧书店。"))
+            .unwrap();
+
+        // 主生成网关：assistant 正文带场景线（触发结算）。
+        let chat = MockServer::start(|_req, stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(
+                sse_data(&delta_json(Some("她抬头。\n\n---\n\n新的开始。"), None)).as_bytes(),
+            );
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+        // 结算网关：一次完整裁决（含状态 upsert）。
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let director_server = MockServer::start(move |_req, stream| {
+            cap.lock().unwrap().push(_req.json());
+            let _ = json_body(
+                stream,
+                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"雨夜争执后无言告别","present":[1],"states":[{"character_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"}]}"#,
+            );
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = GenerationDeps {
+            storage: storage.clone(),
+            sink: log.clone(),
+            llm: Arc::new(client(&chat.url())),
+            director_llm: Some(Arc::new(client(&director_server.url()))),
+        };
+        PendingGeneration { deps, registry: registry.clone(), ticket, regenerate: false }
+            .run()
+            .await;
+
+        // done 放行时刻采样：1 条在世 assistant + 1 条在世场景行（结算先于 done，ADR-005）。
+        let events = log.events.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 1))),
+            "done 放行前 scenes 已落库，实际：{:?}",
+            events.last()
+        );
+        // 场景行字段（边界快照 + date_label 派生）。
+        let scenes = storage.list_scenes(session_id).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].location.as_deref(), Some("旧书店 · 打烊后"));
+        assert_eq!(scenes[0].time_note.as_deref(), Some("次日清晨"));
+        assert_eq!(scenes[0].fic_day, Some(2));
+        assert_eq!(scenes[0].fic_part.as_deref(), Some("清晨"));
+        assert_eq!(scenes[0].date_label.as_deref(), Some("第2日·清晨"));
+        assert_eq!(scenes[0].summary.as_deref(), Some("雨夜争执后无言告别"));
+        assert_eq!(scenes[0].present, vec![1], "§7-7：在场恒为会话角色");
+        // 状态清算落库。
+        let states = storage.list_character_states(session_id).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].key, "情绪");
+        assert_eq!(states[0].value, "释然");
+        // 结算 prompt 携带叙事窗口（触发消息 + 前文）。
+        let requests = captured.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        let user = requests[0]["messages"][1]["content"].as_str().unwrap();
+        assert!(user.contains("[assistant] 她抬头。"), "叙事窗口含触发消息：{user}");
+        assert!(user.contains("我们走进旧书店。"), "叙事窗口含触发前消息");
+    }
+
+    /// assistant 正文不含 `---` → 零结算：导演一次都不被调用，无场景行落库，
+    /// done 正常放行（BR-006：场景线是唯一触发主体）。
+    #[tokio::test]
+    async fn no_scene_line_skips_settlement_entirely() {
+        let (raw, _dir) = temp_storage("gen_nosettle");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "继续讲。"))
+            .unwrap();
+
+        let chat = MockServer::start(|_req, stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(
+                sse_data(&delta_json(Some("她点点头，没有说话。行内——破折号不算场景线。"), None))
+                    .as_bytes(),
+            );
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+        let director_attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = director_attempts.clone();
+        let director_server = MockServer::start(move |_req, stream| {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _ = json_body(stream, r#"{"summary":"不该发生的结算"}"#);
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = GenerationDeps {
+            storage: storage.clone(),
+            sink: log.clone(),
+            llm: Arc::new(client(&chat.url())),
+            director_llm: Some(Arc::new(client(&director_server.url()))),
+        };
+        PendingGeneration { deps, registry, ticket, regenerate: false }.run().await;
+
+        assert_eq!(
+            director_attempts.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "无场景线不得调用导演"
+        );
+        assert!(storage.list_scenes(session_id).unwrap().is_empty(), "零结算");
+        let events = log.events.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some((LlmEvent::Done { .. }, 1, 0))));
     }
 
     // ---- 测试辅助 ----

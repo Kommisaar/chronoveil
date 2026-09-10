@@ -10,11 +10,19 @@
  * - done：`finish()` 让队列排空定格（无直出跳进），排空后 onSettled → UI 重拉列表；
  * - error / stopping（点停止）：立即 `cancel()` 冻结（FR-001「界面立即静止」），
  *   半条以库中重拉结果替代（ADR-001 中断条）。
+ * tuning 热更（TASK-12 / 审计问题 8）：风格/节奏/动效时长中途变化经
+ * setStyle/setRhythm/setDuration 即时生效，不重播已上屏内容。
  */
 import { Text, makeStyles, tokens } from '@fluentui/react-components';
 import { useEffect, useRef } from 'react';
 import type { StreamEvent } from '../../api/events';
-import { createRenderer, type AnimStyleId, type Renderer, type RendererOptions } from '../../engine';
+import {
+  ANIM_STYLES,
+  createRenderer,
+  type AnimStyleId,
+  type Renderer,
+  type RendererOptions,
+} from '../../engine';
 import { streamHub, type StreamState } from './streamHub';
 
 const useStyles = makeStyles({
@@ -54,6 +62,14 @@ export interface RendererTuning {
   msPerChar?: number | undefined;
   punctPause?: boolean | undefined;
   durationMs?: number | undefined;
+}
+
+/**
+ * 风格 id 注册表守卫：引擎构造路径对非法串回落 fade，但 setStyle 不校验——
+ * 热更前先核对 ANIM_STYLES，非法串不动 data-anim（不剥掉已按回落风格开演的演出）。
+ */
+function isAnimStyleId(id: string): id is AnimStyleId {
+  return ANIM_STYLES.some((s) => s.id === id);
 }
 
 interface StreamingMessageProps {
@@ -185,6 +201,36 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
       }
     }
   }, [state.status]);
+
+  // —— tuning 中途热更（审计问题 8）：引擎 setStyle/setRhythm/setDuration 齐全，
+  // 挂载时只在创建引擎处吃一次；此处监听变化即时生效（demo 播放中调参同款）。
+  // 依赖取标量而非 tuning 对象：ChatView 每次渲染（每个流事件）都新建 tuning
+  // 字面量，按对象比较会随父组件每次重渲染空跑。首跑跳过：初始值已随引擎
+  // 创建生效，重复设置无意义。
+  const { style, msPerChar, punctPause, durationMs } = tuning;
+  // setRhythm 需成对参数：记录最近一次生效的节奏对，单项变化时以旧值补齐
+  const rhythmRef = useRef<{ msPerChar: number | undefined; punctPause: boolean | undefined }>({
+    msPerChar: tuning.msPerChar,
+    punctPause: tuning.punctPause,
+  });
+  const hotTunedRef = useRef(false);
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return; // 终态重挂等未建渲染器的路径：无可热更
+    if (!hotTunedRef.current) {
+      hotTunedRef.current = true;
+      return;
+    }
+    if (style !== undefined && isAnimStyleId(style)) renderer.setStyle(style);
+    if (durationMs !== undefined) renderer.setDuration(durationMs);
+    if (msPerChar !== undefined || punctPause !== undefined) {
+      const prev = rhythmRef.current;
+      const nextMs = msPerChar ?? prev.msPerChar;
+      const nextPunct = punctPause ?? prev.punctPause;
+      rhythmRef.current = { msPerChar: nextMs, punctPause: nextPunct };
+      if (nextMs !== undefined && nextPunct !== undefined) renderer.setRhythm(nextMs, nextPunct);
+    }
+  }, [style, msPerChar, punctPause, durationMs]);
 
   return (
     <div className={styles.row}>

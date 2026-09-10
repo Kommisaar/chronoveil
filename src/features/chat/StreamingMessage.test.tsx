@@ -18,7 +18,7 @@ import { cleanup, render, type RenderResult } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 import type { StreamEvent, StreamEventHandler } from '../../api/events';
-import { StreamingMessage } from './StreamingMessage';
+import { StreamingMessage, type RendererTuning } from './StreamingMessage';
 import { CANCEL_REASON, streamHub, type StreamState } from './streamHub';
 
 const mocks = vi.hoisted(() => ({
@@ -278,6 +278,74 @@ describe('卸载与 hub 解耦（切走不取消，ADR-007）', () => {
     expect(onSettled).not.toHaveBeenCalled(); // 卸载后不再驱动/收尾
     expect(streamHub.stateOf(12)?.content).toBe('正文迟到'); // hub 照常累积
     expect(streamHub.stateOf(12)?.status).toBe('done');
+  });
+});
+
+describe('tuning 中途热更（TASK-12 / 审计问题 8）', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function treeWithTuning(state: StreamState, tuning: RendererTuning, onSettled: () => void): ReactElement {
+    return (
+      <FluentProvider theme={webLightTheme}>
+        <StreamingMessage state={state} speaker={SPEAKER} tuning={tuning} onSettled={onSettled} />
+      </FluentProvider>
+    );
+  }
+
+  it('风格中途变化：data-anim 即时切换，已上屏内容不重播不丢失', () => {
+    const state = beginSession(20);
+    emit(20, tok(20, '已上屏的积压')); // 挂载时经 replayInstant 同步上屏
+    const onSettled = vi.fn();
+    const view = render(treeWithTuning(state, { style: 'fade', msPerChar: 10 }, onSettled));
+    expect(view.container.querySelector('[data-anim]')?.getAttribute('data-anim')).toBe('fade');
+
+    view.rerender(treeWithTuning(state, { style: 'rise', msPerChar: 10 }, onSettled));
+    expect(view.container.querySelector('[data-anim]')?.getAttribute('data-anim')).toBe('rise');
+    expect(bodyText(view)).toBe('已上屏的积压'); // 不重播不丢失
+  });
+
+  it('非法风格串不剥离 data-anim（setStyle 前先过注册表守卫）', () => {
+    const state = beginSession(21);
+    const onSettled = vi.fn();
+    const view = render(treeWithTuning(state, { style: 'fade' }, onSettled));
+
+    view.rerender(treeWithTuning(state, { style: 'not-a-style' }, onSettled));
+    // 引擎 setStyle 不校验：组件侧守卫拦下，保持挂载时的回落风格不被剥掉
+    expect(view.container.querySelector('[data-anim]')?.getAttribute('data-anim')).toBe('fade');
+  });
+
+  it('动效时长中途变化：容器内联 --dur 即时更新', () => {
+    const state = beginSession(22);
+    const onSettled = vi.fn();
+    const view = render(treeWithTuning(state, { durationMs: 600 }, onSettled));
+    expect(view.container.querySelector<HTMLElement>('[data-anim]')?.style.getPropertyValue('--dur')).toBe('600ms');
+
+    view.rerender(treeWithTuning(state, { durationMs: 900 }, onSettled));
+    expect(view.container.querySelector<HTMLElement>('[data-anim]')?.style.getPropertyValue('--dur')).toBe('900ms');
+  });
+
+  it('节奏中途变化：下一拍按新 ms/字消费，排空定格收尾（fake timers）', () => {
+    // toFake 列表同 engine/index.test.ts 思考用例的 idiom（含 performance，
+    // 信用钟按 performance.now 记账）
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    const state = beginSession(23);
+    const onSettled = vi.fn();
+    // 慢节奏 160ms/字开演
+    const view = render(treeWithTuning(state, { msPerChar: 160, punctPause: false }, onSettled));
+    emit(23, tok(23, '一二三四五六七八九十')); // beginTurn 开演，16ms tick 消费
+
+    vi.advanceTimersByTime(320); // 慢节奏下仅约 2 个粒度块（4 字）上屏
+    expect(bodyText(view)).toBe('一二三四');
+
+    // 热更到 10ms/字：余下内容迅速排空，done 定格收尾
+    view.rerender(treeWithTuning(state, { msPerChar: 10, punctPause: false }, onSettled));
+    emit(23, fin(23, null));
+    vi.advanceTimersByTime(200);
+    expect(bodyText(view)).toBe('一二三四五六七八九十');
+    expect(view.container.querySelector('.stream-cursor')).toBeNull(); // 定格摘光标
+    expect(onSettled).toHaveBeenCalledTimes(1);
   });
 });
 

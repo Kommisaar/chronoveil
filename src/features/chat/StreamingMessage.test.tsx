@@ -172,7 +172,7 @@ describe('流式中事件驱动引擎', () => {
     expect(bodyText(view)).toBe('答');
   });
 
-  it('done 落在思考中（无正文）：队列已空同步收尾，思考胶囊被摘除', () => {
+  it('done 落在思考中（无正文）：等胶囊收拢动画走完再异步收尾，胶囊保留（发现 4 修复）', async () => {
     const state = beginSession(5);
     const { view, onSettled } = mountMessage(state);
 
@@ -180,8 +180,19 @@ describe('流式中事件驱动引擎', () => {
     expect(view.container.querySelector('.think')).not.toBeNull();
 
     emit(5, fin(5, 0));
-    expect(onSettled).toHaveBeenCalledTimes(1); // finish 排空即收尾，同步
-    expect(view.container.querySelector('.think')).toBeNull();
+    // 引擎 finish() 在思考通道活跃时不再同步收尾（旧行为：胶囊被瞬时拆除）：
+    // 胶囊仍在且未收拢，等落定 380ms + 收拢，开演后 tick 排空才 onFinish → onSettled
+    expect(onSettled).not.toHaveBeenCalled();
+    expect(view.container.querySelector('.think')).not.toBeNull();
+    expect(view.container.querySelector('.think.done')).toBeNull(); // 落定中，未收拢
+
+    // 收拢链路（落定 380ms → 收拢 → 520ms 开演）走真实时序，随后排空收尾
+    await vi.waitFor(
+      () => expect(view.container.querySelector('.think.done.collapsed')).not.toBeNull(),
+      { timeout: 4000 },
+    );
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(view.container.querySelector('.think.done.collapsed')).not.toBeNull(); // 胶囊保留可回看
   });
 
   it('reset 事件：清空该回合已排队内容，从零重来（TASK-002）', async () => {

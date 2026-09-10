@@ -338,6 +338,41 @@ describe('回合控制与口径补遗（TASK-06）', () => {
     expect(onFinish).toHaveBeenCalledWith({ chars: 2 });
   });
 
+  it('finish 落在思考中：胶囊走完落定+收拢动画再收尾，不瞬时拆除（发现 4）', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    const onFinish = vi.fn();
+    const { container, r } = mountWith({ onFinish });
+    r.thinkStreaming();
+    expect(container.querySelector('.think')).not.toBeNull();
+
+    r.finish(); // 队列空但思考通道活跃 → 不立即收尾，先等胶囊收拢
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(container.querySelector('.think')).not.toBeNull(); // 胶囊未被 cancel 摘除
+
+    vi.advanceTimersByTime(THINK_PHASE.settlePauseMs);
+    expect(container.querySelector('.think.done.collapsed')).not.toBeNull(); // 收拢而非拆除
+    vi.advanceTimersByTime(THINK_PHASE.beginAfterCollapseMs + TICK_MS * 2);
+    expect(onFinish).toHaveBeenCalledTimes(1); // onDone → beginBody → tick 排空即收尾
+    expect(container.querySelector('.think.done.collapsed')).not.toBeNull(); // 胶囊保留可回看
+  });
+
+  it('finish 落在思考中且正文已入队：收拢后开演、排空再收尾（发现 4）', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+    const onFinish = vi.fn();
+    const { container, r } = mountWith({ onFinish });
+    r.thinkStreaming();
+    r.enqueue('正文');
+    r.finish();
+    // 消费者未启动（正文未开演）：收拢完成前排空队列不漏字、不同步收尾
+    expect(container.querySelectorAll('.tok')).toHaveLength(0);
+    expect(onFinish).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(THINK_PHASE.settlePauseMs + THINK_PHASE.beginAfterCollapseMs + TICK_MS * 8);
+    expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['正文']);
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.stream-cursor')).toBeNull();
+  });
+
   it('cancel 后 pending 清零，onFinish 不再触发', async () => {
     const onFinish = vi.fn();
     const { container, r } = mountWith({ onFinish, msPerChar: 10 });

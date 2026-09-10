@@ -4,7 +4,8 @@
  * 动画仪式全部交给 CSS（容器 data-anim + --dur 基准），高频更新直插 DOM。
  *
  * 回合生命周期：beginTurn()（直接开演）或 think(text)（思考收拢后自动开演）；
- * 生产者 finish() 后队列排空即收尾（定格、摘光标、清乱码）。
+ * 生产者 finish() 后队列排空即收尾（定格、摘光标、清乱码）；done 落在思考阶段
+ * 时先收拢胶囊再收尾，不瞬时拆除（审计发现 4）。
  */
 import './engine.css';
 import {
@@ -96,7 +97,8 @@ export interface Renderer {
    * （ADR-007 降级渲染——不在场会话只入队不渲染，回到前台一次性补齐）。
    */
   replayInstant(chunk: string): void;
-  /** 生产者完毕：解析器尾巴落队，队列排空后收尾定格 */
+  /** 生产者完毕：解析器尾巴落队，队列排空后收尾定格；思考阶段则先收拢胶囊
+      （走完落定+收拢动画）再开演正文并收尾（审计发现 4） */
   finish(): void;
   /** 立即中止当前回合：停一切计时/乱码，清队列（保留已上屏内容） */
   cancel(): void;
@@ -222,13 +224,22 @@ class StreamRenderer implements Renderer {
   finish(): void {
     this.queue.enqueue(this.parser.flush());
     this.producerDone = true;
+    if (this.thinkChannel) {
+      // 思考通道活跃：不立即收尾（审计发现 4，2026-09-10）——立即 finishTurn 会
+      // stopAll 把未收拢的思考胶囊连同收拢动画一并 cancel，观众看到胶囊瞬移消失。
+      // 生产者完毕即收拢思考（幂等；流式回合本就等这次收拢），胶囊走完落定 +
+      // 收拢动画后 onDone → beginBody 开演正文，tick 发现队列空且 producerDone
+      // 再 finishTurn 回报。
+      this.thinkChannel.finish();
+      return;
+    }
     if (!this.queue.length) {
       this.finishTurn();
-    } else if (!this.bodyBegan && !this.thinkChannel) {
+    } else if (!this.bodyBegan) {
       // 生产者完毕但正文消费尚未开演（无思考阶段且未显式 beginTurn）：兜底开演后排空
       this.beginBody();
     }
-    // 其余情况（正文消费中 / 思考中）由 tick 在排空后收尾
+    // 其余情况（正文消费中）由 tick 在排空后收尾
   }
 
   cancel(): void {

@@ -258,7 +258,8 @@ const SAMPLE_IMPORT: CharacterInput = {
 /** 导出 mock：不弹对话框，返回模拟路径串供界面演示（数据不变）。 */
 export async function exportCharacter(id: number): Promise<string | null> {
   const character = characters.find((c) => c.id === id);
-  if (!character) throw new MockError(`角色 #${id} 不存在`);
+  // 不存在报 NotFound：对齐 Rust export_character_data（storage.get_character 的错误路径）。
+  if (!character) throw notFound('character', id);
   return `~/Downloads/${character.name}.json`;
 }
 

@@ -168,7 +168,6 @@ pub struct NewMessage {
 
 impl NewMessage {
     /// 便捷构造；生成服务（阶段 3）与存储测试共用。
-    #[allow(dead_code)]
     pub fn new(session_id: i64, role: MessageRole, content: impl Into<String>) -> Self {
         Self {
             session_id,

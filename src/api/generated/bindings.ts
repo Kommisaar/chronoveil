@@ -144,6 +144,31 @@ streamEvent: "stream-event"
 /** user-defined types **/
 
 /**
+ * 幕后活动事件的阶段（Task-06）：主对话生成前记忆探索的生命周期。wire 形态
+ * camelCase（`researchStart` 等），未知值由前端忽略（向前兼容，同 INT-001）。
+ */
+export type ActivityPhase = 
+/**
+ * 进入探索（存储读取成功、即将发起研究员 LLM 调用）。
+ */
+"researchStart" | 
+/**
+ * 向模型发出的单次工具调用（detail = 工具名 + 参数摘要）。
+ */
+"toolCall" | 
+/**
+ * 单次工具结果回填（detail = 结果截断）。
+ */
+"toolResult" | 
+/**
+ * 卷宗就绪（detail = 卷宗前若干字）。
+ */
+"dossierReady" | 
+/**
+ * 快车道：研究员判定无需检索，零工具调用直接放行。
+ */
+"researchSkipped"
+/**
  * 会话日历 wire DTO（FR-014 开局向导）。**wire camelCase 只管本 DTO**——落库存储
  * JSON 由存储层序列化 domain `CalendarConfig` 得 snake_case 键，前端永不手写。
  */
@@ -370,7 +395,12 @@ export type StreamEvent =
 /**
  * 终态：失败，半条已落库（中断标记，ADR-001）。
  */
-{ type: "error"; session_id: number; message_id: number; reason: string; interrupted: boolean }
+{ type: "error"; session_id: number; message_id: number; reason: string; interrupted: boolean } | 
+/**
+ * 幕后活动（Task-06 记忆探索透出）：非流式生命周期事件，即时透出——
+ * 不经生成编排的终态闸门（闸门只扣 token / reasoning / done / error）。
+ */
+{ type: "activity"; session_id: number; message_id: number; phase: ActivityPhase; detail: string | null }
 
 /** tauri-specta globals **/
 

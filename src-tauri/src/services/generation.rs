@@ -297,6 +297,10 @@ impl EventSink for GenerationSink {
                     return;
                 }
             }
+            // 幕后活动事件（Task-06）：不参与思考计量、不受终态闸门，直通。生产上
+            // 本包装收不到它（活动事件由探索器直接发往原始 sink），此分支仅为
+            // LlmEvent 新变体的类型完备。
+            LlmEvent::Activity { .. } => {}
         }
         drop(state);
         self.inner.emit(event);
@@ -391,15 +395,20 @@ async fn generate_once(
     // Task-05 记忆探索（切片 C）：主对话装配前，由带工具的一次 LLM 调用自主决定是否
     // 检索历史、查什么、查多深，产出卷宗注入 system【相关回忆】段。探索器是锦上添花
     // ——任何失败（网络 / 协议 / 取消）都在 explore 内降级为 None，主对话照常生成，
-    // 不阻塞不报事件（静默 + eprintln 留痕）。regenerate 路径同样执行：卷宗不落库、
-    // 无法跨次复用，重跑一档探索成本可接受（硬约束：失败降级，见 explorer.rs）。
+    // 不阻塞（留痕 eprintln）。regenerate 路径同样执行：卷宗不落库、无法跨次复用，
+    // 重跑一档探索成本可接受（硬约束：失败降级，见 explorer.rs）。
+    // Task-06 活动事件：探索的幕后步骤经**原始 deps.sink** 即时透出（不走本函数下方
+    // 构造的 GenerationSink——终态闸门只扣 token / reasoning / done / error，活动
+    // 事件不受闸门）；路由键复用本次生成的临时负数 message_id，前端归属同一流式气泡。
     // 抽针 = 过滤后历史的最后一条 user（无 user 消息 = 无从判断指涉，跳过探索）。
     let dossier = match history.iter().rev().find(|m| m.role == MessageRole::User) {
         Some(latest_user) => {
             super::explorer::explore(
                 deps.storage.as_ref(),
                 deps.llm.as_ref(),
+                deps.sink.as_ref(),
                 session_id,
+                message_id,
                 &latest_user.content,
                 ticket.cancel_handle(),
             )
@@ -873,7 +882,9 @@ mod tests {
         assert_eq!(assistant.interrupt_flag, None, "done 终态无中断标记");
         assert!(assistant.think_ms.is_some(), "思考计量（或网关兜底）落库");
 
-        // 事件序列：reasoning/token 直通，done 最后且发出时行已在库（SEQ-001 时序）
+        // 事件序列：reasoning/token 直通，done 最后且发出时行已在库（SEQ-001 时序）。
+        // 首条 activity = 探索器 research_start（Task-06）：该测试的 mock 对非流式
+        // tools 请求回 SSE（非 JSON）→ 探索协议失败降级，仅留下起始活动事件。
         let events = log.events.lock().unwrap().clone();
         let kinds: Vec<&str> = events
             .iter()
@@ -882,9 +893,10 @@ mod tests {
                 LlmEvent::Reasoning { .. } => "reasoning",
                 LlmEvent::Done { .. } => "done",
                 LlmEvent::Error { .. } => "error",
+                LlmEvent::Activity { .. } => "activity",
             })
             .collect();
-        assert_eq!(kinds, vec!["reasoning", "token", "token", "done"]);
+        assert_eq!(kinds, vec!["activity", "reasoning", "token", "token", "done"]);
         assert_eq!(events.last().unwrap().1, 1, "done 放行前 assistant 行已落库");
         assert!(!registry.is_active(session_id), "终态后注册表摘除");
     }

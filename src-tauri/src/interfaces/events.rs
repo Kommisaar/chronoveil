@@ -6,6 +6,11 @@
 //! done `{session_id, message_id, think_ms}`、
 //! error `{session_id, message_id, reason, interrupted}`。
 //!
+//! Task-06 增幕后活动事件 activity `{session_id, message_id, phase, detail}`：
+//! 记忆探索器（services/explorer.rs）的阶段性步骤，**即时透出**（不参与终态闸门
+//! 与思考计量，前端活动条消费）。`phase` camelCase 枚举值、`detail` 为技术措辞
+//! 摘要——是数据不是 UI 文案，前端 i18n 在消费侧做。
+//!
 //! 事件名（tauri-specta kebab-case）：`stream-event`；前端经
 //! `src/api/events.ts` 的 `subscribeStream` 订阅并按 session_id 过滤（多路并发路由，FR-007）。
 //! 未知事件类型由前端忽略（向前兼容，INT-001）。
@@ -14,7 +19,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::infra::llm::{EventSink, LlmEvent};
+use crate::infra::llm::{ActivityPhase, EventSink, LlmEvent};
 
 /// 流式事件（INT-001 v1 四态）。Rust 侧由 [`TauriEventSink`] 发射，
 /// TS 侧类型经 tauri-specta 同源生成于 `src/api/generated/bindings.ts`。
@@ -52,6 +57,16 @@ pub enum StreamEvent {
         /// 已有半条内容产生。
         interrupted: bool,
     },
+    /// 幕后活动（Task-06 记忆探索透出）：非流式生命周期事件，即时透出——
+    /// 不经生成编排的终态闸门（闸门只扣 token / reasoning / done / error）。
+    Activity {
+        session_id: i64,
+        message_id: i64,
+        /// 探索阶段（camelCase 枚举值，未知值前端忽略）。
+        phase: ActivityPhase,
+        /// 技术措辞摘要（工具名+参数摘要 / 结果截断 / 卷宗前若干字）；数据非 UI 文案。
+        detail: Option<String>,
+    },
 }
 
 impl From<LlmEvent> for StreamEvent {
@@ -69,6 +84,9 @@ impl From<LlmEvent> for StreamEvent {
             }
             LlmEvent::Error { session_id, message_id, reason, interrupted } => {
                 StreamEvent::Error { session_id, message_id, reason, interrupted }
+            }
+            LlmEvent::Activity { session_id, message_id, phase, detail } => {
+                StreamEvent::Activity { session_id, message_id, phase, detail }
             }
         }
     }
@@ -168,6 +186,46 @@ mod tests {
         assert_eq!(json["session_id"], 3);
         assert_eq!(json["reason"], "LLM 请求超时");
         assert_eq!(json["interrupted"], true);
+    }
+
+    // ---- Task-06 活动事件负载契约（type 判别 + phase camelCase + detail 可空）----
+
+    #[test]
+    fn activity_event_matches_payload_contract() {
+        let json = serde_json::to_value(StreamEvent::Activity {
+            session_id: 4,
+            message_id: -1,
+            phase: crate::infra::llm::ActivityPhase::ToolCall,
+            detail: Some("search_history({\"keyword\":\"灯塔\"})".into()),
+        })
+        .unwrap();
+        assert_eq!(json["type"], "activity");
+        assert_eq!(json["session_id"], 4);
+        assert_eq!(json["message_id"], -1);
+        assert_eq!(json["phase"], "toolCall", "phase 枚举值 camelCase");
+        assert_eq!(json["detail"], "search_history({\"keyword\":\"灯塔\"})");
+
+        let none = serde_json::to_value(StreamEvent::Activity {
+            session_id: 4,
+            message_id: -1,
+            phase: crate::infra::llm::ActivityPhase::ResearchSkipped,
+            detail: None,
+        })
+        .unwrap();
+        assert_eq!(none["phase"], "researchSkipped");
+        assert!(none["detail"].is_null(), "无摘要 → detail null");
+    }
+
+    /// 全部 phase 枚举值的 wire 形态钉死（前端按值分发，改名即破坏兼容）。
+    #[test]
+    fn activity_phase_wire_values_are_stable() {
+        use crate::infra::llm::ActivityPhase;
+        let wire = |phase: ActivityPhase| serde_json::to_value(phase).unwrap();
+        assert_eq!(wire(ActivityPhase::ResearchStart), "researchStart");
+        assert_eq!(wire(ActivityPhase::ToolCall), "toolCall");
+        assert_eq!(wire(ActivityPhase::ToolResult), "toolResult");
+        assert_eq!(wire(ActivityPhase::DossierReady), "dossierReady");
+        assert_eq!(wire(ActivityPhase::ResearchSkipped), "researchSkipped");
     }
 
     // ---- 网关事件 → wire 事件转换 ----

@@ -1,7 +1,8 @@
 //! model.rs（CMP-002）：LLM 网关——OpenAI 兼容多 provider 客户端（base_url + api_key + model，INT-002）。
 //!
 //! 职责边界（CMP-002）：SSE 流解析、reasoning 两形态分离路由（字段型直通 + 内联 `<think>` 状态机）、
-//! 类型化事件发射（FR-001：token/reasoning/done/error，携 session_id/message_id）、
+//! 类型化事件发射（FR-001：token/reasoning/done/error，携 session_id/message_id；Task-06 起另有
+//! 幕后活动事件 activity，记忆探索步骤透出）、
 //! 消息级断流重发、立即取消、结构化 JSON 调用 helper、非流式工具调用回路
 //! （OpenAI 兼容 tools / tool_calls，切片 C 记忆探索 agent 的地基，暂无业务接线）。
 //! 不负责：渲染决策、落库时机（只上报终态，ADR-001 由调用方落库）、prompt 业务装配。
@@ -167,6 +168,28 @@ pub enum LlmEvent {
     Done { session_id: i64, message_id: i64, think_ms: Option<u64> },
     /// 终态：失败。reason 为人类可读错误；interrupted 表示已有半条内容产生（ADR-001）。
     Error { session_id: i64, message_id: i64, reason: String, interrupted: bool },
+    /// 幕后活动事件（Task-06 记忆探索透出）：探索器（services/explorer.rs）的阶段性
+    /// 步骤通知，**即时直通**——不参与终态语义与思考计量，生成编排的终态闸门只扣
+    /// token / reasoning / done / error。`detail` 为技术措辞摘要（数据，非 UI 文案，
+    /// 前端 i18n 在消费侧做）。
+    Activity { session_id: i64, message_id: i64, phase: ActivityPhase, detail: Option<String> },
+}
+
+/// 幕后活动事件的阶段（Task-06）：主对话生成前记忆探索的生命周期。wire 形态
+/// camelCase（`researchStart` 等），未知值由前端忽略（向前兼容，同 INT-001）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ActivityPhase {
+    /// 进入探索（存储读取成功、即将发起研究员 LLM 调用）。
+    ResearchStart,
+    /// 向模型发出的单次工具调用（detail = 工具名 + 参数摘要）。
+    ToolCall,
+    /// 单次工具结果回填（detail = 结果截断）。
+    ToolResult,
+    /// 卷宗就绪（detail = 卷宗前若干字）。
+    DossierReady,
+    /// 快车道：研究员判定无需检索，零工具调用直接放行。
+    ResearchSkipped,
 }
 
 /// 事件发射抽象：不依赖 tauri（验收 4）。生产实现接 Tauri 通道，测试用收集器。

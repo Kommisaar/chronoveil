@@ -71,6 +71,9 @@ fn drain(rx: &mut mpsc::UnboundedReceiver<LlmEvent>) -> Observed {
             LlmEvent::Reasoning { text, reset, .. } => observed.reasoning.push((text, reset)),
             LlmEvent::Done { think_ms, .. } => observed.done.push(think_ms),
             LlmEvent::Error { reason, interrupted, .. } => observed.errors.push((reason, interrupted)),
+            // 幕后活动事件（Task-06）只由探索器发射，不经网关流（此收集器仅为
+            // 类型完备忽略）。
+            LlmEvent::Activity { .. } => {}
         }
     }
     observed

@@ -299,7 +299,8 @@ pub struct NewScene {
     pub fic_part: Option<String>,
     pub date_label: Option<String>,
     pub summary: Option<String>,
-    /// 桥场加厚回顾（Task-03），可空；与 summary 同路径落库（新行预填 + 上一行回写）。
+    /// 桥场加厚回顾（Task-03），可空；随 summary 同路径回写上一行；新行不预填
+    /// （2026-09-12 裁决：边界快照只属于被收束的场景），进行中 header 行恒 None。
     pub recap: Option<String>,
     /// 在场 character id 数组；空数组落库为 NULL。
     pub present: Vec<i64>,

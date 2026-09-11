@@ -28,15 +28,19 @@ pub struct AttachRange {
 /// 绑成一次提交——任一支路失败整体回滚，不留半结算状态。
 ///
 /// scenes 行语义为「边界快照」模型（§7-1 拍板）：新行 = `---` 之后新场景的 header
-/// （location / fic_day / fic_part / date_label / present），行 summary = `---` 之前刚
-/// 收束段的远景一句话；收束段的消息挂到上一行（`latest_scene`）。
+/// （location / fic_day / fic_part / date_label / present）；收束段的裁决文本与消息
+/// 都归上一行（`latest_scene`）。
+///
+/// 契约（2026-09-12 裁决「边界快照只属于被收束的场景」）：`scene.summary` /
+/// `scene.recap` 应恒为 None（编排层 build_write 保证）；裁决文本只经
+/// close_summary / close_recap 回写上一行。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettlementWrite {
     /// 新场景行（边界快照；idx 由存储层按会话单调自增分配）。
     pub scene: NewScene,
     /// 收束段归属的场景行（上一行 latest_scene；开场即结算 = None）。
     pub close_scene_id: Option<i64>,
-    /// 回写到 `close_scene_id` 行的 summary：与 `scene.summary` 同为收束段摘要，
+    /// 回写到 `close_scene_id` 行的 summary：收束段的远景一句话，
     /// 使上一行与其归属消息自洽（行内即该场景的 header + 消息 + 摘要）。None = 不回写。
     pub close_summary: Option<String>,
     /// 回写到 `close_scene_id` 行的 recap（Task-03 桥场加厚）：与 close_summary 同路径，

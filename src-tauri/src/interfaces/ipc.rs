@@ -206,7 +206,8 @@ pub struct ChatMessage {
     pub interrupted: bool,
 }
 
-/// 新建 / 更新角色卡入参（FR-006；整卡覆盖语义见 UpdateCharacter）。
+/// 新建角色卡入参（FR-006）。建卡不带历法——FR-014 开局向导显式指定的历法经
+/// `create_session` 回写角色卡（FR-013）；历法编辑走 [`UpdateCharacterInput`]。
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterInput {
@@ -240,6 +241,33 @@ impl From<character_io::CharacterCardPayload> for CharacterInput {
             voice_config: p.voice_config,
         }
     }
+}
+
+/// 更新角色卡入参（FR-006 / FR-013）：[`CharacterInput`] 全字段 + 世界观历法。
+/// 编辑器整卡提交（Task-17 `buildInput` 返回 `CharacterInput & { calendarConfig }`，
+/// 与本结构 wire 同形）；历法域语义：
+/// - `Some(dto)`：经 [`fiction_time::validate`] 校验后序列化落库（snake_case 存储
+///   JSON，与会话快照同构），编辑器保存历法即此形态；
+/// - `None` / wire 缺键：**清除历法**（回退内置默认历）——整卡覆盖语义与 avatar
+///   从众（既有可空字段无「不动」形态，`Option` 一层即足够，无需嵌套区分）。
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCharacterInput {
+    pub name: String,
+    /// None = 更新时清除头像。
+    pub avatar: Option<String>,
+    pub persona: String,
+    /// 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    pub render_style: String,
+    pub model_config: Option<String>,
+    /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
+    pub accent_color: Option<String>,
+    /// TTS 预留缝（CON-003），前端恒传 null。
+    pub voice_config: Option<String>,
+    /// 世界观历法（FR-013）；None = 清除。
+    pub calendar_config: Option<CalendarConfigDto>,
 }
 
 /// 单套 LLM Provider（FR-009；OpenAI 兼容）。双层级（2026-09-09）：一个服务
@@ -949,8 +977,24 @@ pub fn create_character(
 fn update_character_impl(
     app: &AppState,
     id: i64,
-    input: CharacterInput,
+    input: UpdateCharacterInput,
 ) -> Result<(), IpcError> {
+    // 历法接线（FR-013）：Some → 领域校验（对齐开局包惯例，失败报 Conflict）后序列化
+    // 为存储 JSON（domain snake_case 键，与会话快照同构）；None / 缺键 → 清除历法。
+    let calendar_config = match &input.calendar_config {
+        Some(dto) => {
+            let cal = fiction_time::CalendarConfig::from(dto);
+            if !fiction_time::validate(&cal) {
+                return Err(IpcError::Conflict {
+                    message: "角色卡日历需每月天数 > 0 且月名 / 日名至少其一非空".into(),
+                });
+            }
+            Some(serde_json::to_string(&cal).map_err(|e| IpcError::Conflict {
+                message: format!("角色卡日历序列化失败：{e}"),
+            })?)
+        }
+        None => None,
+    };
     // 整卡覆盖（FR-006：编辑表单全量提交）；目标不存在 / 已软删报 NotFound。
     app.storage.update_character(
         id,
@@ -964,6 +1008,7 @@ fn update_character_impl(
             model_config: input.model_config,
             accent_color: input.accent_color,
             voice_config: input.voice_config,
+            calendar_config,
         },
     )?;
     Ok(())
@@ -974,7 +1019,7 @@ fn update_character_impl(
 pub fn update_character(
     state: State<'_, AppState>,
     id: i64,
-    input: CharacterInput,
+    input: UpdateCharacterInput,
 ) -> Result<(), IpcError> {
     update_character_impl(&state, id, input)
 }
@@ -1120,6 +1165,22 @@ mod tests {
                 ..Default::default()
             })
             .unwrap()
+    }
+
+    /// 由 create 负载派生更新入参（历法缺省 None = 清除；历法用例按需覆写 calendar_config）。
+    fn upd_input(name: &str, base: &CharacterInput) -> UpdateCharacterInput {
+        UpdateCharacterInput {
+            name: name.into(),
+            avatar: base.avatar.clone(),
+            persona: base.persona.clone(),
+            gender: base.gender.clone(),
+            age: base.age.clone(),
+            render_style: base.render_style.clone(),
+            model_config: base.model_config.clone(),
+            accent_color: base.accent_color.clone(),
+            voice_config: base.voice_config.clone(),
+            calendar_config: None,
+        }
     }
 
     // ---- 生成命令测试替身（不经 Tauri 运行时 / 事件通道）----
@@ -1845,11 +1906,10 @@ mod tests {
         update_character_impl(
             &app,
             created.id,
-            CharacterInput {
+            UpdateCharacterInput {
                 avatar: None,
-                name: "苏鸢（改）".into(),
                 model_config: None,
-                ..input.clone()
+                ..upd_input("苏鸢（改）", &input)
             },
         )
         .unwrap();
@@ -1865,11 +1925,167 @@ mod tests {
         let listed = list_characters_impl(&app).unwrap();
         assert!(listed.iter().all(|c| c.id != other.id));
         assert!(matches!(
-            update_character_impl(&app, other.id, input),
+            update_character_impl(&app, other.id, upd_input("苏鸢", &input)),
             Err(IpcError::NotFound { .. })
         ));
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 历法样例 DTO（含节日，覆盖月换算 / 日名取模 / 时段缀 / 节日命中全部分支）。
+    fn sample_calendar_dto() -> CalendarConfigDto {
+        CalendarConfigDto {
+            name: Some("星槎历".into()),
+            months: vec!["潮生月".into(), "风信月".into()],
+            days_per_month: 12,
+            day_names: vec!["潮日".into(), "汐日".into(), "星日".into()],
+            festivals: Some(std::collections::BTreeMap::from([(2, "归潮祭".to_string())])),
+        }
+    }
+
+    #[test]
+    fn update_character_persists_calendar_and_feeds_date_label() {
+        let (app, dir) = temp_state("char_calendar");
+        let created = create_character_impl(
+            &app,
+            CharacterInput {
+                name: "苏鸢".into(),
+                ..sample_bare_input()
+            },
+        )
+        .unwrap();
+        // 建卡后历法为空（FR-014 向导建卡不带历法，回写走 create_session 链路）。
+        assert_eq!(app.storage.get_character(created.id).unwrap().calendar_config, None);
+
+        // 编辑器整卡提交携带历法（Task-17 契约）→ 落库 + 读回一致（含 festivals 往返）。
+        let mut input = upd_input("苏鸢", &sample_bare_input());
+        input.calendar_config = Some(sample_calendar_dto());
+        update_character_impl(&app, created.id, input).unwrap();
+
+        let stored = app.storage.get_character(created.id).unwrap();
+        let raw = stored.calendar_config.clone().expect("历法必须落库");
+        let cal = fiction_time::parse(Some(raw.as_str()));
+        assert_eq!(cal.name.as_deref(), Some("星槎历"));
+        assert_eq!(cal.months, vec!["潮生月".to_string(), "风信月".to_string()]);
+        assert_eq!(cal.days_per_month, 12);
+        assert_eq!(cal.festivals.get(&2).map(String::as_str), Some("归潮祭"),
+            "festivals 数字键往返（存储 JSON 键为字符串数字）");
+        assert!(raw.contains(r#""festivals":{"2":"归潮祭"}"#),
+            "存储 JSON 为 domain snake_case 形态：{raw}");
+
+        // 端到端活链路自证：读回的历法能被 date_label 消费出带月名 / 日名 / 节日的 label
+        // （day=2 → 月序 0「潮生月」、日名取模「汐日」、命中年内第 2 天节日）。
+        assert_eq!(
+            fiction_time::date_label(&cal, 2, "黄昏"),
+            "潮生月·汐日·黄昏（归潮祭）"
+        );
+        // 建会话快照（FR-013）拿到同一份历法——编辑器保存对后续会话生效。
+        let session = app
+            .storage
+            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
+            .unwrap();
+        assert_eq!(session.calendar_config.as_deref(), Some(raw.as_str()));
+
+        // wire 读回端：get 返回的 JSON 与 CalendarConfigDto 反向转换对称（festivals 非空不塌缩）。
+        let redto = CalendarConfigDto::from(&cal);
+        assert_eq!(redto.festivals.as_ref().map(|f| f.get(&2).map(String::as_str)),
+            Some(Some("归潮祭")));
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_character_none_or_missing_key_clears_calendar() {
+        let (app, dir) = temp_state("char_calendar_clear");
+        let created = create_character_impl(
+            &app,
+            CharacterInput { name: "苏鸢".into(), ..sample_bare_input() },
+        )
+        .unwrap();
+        let mut with_cal = upd_input("苏鸢", &sample_bare_input());
+        with_cal.calendar_config = Some(sample_calendar_dto());
+        update_character_impl(&app, created.id, with_cal).unwrap();
+        assert!(app.storage.get_character(created.id).unwrap().calendar_config.is_some());
+
+        // calendarConfig: null → 清除（整卡覆盖语义，回退内置默认历）。
+        let clear = upd_input("苏鸢", &sample_bare_input());
+        assert!(clear.calendar_config.is_none());
+        update_character_impl(&app, created.id, clear).unwrap();
+        assert_eq!(app.storage.get_character(created.id).unwrap().calendar_config, None);
+
+        // wire 缺键同语义：反序列化得 None（serde Option 缺省），更新后同样清除。
+        let missing_key: UpdateCharacterInput = serde_json::from_value(serde_json::json!({
+            "name": "苏鸢", "avatar": null, "persona": "守夜人", "gender": null,
+            "age": null, "renderStyle": "typewriter", "modelConfig": null,
+            "accentColor": null, "voiceConfig": null
+        }))
+        .unwrap();
+        assert!(missing_key.calendar_config.is_none(), "wire 缺 calendarConfig 键 = None = 清除");
+        update_character_impl(&app, created.id, missing_key).unwrap();
+        assert_eq!(app.storage.get_character(created.id).unwrap().calendar_config, None);
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_character_rejects_invalid_calendar() {
+        let (app, dir) = temp_state("char_calendar_invalid");
+        let created = create_character_impl(
+            &app,
+            CharacterInput { name: "苏鸢".into(), ..sample_bare_input() },
+        )
+        .unwrap();
+        let mut bad = upd_input("苏鸢", &sample_bare_input());
+        bad.calendar_config = Some(CalendarConfigDto {
+            days_per_month: 0, // 非法：每月天数须 > 0
+            ..sample_calendar_dto()
+        });
+        let before = app.storage.get_character(created.id).unwrap().calendar_config.clone();
+        assert!(matches!(
+            update_character_impl(&app, created.id, bad),
+            Err(IpcError::Conflict { .. })
+        ));
+        // 校验失败不得半写：历法保持原值。
+        assert_eq!(app.storage.get_character(created.id).unwrap().calendar_config, before);
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 全空槽位的 create 负载（可空字段恒 None，历法不入 create 入参）。
+    fn sample_bare_input() -> CharacterInput {
+        CharacterInput {
+            name: String::new(),
+            avatar: None,
+            persona: String::new(),
+            gender: None,
+            age: None,
+            render_style: "typewriter".into(),
+            model_config: None,
+            accent_color: None,
+            voice_config: None,
+        }
+    }
+
+    #[test]
+    fn update_character_input_serializes_camel_case() {
+        let mut input = upd_input("苏鸢", &sample_bare_input());
+        input.avatar = Some("data:image/png;base64,AAA".into());
+        input.calendar_config = Some(sample_calendar_dto());
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["name"], "苏鸢");
+        assert_eq!(json["renderStyle"], "typewriter", "wire camelCase");
+        assert_eq!(json["calendarConfig"]["name"], "星槎历");
+        assert_eq!(json["calendarConfig"]["daysPerMonth"], 12);
+        assert_eq!(json["calendarConfig"]["festivals"]["2"], "归潮祭",
+            "节日表 wire 形态：数字字符串键");
+        assert_eq!(json["calendarConfig"]["dayNames"][0], "潮日");
+
+        // 全键反序列化往返；DTO ↔ domain 往返无损（前端保存的领域校验地基）。
+        let back: UpdateCharacterInput = serde_json::from_value(json).unwrap();
+        assert_eq!(back, input);
+        assert!(fiction_time::validate(&fiction_time::CalendarConfig::from(
+            back.calendar_config.as_ref().unwrap()
+        )));
     }
 
     #[test]

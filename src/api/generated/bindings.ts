@@ -108,7 +108,7 @@ async createCharacter(input: CharacterInput) : Promise<Result<CharacterSummary, 
     else return { status: "error", error: e  as any };
 }
 },
-async updateCharacter(id: number, input: CharacterInput) : Promise<Result<null, IpcError>> {
+async updateCharacter(id: number, input: UpdateCharacterInput) : Promise<Result<null, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_character", { id, input }) };
 } catch (e) {
@@ -224,7 +224,8 @@ dayNames: string[];
  */
 festivals: Partial<{ [key in number]: string }> | null }
 /**
- * 新建 / 更新角色卡入参（FR-006；整卡覆盖语义见 UpdateCharacter）。
+ * 新建角色卡入参（FR-006）。建卡不带历法——FR-014 开局向导显式指定的历法经
+ * `create_session` 回写角色卡（FR-013）；历法编辑走 [`UpdateCharacterInput`]。
  */
 export type CharacterInput = { name: string; 
 /**
@@ -503,6 +504,36 @@ export type StreamEvent =
  * 不经生成编排的终态闸门（闸门只扣 token / reasoning / done / error）。
  */
 { type: "activity"; session_id: number; message_id: number; phase: ActivityPhase; detail: string | null }
+/**
+ * 更新角色卡入参（FR-006 / FR-013）：[`CharacterInput`] 全字段 + 世界观历法。
+ * 编辑器整卡提交（Task-17 `buildInput` 返回 `CharacterInput & { calendarConfig }`，
+ * 与本结构 wire 同形）；历法域语义：
+ * - `Some(dto)`：经 [`fiction_time::validate`] 校验后序列化落库（snake_case 存储
+ * JSON，与会话快照同构），编辑器保存历法即此形态；
+ * - `None` / wire 缺键：**清除历法**（回退内置默认历）——整卡覆盖语义与 avatar
+ * 从众（既有可空字段无「不动」形态，`Option` 一层即足够，无需嵌套区分）。
+ */
+export type UpdateCharacterInput = { name: string; 
+/**
+ * None = 更新时清除头像。
+ */
+avatar: string | null; persona: string; 
+/**
+ * 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
+ */
+gender: string | null; age: string | null; renderStyle: string; modelConfig: string | null; 
+/**
+ * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
+ */
+accentColor: string | null; 
+/**
+ * TTS 预留缝（CON-003），前端恒传 null。
+ */
+voiceConfig: string | null; 
+/**
+ * 世界观历法（FR-013）；None = 清除。
+ */
+calendarConfig: CalendarConfigDto | null }
 
 /** tauri-specta globals **/
 

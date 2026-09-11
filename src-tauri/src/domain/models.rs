@@ -137,6 +137,9 @@ impl Default for NewCharacter {
 }
 
 /// 更新角色卡入参：整卡覆盖（编辑表单全量提交）；avatar 传 None 即清除头像。
+/// calendar_config 同为整卡覆盖语义（FR-013）：携已校验历法 JSON（命令层把 wire
+/// DTO 校验后 `serde_json` 序列化，snake_case 键，与会话快照同构）则覆盖，传 None
+/// 即清除历法（回退内置默认历）——编辑器整卡提交，历法区为空即此形态。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateCharacter {
     pub name: String,
@@ -148,6 +151,7 @@ pub struct UpdateCharacter {
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
     pub voice_config: Option<String>,
+    pub calendar_config: Option<String>,
 }
 
 /// 开局包（FR-014）：建会话可选携带的「显式日历 + 开场锚」。

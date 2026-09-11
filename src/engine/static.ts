@@ -11,9 +11,13 @@
 import { StreamParser } from './parser';
 import { ParagraphStream } from './seal';
 import { isHr, isItem, isPara } from './queue';
+import { applySyntaxTheme } from './theme';
 
 export function renderStaticMarkdown(root: HTMLElement, text: string): void {
   root.textContent = '';
+  // 语法配色随所在表面明暗注入（亮色对比度达标；详见 theme.ts）。
+  // 幂等：personaMarkdown 等挂载侧直接声明字色（如 .tok.bold）优先级更高，不受影响
+  applySyntaxTheme(root);
   if (!text) return;
   const sealer = new ParagraphStream(root);
   const parser = new StreamParser();

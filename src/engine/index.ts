@@ -25,6 +25,7 @@ import { StreamUnit, UnitQueue, isHr, isItem, isPara } from './queue';
 import { ParagraphStream } from './seal';
 import { Granularity, takeUnit } from './take-unit';
 import { DEFAULT_THINK_TIPS, ThinkChannel } from './think';
+import { applySyntaxTheme } from './theme';
 
 export { ANIM_STYLES, DUR_DEFAULT_MS, DUR_MAX_MS, DUR_MIN_MS, clampDuration } from './anims/index';
 export type { AnimStyleId, AnimStyleMeta } from './anims/index';
@@ -36,6 +37,15 @@ export type { Granularity } from './take-unit';
 export { takeUnit } from './take-unit';
 export { DEFAULT_THINK_TIPS, THINK_PHASE, ThinkChannel, formatThinkDuration } from './think';
 export type { StreamUnit, TextUnit, ParaUnit, HrUnit, ItemUnit } from './queue';
+export {
+  ENGINE_SYNTAX_PALETTES,
+  applySyntaxTheme,
+  contrastRatio,
+  detectSurfaceTheme,
+  parseHexColor,
+  relativeLuminance,
+} from './theme';
+export type { EngineSyntaxPalette } from './theme';
 export { UnitQueue } from './queue';
 
 /** 节奏可调范围（FR-002：10–160ms/字，默认 45ms，全局设置「打字机速度」） */
@@ -151,6 +161,8 @@ class StreamRenderer implements Renderer {
     this.cursorEl.className = 'stream-cursor';
     applyStyle(root, this.styleId);
     applyDuration(root, options.durationMs ?? DUR_DEFAULT_MS);
+    // 语法配色随所在表面明暗注入（亮色对比度达标；详见 theme.ts）
+    applySyntaxTheme(root);
   }
 
   get runId(): number {
@@ -280,6 +292,8 @@ class StreamRenderer implements Renderer {
     this.root.textContent = '';
     this.sealer.reset();
     this.chars = 0;
+    // 回合入口重估表面明暗：会话中途切主题后同容器复用也能翻到正确配色
+    applySyntaxTheme(this.root);
   }
 
   /** 正文开演：思考点样式先插入加载点；对表后启动 16ms 消费者 */

@@ -275,17 +275,29 @@ fn execute_tool(call: &ToolCall, messages: &[Message], scenes: &[Scene]) -> Stri
 /// search_history：对全部历史做内存包含匹配（取舍见模块注释）。**大小写不敏感**
 /// （case-fold：两侧 to_lowercase 后比较——英文关键词不受形态影响，中文
 /// to_lowercase 为恒等映射不受影响）。命中 = 场定位 + 角色前缀 + 引文截断（换行
-/// 压平后注入，防伪造段标题）；无命中回「未命中」让模型换关键词或收手。
+/// 压平后注入，防伪造段标题）；场定位与 read_scene 同一命名空间（库内归属优先，
+/// NULL 回退内容序临时标签，见实现内注释）；无命中回「未命中」让模型换关键词或收手。
 fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> String {
     let keyword_folded = keyword.to_lowercase();
     let mut hits: Vec<String> = Vec::new();
-    // 内容切分的场序（0 起，锚场 = 0）：与 split_into_scene_spans 同界——触发行
-    // （含场景线的消息）归收束场，其后消息归下一场。
-    let mut scene_no: usize = 0;
+    // 场号标签两档取法（与 read_scene 按 id 命中同一命名空间，都是 scene.idx）：
+    // - 消息带 scene_id（库内盖章）→ 按 scenes 行 id 查 idx，打**真实场号**——
+    //   欠账 / 重生成形态下内容序可能与库内归属分歧，以库内归属为准；
+    // - NULL 消息（欠账段 / 进行中段）无库内归属 → 沿用内容切分场序（0 起，锚场
+    //   = 0，触发行归收束场、其后消息归下一场）作**临时**标签：内容序是欠账场的
+    //   临时序，与库内场号可能错位（触发行被软删 / 重生成后序号漂移时尤其如此）。
+    // 盖章 id 查不到在世行（场景行被软删的极端形态）→ 同样回退内容序临时标签。
+    let mut ordinal: usize = 0;
     for message in messages {
-        let belongs = scene_no;
+        let label = match message
+            .scene_id
+            .and_then(|id| scenes.iter().find(|scene| scene.id == id))
+        {
+            Some(scene) => scene.idx,
+            None => scene_label(ordinal, scenes),
+        };
         if super::director::contains_scene_line(&message.content) {
-            scene_no += 1;
+            ordinal += 1;
         }
         if !message.content.to_lowercase().contains(&keyword_folded) {
             continue;
@@ -296,12 +308,7 @@ fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> Stri
         // 引文换行压平后截断（注入面防御，见模块注释）。
         let quote =
             truncate_chars(&flatten_newlines(message.content.trim()), HIT_QUOTE_MAX_CHARS);
-        hits.push(format!(
-            "[场{}] [{}] {}",
-            scene_label(belongs, scenes),
-            message.role.as_str(),
-            quote
-        ));
+        hits.push(format!("[场{}] [{}] {}", label, message.role.as_str(), quote));
     }
     if hits.is_empty() {
         return format!("未命中包含「{keyword}」的消息。");
@@ -355,9 +362,11 @@ fn read_scene(scene_idx: i64, messages: &[Message], scenes: &[Scene]) -> String 
     out
 }
 
-/// 内容切分场序 → 场号标签：正常态（无墓碑、无欠账）场序 == 场景行 idx；有偏差时
-/// 以行内 idx 为准（编年史给模型看的场号就是 scene.idx，保持同一命名空间），
-/// 越界（欠账多出的场序）回退序号本身。
+/// 内容切分场序 → **临时**场号标签（仅 NULL 消息与孤儿盖章的回退档使用）：正常态
+/// （无墓碑、无欠账）场序 == 场景行 idx；有偏差时以行内 idx 为准（编年史给模型看
+/// 的场号就是 scene.idx，保持同一命名空间），越界（欠账多出的场序）回退序号本身。
+/// 内容序是欠账场的临时序，与库内场号可能错位——盖章消息不走此回退（见
+/// search_history 的两档取法）。
 fn scene_label(ordinal: usize, scenes: &[Scene]) -> i64 {
     scenes.get(ordinal).map_or(ordinal as i64, |scene| scene.idx)
 }
@@ -1187,6 +1196,36 @@ mod tests {
             search_history("灯塔", &messages, &scenes).starts_with("命中 1 条"),
             "中文关键词不受 case-fold 影响"
         );
+    }
+
+    /// search_history 场号标签与库内归属对齐：盖章消息按 scene_id 查行打**真实场号**
+    /// （人工构造内容序 ≠ 库内号的分歧形态），NULL 消息沿用内容切分序号作临时标签
+    /// （欠账 / 进行中无库内归属，临时序与库内场号错位属已知例外）。
+    #[test]
+    fn search_history_labels_stamped_by_scene_id_and_null_by_ordinal() {
+        // 行布局：1=锚行(idx0)、2=已收束行(idx1)。内容切分序号：m1/m2 归序 0，
+        // m3/m4（欠账）归序 1，m5 起归序 2——盖章的 m5 库内场号 1 ≠ 内容序 2。
+        let scenes = vec![scene_row(1, 0), scene_row(2, 1)];
+        let messages = vec![
+            stamped_message(1, MessageRole::User, "锚场旧事", Some(1)),
+            stamped_message(2, MessageRole::Assistant, "收束答\n\n---\n\n新场", Some(1)),
+            stamped_message(3, MessageRole::User, "欠账旧事", None),
+            stamped_message(4, MessageRole::Assistant, "欠账答\n\n---\n\n再新场", None),
+            stamped_message(5, MessageRole::User, "真场旧事", Some(2)),
+            stamped_message(6, MessageRole::User, "孤儿旧事", Some(99)),
+        ];
+
+        let out = search_history("旧事", &messages, &scenes);
+
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 5, "标题行 + 四条命中：{out}");
+        // 盖章消息：标签 = 库内 scene.idx（m1 → 场0；m5 → 场1，旧内容序标签会错标场2）。
+        assert!(lines[1].starts_with("[场0] ") && lines[1].contains("锚场旧事"), "盖章打库内场号：{}", lines[1]);
+        // NULL 消息：内容序临时标签（欠账段序 1 → 场1，与库内场号撞号属预期例外）。
+        assert!(lines[2].starts_with("[场1] ") && lines[2].contains("欠账旧事"), "NULL 沿用内容序临时标签：{}", lines[2]);
+        assert!(lines[3].starts_with("[场1] ") && lines[3].contains("真场旧事"), "盖章按 id 命中真实场号 1（内容序 2）：{}", lines[3]);
+        // 盖章 id 查不到在世行（场景行软删的极端形态）→ 回退内容序临时标签（序 2）。
+        assert!(lines[4].starts_with("[场2] ") && lines[4].contains("孤儿旧事"), "孤儿盖章回退内容序标签：{}", lines[4]);
     }
 
     /// 收尾轮再收 ToolCalls 的降级退出：3 轮 tool_calls 后第 4 轮（未带 tools 的

@@ -15,6 +15,7 @@ import {
 import {
   ArrowSync24Regular,
   ArrowUp24Regular,
+  Notebook24Regular,
   RecordStop24Regular,
 } from '@fluentui/react-icons';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
@@ -37,14 +38,50 @@ import { EmptyState } from '../../components/EmptyState';
 import { renderStaticMarkdown } from '../../engine';
 import { formatClock } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
+import { LedgerPanel } from './ledgerPanel';
 import { StreamingMessage } from './StreamingMessage';
 import { CANCEL_REASON, streamHub } from './streamHub';
 
 const useStyles = makeStyles({
+  // 根改双列（叙事账本面板，FR-012）：聊天列 + 可选账本列；面板开合不挤压
+  // 聊天流的滚动位置（stream 自身滚动容器不变）
   root: {
     height: '100%',
     display: 'flex',
+  },
+  // 聊天列：账本开关钮的定位包含块（浮动钮从众 AppShell 的 expandBtn 先例）
+  chatColumn: {
+    position: 'relative',
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    display: 'flex',
     flexDirection: 'column',
+  },
+  // 叙事账本开关（聊天列右上角浮动，头部无条带的布局下即事实上的头部区；
+  // 15% 右边距的留白带内，常态不压消息正文）
+  ledgerToggle: {
+    position: 'absolute',
+    top: '8px',
+    right: '12px',
+    zIndex: 2,
+    width: '36px',
+    height: '36px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0px',
+    border: 'none',
+    borderRadius: tokens.borderRadiusMedium,
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorNeutralForeground2,
+    cursor: 'pointer',
+    // 图标与活动栏同规格（20px）
+    '> svg': { width: '20px', height: '20px', fontSize: '20px' },
+    ':hover': {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+      color: tokens.colorNeutralForeground1,
+    },
   },
   stream: {
     flex: 1,
@@ -195,6 +232,8 @@ function HistoryMessageBody({ content }: { content: string }) {
  * store.refreshSessionsQuietly —— 失败静默，不阻塞聊天主路径。
  * 历史 assistant 行正文经引擎静态渲染（TASK-12 / 审计问题 1 / ADR-011）：
  * 与流式期同语法语义；引擎主题变量在聊天流容器覆写（审计问题 3）。
+ * 叙事账本（FR-012）：头部右上浮动钮开关右侧内嵌面板，数据拉取与终态刷新
+ * 内聚在 LedgerPanel，本视图只管开合与换会话换参。
  */
 export function ChatView() {
   const styles = useStyles();
@@ -211,6 +250,8 @@ export function ChatView() {
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // 叙事账本面板开关（FR-012）：面板数据自管（挂载即拉取），这里只管开合
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const streamRef = useRef<HTMLDivElement | null>(null);
 
   // 流式生成状态（模块级 hub：切走会话不丢，FR-007）
@@ -365,126 +406,142 @@ export function ChatView() {
 
   return (
     <div className={styles.root}>
-      <div
-        className={styles.stream}
-        ref={streamRef}
-        style={engineThemeVars}
-      >
-        <div className={styles.streamInner}>
-          {messages.map((message) => {
-          const isUser = message.role === 'user';
-          return (
-            <div key={message.id} className={styles.row}>
-              <div
-                className={mergeClasses(
-                  styles.msgHeader,
-                  isUser && styles.msgHeaderUser,
-                )}
-              >
-                <Text className={isUser ? styles.msgSpeakerUser : styles.msgSpeaker}>
-                  {speakerOf(message)}
-                </Text>
-                <span>{formatClock(message.createdAt, i18n.language)}</span>
-              </div>
-              {message.reasoning !== null && (
-                <Accordion className={styles.reasoning} collapsible>
-                  <AccordionItem value="reasoning">
-                    <AccordionHeader size="small">
-                      {t('chat.reasoning')}
-                      {message.thinkMs !== null && ` · ${(message.thinkMs / 1000).toFixed(1)}s`}
-                    </AccordionHeader>
-                    <AccordionPanel>{message.reasoning}</AccordionPanel>
-                  </AccordionItem>
-                </Accordion>
-              )}
-              {isUser ? (
-                // user 行保持纯文本（markdown-lite 是 assistant 叙事语法）
-                <div className={mergeClasses(styles.msgBody, styles.msgBodyUser)}>
-                  {message.content}
+      <div className={styles.chatColumn}>
+        {/* 叙事账本开关（FR-012）：聊天列右上角浮动钮（布局无头部条带，
+            从众 AppShell 展开钮先例），aria-expanded 即开合语义 */}
+        <button
+          type="button"
+          className={styles.ledgerToggle}
+          aria-controls="ledger-panel"
+          aria-expanded={ledgerOpen}
+          aria-label={t('chat.ledger.title')}
+          title={t('chat.ledger.title')}
+          onClick={() => setLedgerOpen((open) => !open)}
+        >
+          <Notebook24Regular />
+        </button>
+        <div
+          className={styles.stream}
+          ref={streamRef}
+          style={engineThemeVars}
+        >
+          <div className={styles.streamInner}>
+            {messages.map((message) => {
+            const isUser = message.role === 'user';
+            return (
+              <div key={message.id} className={styles.row}>
+                <div
+                  className={mergeClasses(
+                    styles.msgHeader,
+                    isUser && styles.msgHeaderUser,
+                  )}
+                >
+                  <Text className={isUser ? styles.msgSpeakerUser : styles.msgSpeaker}>
+                    {speakerOf(message)}
+                  </Text>
+                  <span>{formatClock(message.createdAt, i18n.language)}</span>
                 </div>
-              ) : (
-                <HistoryMessageBody content={message.content} />
-              )}
-              {message.interrupted && (
-                <Badge className={styles.interrupted} appearance="outline" shape="rounded">
-                  {t('chat.interrupted')}
-                </Badge>
-              )}
-            </div>
-          );
-          })}
-          {streamState && (
-            <StreamingMessage
-              key={streamState.sessionId}
-              state={streamState}
-              speaker={sessionSpeaker}
-              tuning={tuning}
-              onSettled={() => void settleSession(streamState.sessionId)}
-            />
-          )}
-        </div>
-      </div>
-      {notice !== null && <div className={styles.notice}>{notice}</div>}
-      <div className={styles.composer}>
-        {/* composer-card：全局类挂点，app.css 的 Textarea 中和样式按此收窄作用域 */}
-        <div className={mergeClasses(styles.composerCard, 'composer-card')}>
-          <Textarea
-            root={{ className: styles.inputRoot }}
-            textarea={{
-              className: styles.input,
-              onKeyDown: (event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  void onSend();
-                }
-              },
-            }}
-            resize="none"
-            placeholder={t('chat.placeholder')}
-            value={draft}
-            onChange={(_, data) => setDraft(data.value)}
-          />
-          <div
-            className={mergeClasses(
-              styles.composerActions,
-              lastIsAssistant && styles.composerActionsWithRegen,
-            )}
-          >
-            {lastIsAssistant && (
-              <Button
-                size="small"
-                className={styles.regenerate}
-                icon={<ArrowSync24Regular />}
-                aria-label={t('chat.regenerate')}
-                title={t('chat.regenerate')}
-                disabled={busy}
-                onClick={() => void onRegenerate()}
-              >
-                {t('chat.regenerate')}
-              </Button>
-            )}
-            {streamState ? (
-              <Button
-                appearance="primary"
-                icon={<RecordStop24Regular />}
-                aria-label={t('chat.stop')}
-                title={t('chat.stop')}
-                disabled={streamState.status === 'stopping'}
-                onClick={() => void onStop()}
-              />
-            ) : (
-              <Button
-                appearance="primary"
-                icon={<ArrowUp24Regular />}
-                aria-label={t('chat.send')}
-                title={t('chat.send')}
-                disabled={busy || draft.trim().length === 0}
-                onClick={() => void onSend()}
+                {message.reasoning !== null && (
+                  <Accordion className={styles.reasoning} collapsible>
+                    <AccordionItem value="reasoning">
+                      <AccordionHeader size="small">
+                        {t('chat.reasoning')}
+                        {message.thinkMs !== null && ` · ${(message.thinkMs / 1000).toFixed(1)}s`}
+                      </AccordionHeader>
+                      <AccordionPanel>{message.reasoning}</AccordionPanel>
+                    </AccordionItem>
+                  </Accordion>
+                )}
+                {isUser ? (
+                  // user 行保持纯文本（markdown-lite 是 assistant 叙事语法）
+                  <div className={mergeClasses(styles.msgBody, styles.msgBodyUser)}>
+                    {message.content}
+                  </div>
+                ) : (
+                  <HistoryMessageBody content={message.content} />
+                )}
+                {message.interrupted && (
+                  <Badge className={styles.interrupted} appearance="outline" shape="rounded">
+                    {t('chat.interrupted')}
+                  </Badge>
+                )}
+              </div>
+            );
+            })}
+            {streamState && (
+              <StreamingMessage
+                key={streamState.sessionId}
+                state={streamState}
+                speaker={sessionSpeaker}
+                tuning={tuning}
+                onSettled={() => void settleSession(streamState.sessionId)}
               />
             )}
           </div>
         </div>
+        {notice !== null && <div className={styles.notice}>{notice}</div>}
+        <div className={styles.composer}>
+          {/* composer-card：全局类挂点，app.css 的 Textarea 中和样式按此收窄作用域 */}
+          <div className={mergeClasses(styles.composerCard, 'composer-card')}>
+            <Textarea
+              root={{ className: styles.inputRoot }}
+              textarea={{
+                className: styles.input,
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void onSend();
+                  }
+                },
+              }}
+              resize="none"
+              placeholder={t('chat.placeholder')}
+              value={draft}
+              onChange={(_, data) => setDraft(data.value)}
+            />
+            <div
+              className={mergeClasses(
+                styles.composerActions,
+                lastIsAssistant && styles.composerActionsWithRegen,
+              )}
+            >
+              {lastIsAssistant && (
+                <Button
+                  size="small"
+                  className={styles.regenerate}
+                  icon={<ArrowSync24Regular />}
+                  aria-label={t('chat.regenerate')}
+                  title={t('chat.regenerate')}
+                  disabled={busy}
+                  onClick={() => void onRegenerate()}
+                >
+                  {t('chat.regenerate')}
+                </Button>
+              )}
+              {streamState ? (
+                <Button
+                  appearance="primary"
+                  icon={<RecordStop24Regular />}
+                  aria-label={t('chat.stop')}
+                  title={t('chat.stop')}
+                  disabled={streamState.status === 'stopping'}
+                  onClick={() => void onStop()}
+                />
+              ) : (
+                <Button
+                  appearance="primary"
+                  icon={<ArrowUp24Regular />}
+                  aria-label={t('chat.send')}
+                  title={t('chat.send')}
+                  disabled={busy || draft.trim().length === 0}
+                  onClick={() => void onSend()}
+                />
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+      {ledgerOpen && <LedgerPanel sessionId={activeSessionId} />}
     </div>
   );
 }

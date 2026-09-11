@@ -18,7 +18,7 @@ import {
   Notebook24Regular,
   RecordStop24Regular,
 } from '@fluentui/react-icons';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   cancelGeneration,
@@ -215,7 +215,8 @@ const engineThemeVars = {
 function HistoryMessageBody({ content }: { content: string }) {
   const styles = useStyles();
   const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  // useLayoutEffect（Task-16 遗留项）：绘制前同步直插引擎 DOM，消历史行首帧空白
+  useLayoutEffect(() => {
     if (ref.current) renderStaticMarkdown(ref.current, content);
   }, [content]);
   // 布局类沿用 msgBody（字号/行距/pre-wrap/断词）：引擎 .para 继承容器的

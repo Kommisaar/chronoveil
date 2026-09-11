@@ -7,7 +7,7 @@
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { StreamEventHandler } from '../../api/events';
 import type { CharacterSummary, ChatMessage } from '../../api/types';
@@ -115,10 +115,13 @@ afterEach(() => {
 
 it('历史 assistant 行走引擎静态渲染：动作/加粗/场景线/列表与流式同构', async () => {
   const view = renderView();
-  await screen.findByText('织星者'); // 消息列表加载完成
-
-  // 场景线：--- 产出 hr.scene 而非文本
-  expect(view.container.querySelectorAll('hr.scene')).toHaveLength(1);
+  await screen.findByText('织星者'); // 消息列表加载完成（commit 期 DOM）
+  // 场景线：--- 产出 hr.scene 而非文本。引擎 DOM 由 HistoryMessageBody 的
+  // 被动 useEffect 直插，晚于 commit 上屏——findByText 只保证消息头可见，
+  // 不保证 effect 已冲刷（jsdom 调度对全量并发负载敏感，偶发 hr.scene 为空）。
+  // 用 waitFor 等 effect 落定，断言语义不变（场景线恰有一个）；hr.scene 出现
+  // 即整次 renderStaticMarkdown 已同步完成，后续 span/列表断言随之确定。
+  await waitFor(() => expect(view.container.querySelectorAll('hr.scene')).toHaveLength(1));
   // 动作斜体 / 加粗
   const actions = view.container.querySelectorAll('span.tok.action');
   expect(actions).toHaveLength(1);

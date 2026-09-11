@@ -12,6 +12,8 @@
  * - 重新生成：返回被替换的旧条（ipc.rs regenerate_last_impl 契约，前端据以移除）；
  * - 取消：无活跃生成恒 false（幂等 no-op）；mock 无事件流（subscribeStream no-op）；
  * - 角色 CRUD / config 往返与 10–160 值域校验（FR-006 / FR-009）；
+ * - AI 起草历法（FR-014 二期）：确定性白蜡历样例、空白 / 超长描述错误语义
+ *   与 services/calendar_draft 同构；
  * - 错误形态：统一 ApiError，payload.kind 判别值与 Rust IpcError wire 形态一致。
  *
  * mock 模块持有内存态（data.ts 种子 + 游标），每个用例经 vi.resetModules 重新载入，
@@ -189,6 +191,57 @@ describe('createSession 开局包（FR-014 入参校验对齐 Rust create_sessio
       dayNames: ['晨露日', '萤火日'],
       festivals: { 45: '灯节' },
     } }));
+  });
+});
+
+describe('draftCalendar（FR-014 二期 AI 起草历法，语义对齐 services/calendar_draft）', () => {
+  it('返回确定性白蜡历样例：schema 五字段齐全、festivals 数字字符串键、满足命名皮肤可用性', async () => {
+    const { backend } = await loadMock();
+    const draft = await backend.draftCalendar('修仙世界，一年十二个月每月三十天，有春节中秋');
+    expect(draft.name).toBe('白蜡历');
+    expect(draft.months).toHaveLength(12);
+    expect(draft.daysPerMonth).toBeGreaterThan(0);
+    expect(draft.dayNames.length).toBeGreaterThan(0);
+    // festivals wire 形态：键 = 年内第几天的数字字符串（与 Rust BTreeMap<i64,String> JSON 同形）。
+    expect(Object.keys(draft.festivals ?? {})).toEqual(['45', '360']);
+    expect(draft.festivals?.[45]).toBe('灯节');
+    // 保存侧可用性判定（fiction_time::validate 同构）：daysPerMonth > 0 且月/日名至少其一非空。
+    expect(draft.daysPerMonth > 0 && (draft.months.length > 0 || draft.dayNames.length > 0)).toBe(
+      true,
+    );
+    // 确定性：同输入两次起草结果一致。
+    expect(await backend.draftCalendar('再起草一次')).toEqual(
+      await backend.draftCalendar('再起草一次'),
+    );
+  });
+
+  it('空白描述报 conflict，文案与 Rust InvalidDescription 一致', async () => {
+    const { backend } = await loadMock();
+    for (const blank of ['', '   ', '\n\t ']) {
+      expect(await apiErrorOf(backend.draftCalendar(blank))).toEqual({
+        kind: 'conflict',
+        message: '描述内容为空：请先填写世界观描述',
+      });
+    }
+  });
+
+  it('超长描述（> 4000 字符，按码点计）报 conflict；4000 恰好放行', async () => {
+    const { backend } = await loadMock();
+    expect(await apiErrorOf(backend.draftCalendar('甲'.repeat(4001)))).toEqual({
+      kind: 'conflict',
+      message: '描述过长：4001 字符，上限 4000，请精简后重试',
+    });
+    expect((await backend.draftCalendar('甲'.repeat(4000))).name).toBe('白蜡历');
+  });
+
+  it('返回深拷贝：改动起草结果不污染后续起草', async () => {
+    const { backend } = await loadMock();
+    const first = await backend.draftCalendar('旧都世界观');
+    first.months.push('多余月');
+    first.festivals[45] = '被改掉的节日';
+    const second = await backend.draftCalendar('旧都世界观');
+    expect(second.months).toHaveLength(12);
+    expect(second.festivals?.[45]).toBe('灯节');
   });
 });
 

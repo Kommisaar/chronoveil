@@ -16,6 +16,7 @@ import { isTauri } from './client';
 import { ApiError } from './errors';
 import * as mock from './mock/backend';
 import type {
+  CalendarConfigDto,
   CharacterInput,
   CharacterStateDto,
   CharacterSummary,
@@ -58,6 +59,15 @@ export async function deleteSession(sessionId: number): Promise<void> {
     return;
   }
   return mock.deleteSession(sessionId);
+}
+
+/**
+ * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给调用方审阅后
+ * 由用户走既有保存路径——本命令不做持久化、不自动应用。空白 / 超长（> 4000 字符）
+ * 描述报 conflict；provider 未配置报 config；LLM 调用失败报 unavailable。
+ */
+export async function draftCalendar(description: string): Promise<CalendarConfigDto> {
+  return isTauri ? unwrap(commands.draftCalendar(description)) : mock.draftCalendar(description);
 }
 
 // ---- 消息（ADR-001）----

@@ -32,37 +32,8 @@ import { useEffect, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { listCharacterStates, listScenes } from '../../api/commands';
+import type { CharacterStateDto, SceneDto } from '../../api/types';
 import { streamHub } from './streamHub';
-
-/**
- * 读契约类型（API 契约冻结，bindings 由并行任务落地；rebase 对齐时改为从
- * `../../api/commands` 导入并删除本地定义）。字段形态与 Rust domain/models.rs
- * 的 Scene / CharacterState 对应（wire camelCase）；scope 即 CharacterStateScope
- * 的 serde lowercase 字面量。
- */
-export interface Scene {
-  id: number;
-  idx: number;
-  location: string | null;
-  timeNote: string | null;
-  ficDay: number | null;
-  ficPart: string | null;
-  dateLabel: string | null;
-  summary: string | null;
-  recap: string | null;
-  present: number[];
-}
-
-export interface CharacterState {
-  id: number;
-  characterId: number;
-  scope: 'state' | 'relation';
-  key: string;
-  value: string;
-  expiry: string | null;
-  sourceScene: number | null;
-  updatedAt: number;
-}
 
 const useStyles = makeStyles({
   panel: {
@@ -174,7 +145,7 @@ const useStyles = makeStyles({
 });
 
 /** 时间标签：dateLabel 优先；缺失拼 ficDay/ficPart（后端 date_label 数字回退同构）；再缺省略。 */
-function timeLabelOf(scene: Scene, t: TFunction): string | null {
+function timeLabelOf(scene: SceneDto, t: TFunction): string | null {
   if (scene.dateLabel !== null && scene.dateLabel !== '') return scene.dateLabel;
   const { ficDay: day, ficPart: part } = scene;
   if (day !== null && part !== null) return t('chat.ledger.dayPart', { day, part });
@@ -183,7 +154,7 @@ function timeLabelOf(scene: Scene, t: TFunction): string | null {
 }
 
 /** 状态分组（组空由调用方省略整组含标题）：`key：value` 行，expiry 不展示。 */
-function StateGroup({ title, rows }: { title: string; rows: CharacterState[] }) {
+function StateGroup({ title, rows }: { title: string; rows: CharacterStateDto[] }) {
   const styles = useStyles();
   const { t } = useTranslation();
   return (
@@ -211,8 +182,8 @@ interface LedgerPanelProps {
 export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const styles = useStyles();
   const { t } = useTranslation();
-  const [scenes, setScenes] = useState<Scene[] | null>(null);
-  const [states, setStates] = useState<CharacterState[] | null>(null);
+  const [scenes, setScenes] = useState<SceneDto[] | null>(null);
+  const [states, setStates] = useState<CharacterStateDto[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   // 终态静默重拉 / 手动重试共用的时间点：bump 触发下方拉取 effect 重跑

@@ -6,11 +6,10 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { StreamEventHandler } from '../../api/events';
-import type { CharacterSummary } from '../../api/types';
+import type { CharacterStateDto, CharacterSummary, SceneDto } from '../../api/types';
 import '../../i18n';
 import { useUiStore } from '../../stores/ui';
 import { ChatView } from './ChatView';
-import type { CharacterState, Scene } from './ledgerPanel';
 import { streamHub } from './streamHub';
 
 const mocks = vi.hoisted(() => ({
@@ -60,7 +59,7 @@ const CHARACTER: CharacterSummary = {
   sessionCount: 1,
 };
 
-const SCENES: Scene[] = [
+const SCENES: SceneDto[] = [
   // 第 1 场：dateLabel 在场 → 优先于 ficDay/ficPart 拼接
   {
     id: 31,
@@ -102,7 +101,7 @@ const SCENES: Scene[] = [
   },
 ];
 
-const STATES: CharacterState[] = [
+const STATES: CharacterStateDto[] = [
   {
     id: 41,
     characterId: 1,

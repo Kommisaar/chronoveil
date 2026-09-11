@@ -9,7 +9,8 @@
  * 开场行，day=1 / part=夜 / 日历走角色卡快照，等价原有单击建会话）；「开局并开始」
  * 携带表单值。四内置预设常量与 Rust `domain/fiction_time::presets` 一一对应——
  * 前端只构造 wire DTO（camelCase），落库存储 JSON 由 Rust 序列化 domain 结构得
- * snake_case，本组件永不手写存储 JSON。
+ * snake_case，本组件永不手写存储 JSON。预设常量 FR-014 二期起下沉
+ * src/components/calendarPresets（角色卡历法编辑共用同一事实源），本组件只消费。
  *
  * 本组件为 app 层内聚（本切片 UI 全在 app 层，不越 feature 边界）；组件全用
  * Fluent v9 既有件，表单惯例对齐 CharacterEditorDialog（Text 标签 + aria-label）。
@@ -33,44 +34,12 @@ import {
 } from '@fluentui/react-components';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CalendarConfigDto, CharacterSummary, SessionOpeningInput } from '../../api/types';
+import type { CharacterSummary, SessionOpeningInput } from '../../api/types';
+import { CALENDAR_PRESETS, type CalendarPresetId } from '../../components/calendarPresets';
 
 /** 历法五选项键：follow = 角色卡快照兜底（wire 传 null）。 */
-type PresetKey = 'follow' | 'modern' | 'seven' | 'ganzhi' | 'fantasy';
-type ConcretePreset = Exclude<PresetKey, 'follow'>;
-
-/** 四内置预设的 wire DTO（与 Rust domain/fiction_time::presets 一一对应；
- *  festivals 键 = 年内第几天，四预设统一 12 月 × 30 日 = 360 日一年）。 */
-const PRESET_CALENDARS: Record<ConcretePreset, CalendarConfigDto> = {
-  modern: {
-    name: '现代公历',
-    months: ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'],
-    daysPerMonth: 30,
-    dayNames: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
-    festivals: { 1: '元旦', 271: '国庆节' },
-  },
-  seven: {
-    name: '七曜和历',
-    months: ['睦月', '如月', '弥生', '卯月', '皋月', '水无月', '文月', '叶月', '长月', '神无月', '霜月', '师走'],
-    daysPerMonth: 30,
-    dayNames: ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日'],
-    festivals: { 315: '七五三', 360: '大晦日' },
-  },
-  ganzhi: {
-    name: '干支历',
-    months: ['正月', '杏月', '桃月', '槐月', '榴月', '荷月', '巧月', '桂月', '菊月', '阳月', '葭月', '腊月'],
-    daysPerMonth: 30,
-    dayNames: ['子日', '丑日', '寅日', '卯日', '辰日', '巳日', '午日', '未日', '申日', '酉日', '戌日', '亥日'],
-    festivals: { 15: '上元', 360: '除夕' },
-  },
-  fantasy: {
-    name: '旧都历',
-    months: ['霜月', '白蜡月', '融雪月', '雨月', '长夏月', '蝉鸣月', '风起月', '收获月', '雾月', '炉火月', '冻雨月', '岁末月'],
-    daysPerMonth: 30,
-    dayNames: ['晨露日', '萤火日', '潮汐日', '风息日', '炉边日', '集日', '安息日'],
-    festivals: { 45: '灯节', 360: '守夜' },
-  },
-};
+type PresetKey = 'follow' | CalendarPresetId;
+type ConcretePreset = CalendarPresetId;
 
 /** 选中预设的静态样例行（预设常量自带说明文本，i18n key）。 */
 const SAMPLE_KEYS: Record<ConcretePreset, string> = {
@@ -232,7 +201,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
       return trimmed === '' ? null : trimmed;
     };
     return {
-      calendar: preset === 'follow' ? null : PRESET_CALENDARS[preset],
+      calendar: preset === 'follow' ? null : CALENDAR_PRESETS[preset],
       ficDay: Number.isInteger(day) && day >= 1 ? day : null,
       ficPart,
       location: trim(location),

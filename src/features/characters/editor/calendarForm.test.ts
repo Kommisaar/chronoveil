@@ -1,7 +1,8 @@
 // calendarForm 纯逻辑单测：存储 JSON 解析（snake_case / 坏 JSON 降级 /
 // festivals 数字字符串键）、表单字段序列化（节日按天升序、行归一）、
 // buildCalendar 客户端校验（对齐 Rust fiction_time::validate：天数 ≥1 且
-// 月名/日名至少其一非空；节日行「N=名称」N≥1）。文案断言不在此层。
+// 月名/日名至少其一非空；节日行「N=名称」N≥1，且不超年长——对齐
+// services/calendar_draft::coerce_festivals 的越年防御）。文案断言不在此层。
 // 另含一条 mock 落库往返用例（features → api 合法方向）：以真实消费方
 // parseCalendarJson 守 api/mock 落库键形，防 camelCase 直落回归。
 import { describe, expect, it } from 'vitest';
@@ -13,16 +14,16 @@ import {
   parseCalendarJson,
 } from './calendarForm';
 
-/** 旧都历（与 mock/data.ts 示例同构的 snake_case 存储形态）。 */
+/** 旧都历（与 mock/data.ts 示例同构的 snake_case 存储形态；2 月 × 30 天，节日界内）。 */
 const FANTASY_JSON =
-  '{"name":"旧都历","months":["霜月","白蜡月"],"days_per_month":30,"day_names":["晨露日","萤火日"],"festivals":{"45":"灯节","360":"守夜"}}';
+  '{"name":"旧都历","months":["霜月","白蜡月"],"days_per_month":30,"day_names":["晨露日","萤火日"],"festivals":{"45":"灯节","60":"守夜"}}';
 
 const FANTASY: CalendarConfigDto = {
   name: '旧都历',
   months: ['霜月', '白蜡月'],
   daysPerMonth: 30,
   dayNames: ['晨露日', '萤火日'],
-  festivals: { 45: '灯节', 360: '守夜' },
+  festivals: { 45: '灯节', 60: '守夜' },
 };
 
 describe('parseCalendarJson（存储 JSON → wire DTO）', () => {
@@ -139,13 +140,49 @@ describe('buildCalendar（表单字段 → 校验判定，对齐 fiction_time::v
     }
   });
 
+  it('越年节日：N 超出年长（月数 × 每月天数）拦为 festivals，恰好等于年长合法', () => {
+    // 2 月 × 30 天 = 年长 60：第 60 天在界内，第 61 天落不进任何月份（越年）。
+    const inBounds = buildCalendar({
+      ...EMPTY_CALENDAR_FIELDS,
+      daysPerMonth: '30',
+      months: '霜月\n白蜡月',
+      festivals: '60=守夜',
+    });
+    expect(inBounds.kind).toBe('valid');
+    const outOfBounds = buildCalendar({
+      ...EMPTY_CALENDAR_FIELDS,
+      daysPerMonth: '30',
+      months: '霜月\n白蜡月',
+      festivals: '61=守夜',
+    });
+    expect(outOfBounds).toEqual({ kind: 'invalid', error: 'festivals' });
+    // 边界再核对：月数变化收紧年长时同样生效（1 月 × 30 天，45 越年）。
+    const tighter = buildCalendar({
+      ...EMPTY_CALENDAR_FIELDS,
+      daysPerMonth: '30',
+      months: '霜月',
+      festivals: '45=灯节',
+    });
+    expect(tighter).toEqual({ kind: 'invalid', error: 'festivals' });
+  });
+
+  it('months 为空（只配日名）时不设年长上界，只查 N ≥ 1（对齐 coerce_festivals）', () => {
+    const build = buildCalendar({
+      ...EMPTY_CALENDAR_FIELDS,
+      daysPerMonth: '30',
+      dayNames: '晨露日',
+      festivals: '360=守夜',
+    });
+    expect(build.kind === 'valid' && build.config.festivals).toEqual({ 360: '守夜' });
+  });
+
   it('有效配置：name trim、空行丢弃、节日「45=灯节」解析、无节日序列化为 null', () => {
     const build = buildCalendar({
       name: '  旧都历 ',
       daysPerMonth: '30',
       months: '霜月\n\n   \n白蜡月',
       dayNames: '',
-      festivals: '45=灯节\n360=守夜',
+      festivals: '45=灯节\n60=守夜',
     });
     expect(build).toEqual({
       kind: 'valid',
@@ -154,7 +191,7 @@ describe('buildCalendar（表单字段 → 校验判定，对齐 fiction_time::v
         months: ['霜月', '白蜡月'],
         daysPerMonth: 30,
         dayNames: [],
-        festivals: { 45: '灯节', 360: '守夜' },
+        festivals: { 45: '灯节', 60: '守夜' },
       },
     });
     const noFestivals = buildCalendar({
@@ -177,7 +214,7 @@ describe('buildCalendar（表单字段 → 校验判定，对齐 fiction_time::v
     const build = buildCalendar({
       ...EMPTY_CALENDAR_FIELDS,
       daysPerMonth: '30',
-      months: '一月',
+      months: '一月\n二月',
       festivals: '45 = 灯节\n45=双灯节',
     });
     expect(build.kind === 'valid' && build.config.festivals).toEqual({ 45: '双灯节' });

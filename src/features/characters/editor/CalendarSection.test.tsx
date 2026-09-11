@@ -1,7 +1,8 @@
 // CalendarSection 冒烟（历法区块，FR-014 二期）：折叠摘要（未配置/已配置/
 // 校验失败三态）、查看态明细、查看↔编辑往返、字段编辑回调、无效输入的
-// 行内校验提示、四预设一键填入（components/calendarPresets 事实源）、
-// 「AI 起草」入口回调。i18n 固定中文，断言 zh 文案。
+// 行内校验提示、校验未过禁用「完成编辑」（C7：不放回查看态）、四预设一键
+// 填入（components/calendarPresets 事实源）、「AI 起草」入口回调。
+// i18n 固定中文，断言 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -45,7 +46,7 @@ const FANTASY_FIELDS: CalendarFields = {
   daysPerMonth: '30',
   months: '霜月\n白蜡月',
   dayNames: '晨露日\n萤火日',
-  festivals: '45=灯节\n360=守夜',
+  festivals: '45=灯节\n60=守夜',
 };
 
 afterEach(cleanup);
@@ -74,7 +75,7 @@ describe('CalendarSection 折叠头摘要', () => {
     expect(screen.getByText('霜月、白蜡月')).toBeTruthy();
     expect(screen.getByText('晨露日、萤火日')).toBeTruthy();
     expect(screen.getByText('节日（2）')).toBeTruthy();
-    expect(screen.getByText(/第45天 灯节、第360天 守夜/)).toBeTruthy();
+    expect(screen.getByText(/第45天 灯节、第60天 守夜/)).toBeTruthy();
     expect(screen.getByText('历法名：旧都历')).toBeTruthy();
   });
 
@@ -99,7 +100,7 @@ describe('CalendarSection 查看↔编辑往返', () => {
       '晨露日\n萤火日',
     );
     expect((screen.getByLabelText('节日（每行「第N天=名称」）') as HTMLTextAreaElement).value).toBe(
-      '45=灯节\n360=守夜',
+      '45=灯节\n60=守夜',
     );
     fireEvent.click(screen.getByRole('button', { name: '完成编辑' }));
     expect(screen.queryByLabelText('每月天数')).toBeNull();
@@ -122,8 +123,30 @@ describe('CalendarSection 查看↔编辑往返', () => {
       target: { value: '灯节' },
     });
     expect(screen.getByRole('alert').textContent).toBe(
-      '节日行需为「第N天=名称」，N 为 ≥1 的整数',
+      '节日行需为「第N天=名称」，N 为 ≥1 的整数，配置了月名时不得超过年总天数（月数 × 每月天数）',
     );
+  });
+
+  it('校验未过不放回查看态：完成钮禁用带提示，修正后恢复（C7：防「未配置」假象）', () => {
+    renderUi(<Harness initialFields={EMPTY_CALENDAR_FIELDS} />);
+    fireEvent.click(screen.getByRole('button', { name: '编辑历法' }));
+    // 造出 invalid（每月天数 0），完成钮禁用且点击无效
+    fireEvent.change(screen.getByLabelText('每月天数'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('月名（每行一个）'), { target: { value: '一月' } });
+    const done = screen.getByRole('button', { name: '完成编辑' }) as HTMLButtonElement;
+    expect(done.disabled).toBe(true);
+    expect(done.getAttribute('title')).toBe('历法未通过校验，修正或清空后才能完成编辑');
+    fireEvent.click(done);
+    // 仍处编辑态：字段还在上屏，未泄漏成「未配置」查看态
+    expect(screen.getByLabelText('每月天数')).toBeTruthy();
+    // 清空全部字段 → 回未配置（empty），完成钮恢复可点
+    fireEvent.change(screen.getByLabelText('每月天数'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('月名（每行一个）'), { target: { value: '' } });
+    expect((screen.getByRole('button', { name: '完成编辑' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '完成编辑' }));
+    expect(screen.getAllByText(/未配置（默认数字历）/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('四预设一键填入：下拉选择后字段整体替换（同一事实源 calendarPresets）', () => {

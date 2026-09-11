@@ -11,7 +11,9 @@
  * - 编辑产物走 wire DTO（CalendarConfigDto，camelCase）随整卡 update_character
  *   提交，由 Rust 折叠成存储 JSON——前端不手写存储 JSON；
  * - 校验规则对齐 Rust domain/fiction_time::validate：days_per_month > 0 且
- *   月名 / 日名至少其一非空；节日行另加「N=名称，N 为 ≥1 整数」的行式约定。
+ *   月名 / 日名至少其一非空；节日行另加「N=名称，N 为 ≥1 整数且不超年长
+ *   （月数 × 每月天数，月名未配置时不设上界）」的行式约定，与 Rust AI 路径
+ *   services/calendar_draft::coerce_festivals 的越年防御对齐。
  */
 import type { CalendarConfigDto } from '../../../api/types';
 
@@ -138,6 +140,9 @@ export function buildCalendar(fields: CalendarFields): CalendarBuild {
   if (months.length === 0 && dayNames.length === 0) {
     return { kind: 'invalid', error: 'names' };
   }
+  // 年总天数（越年节日判定基准，对齐 calendar_draft::coerce_festivals）：
+  // months 非空时 = 月数 × 每月天数；months 为空无法界定年长，只查 ≥ 1 界。
+  const yearDays = months.length > 0 ? months.length * days : null;
   const festivals: Record<number, string> = {};
   for (const line of lines(fields.festivals)) {
     const match = FESTIVAL_LINE.exec(line);
@@ -145,7 +150,11 @@ export function buildCalendar(fields: CalendarFields): CalendarBuild {
     if (match === null) return { kind: 'invalid', error: 'festivals' };
     const day = Number(match[1]);
     const festivalName = match[2]?.trim() ?? '';
-    if (day < 1 || festivalName === '') return { kind: 'invalid', error: 'festivals' };
+    // 越年（超出月数 × 每月天数的年长）同样拦下，防「第 400 天」这类
+    // 落不进任何月份的幽灵节日。
+    if (day < 1 || festivalName === '' || (yearDays !== null && day > yearDays)) {
+      return { kind: 'invalid', error: 'festivals' };
+    }
     festivals[day] = festivalName;
   }
   return {

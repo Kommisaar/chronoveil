@@ -137,6 +137,7 @@ export const en = {
       festivalItem: 'Day {{day}} {{name}}',
       edit: 'Edit calendar',
       done: 'Done editing',
+      doneBlocked: 'Calendar has validation errors — fix or clear the fields to finish editing',
       draft: 'AI draft',
       preset: 'Calendar presets',
       presetPlaceholder: 'Choose a preset…',
@@ -147,7 +148,8 @@ export const en = {
       festivalsField: 'Festivals (one "day N = name" per line)',
       errorDaysPerMonth: 'Days per month must be an integer ≥ 1',
       errorNames: 'Fill in month names or day names (at least one)',
-      errorFestivals: 'Each festival line must be "day N = name" with integer N ≥ 1',
+      errorFestivals:
+        'Each festival line must be "day N = name" with integer N ≥ 1 and, when month names are set, N within the year length (months × days per month)',
       draftTitle: 'AI calendar draft',
       draftHint: 'Describe this world\'s calendar in a passage: seasons, festivals, how years are counted…',
       draftDescriptionField: 'World description',

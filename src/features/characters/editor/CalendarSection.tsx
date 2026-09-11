@@ -107,6 +107,10 @@ export function CalendarSection(props: {
 }) {
   const styles = useFieldStyles();
   const { t } = useTranslation();
+  // 校验未过不放回查看态：查看态语义是「展示已配置历法」，invalid 退出会把
+  // 编辑反馈泄漏成「未配置」假象；行内 alert 已给出原因，禁用完成钮把修正
+  // 留在原位（清空全部字段回未配置、或套预设，均可恢复可点，无困死路径）。
+  const doneBlocked = props.editing && props.build.kind === 'invalid';
 
   return (
     <div className={styles.field}>
@@ -214,6 +218,8 @@ export function CalendarSection(props: {
               appearance="subtle"
               size="small"
               icon={props.editing ? <Checkmark20Regular /> : <Edit20Regular />}
+              disabled={doneBlocked}
+              title={doneBlocked ? t('characters.calendar.doneBlocked') : undefined}
               aria-label={props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
               onClick={() => props.onEditingChange((editing) => !editing)}
             >

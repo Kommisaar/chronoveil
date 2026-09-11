@@ -230,7 +230,9 @@ describe('历法区块与 AI 起草（FR-014 二期）', () => {
     months: ['霜月', '白蜡月', '融雪月'],
     daysPerMonth: 30,
     dayNames: ['晨露日', '萤火日'],
-    festivals: { 45: '灯节', 360: '守夜' },
+    // 节日界内（年长 = 3 月 × 30 天 = 90）：buildCalendar 越年拦截会让
+    // canSave 变 false，保存用例载荷需要合法配置。
+    festivals: { 45: '灯节', 90: '守夜' },
   };
 
   it('展开历法区块：未配置提示上屏，「AI 起草」打开对话框', async () => {

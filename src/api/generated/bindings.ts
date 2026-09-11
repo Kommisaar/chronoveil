@@ -153,7 +153,7 @@ export type ActivityPhase =
  */
 "researchStart" | 
 /**
- * 向模型发出的单次工具调用（detail = 工具名 + 参数摘要）。
+ * 模型发起的单次工具调用（本地执行前；detail = 工具名 + 参数摘要）。
  */
 "toolCall" | 
 /**

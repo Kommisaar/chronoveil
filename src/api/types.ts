@@ -16,6 +16,12 @@ export type {
   ChatMessage,
   /** 消息角色（data_model：user / assistant）。 */
   MessageRole,
+  /** 场景（FR-011 叙事账本读路径；idx 升序的在世边界快照行）。 */
+  SceneDto,
+  /** 人物状态（FR-012 叙事账本读路径；会话内按 id 升序的在世行）。 */
+  CharacterStateDto,
+  /** 人物状态 scope（FR-012：state = 随戏状态，relation = 缓演关系）。 */
+  CharacterStateScope,
   /** 新建 / 更新角色卡入参（含 avatar；FR-006）。 */
   CharacterInput,
   /** 会话日历 wire DTO（FR-014 开局向导；camelCase 仅 wire，存储 JSON 由 Rust 产出）。 */

@@ -9,10 +9,12 @@
 
 import type {
   CharacterInput,
+  CharacterStateDto,
   CharacterSummary,
   ChatMessage,
   ConfigDto,
   MessageRole,
+  SceneDto,
   SessionOpeningInput,
   SessionSummary,
 } from '../types';
@@ -137,6 +139,22 @@ export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
   // 对齐 ipc.rs list_messages_impl：先取会话，不存在 / 已软删报 NotFound（而非空列表）。
   sessionOf(sessionId);
   return (messagesBySession[sessionId] ?? []).slice();
+}
+
+// ---- 场景与人物状态（FR-011 / FR-012 读路径）----
+
+export async function listScenes(sessionId: number): Promise<SceneDto[]> {
+  // 对齐 ipc.rs list_scenes_impl：先取会话，不存在 / 已软删报 NotFound（而非空列表）。
+  sessionOf(sessionId);
+  // mock 无 scenes 存储：诚实返回空数组，不伪造场景数据（面板演示数据由 UI 侧自行处理）。
+  return [];
+}
+
+export async function listCharacterStates(sessionId: number): Promise<CharacterStateDto[]> {
+  // 对齐 ipc.rs list_character_states_impl：同上，先会话在世校验。
+  sessionOf(sessionId);
+  // mock 无 character_state 存储：诚实返回空数组。
+  return [];
 }
 
 /** 会话标题缺省值（FR-007）：与 Rust `generation::default_title` 一致——

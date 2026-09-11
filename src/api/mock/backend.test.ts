@@ -5,6 +5,8 @@
  *   （infra/storage/sessions.rs 的 ORDER BY）；
  * - 消息：先取会话（不存在 / 已删 → NotFound）、user 条 speaker 为 null、
  *   assistant 条派生为会话角色；
+ * - 场景 / 人物状态列表（FR-011 / FR-012）：mock 无存储诚实返回空数组、
+ *   会话不存在 / 已软删 → NotFound；
  * - 发送：检查顺序（先会话后内容）、只回执用户条 + mock 占位回复、FR-007 标题
  *   缺省取首条用户消息截断（generation::default_title：20 字 + 省略号）；
  * - 重新生成：返回被替换的旧条（ipc.rs regenerate_last_impl 契约，前端据以移除）；
@@ -229,6 +231,47 @@ describe('listMessages（ADR-001 读路径）', () => {
       kind: 'notFound',
       entity: 'session',
       id: 12345,
+    });
+  });
+});
+
+describe('listScenes / listCharacterStates（FR-011 / FR-012 读路径）', () => {
+  it('mock 无场景 / 状态存储：在世会话诚实返回空数组（不伪造演示数据）', async () => {
+    const { backend } = await loadMock();
+    expect(await backend.listScenes(1)).toEqual([]);
+    expect(await backend.listCharacterStates(1)).toEqual([]);
+    // 新建会话同样为空（Rust 侧有开场锚行，mock 无 scenes 表——差异仅此一处，语义不破）。
+    const fresh = await backend.createSession(1, null);
+    expect(await backend.listScenes(fresh.id)).toEqual([]);
+    expect(await backend.listCharacterStates(fresh.id)).toEqual([]);
+  });
+
+  it('不存在的会话报 NotFound（对齐 ipc.rs list_scenes_impl / list_character_states_impl）', async () => {
+    const { backend } = await loadMock();
+    expect(await apiErrorOf(backend.listScenes(999))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 999,
+    });
+    expect(await apiErrorOf(backend.listCharacterStates(999))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 999,
+    });
+  });
+
+  it('已软删会话等价不可见（ADR-009）：读场景 / 状态同样报 NotFound', async () => {
+    const { backend } = await loadMock();
+    await backend.deleteSession(3);
+    expect(await apiErrorOf(backend.listScenes(3))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 3,
+    });
+    expect(await apiErrorOf(backend.listCharacterStates(3))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 3,
     });
   });
 });

@@ -17,9 +17,11 @@ import { ApiError } from './errors';
 import * as mock from './mock/backend';
 import type {
   CharacterInput,
+  CharacterStateDto,
   CharacterSummary,
   ChatMessage,
   ConfigDto,
+  SceneDto,
   SessionOpeningInput,
   SessionSummary,
 } from './types';
@@ -62,6 +64,20 @@ export async function deleteSession(sessionId: number): Promise<void> {
 
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
   return isTauri ? unwrap(commands.listMessages(sessionId)) : mock.listMessages(sessionId);
+}
+
+// ---- 场景与人物状态（FR-011 / FR-012 读路径：叙事账本面板数据地基）----
+
+/** 会话内场景（FR-011）：按 idx 升序（叙事顺序）的在世行；会话不存在 / 已软删报 NotFound。 */
+export async function listScenes(sessionId: number): Promise<SceneDto[]> {
+  return isTauri ? unwrap(commands.listScenes(sessionId)) : mock.listScenes(sessionId);
+}
+
+/** 会话内人物状态（FR-012）：按 id 升序的在世行；会话不存在 / 已软删报 NotFound。 */
+export async function listCharacterStates(sessionId: number): Promise<CharacterStateDto[]> {
+  return isTauri
+    ? unwrap(commands.listCharacterStates(sessionId))
+    : mock.listCharacterStates(sessionId);
 }
 
 // ---- 生成（TASK-006 已接线：send / regenerate 走真实生成闭环，进度经事件流推送；

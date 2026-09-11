@@ -5,6 +5,8 @@
     "create_session",
     "delete_session",
     "list_messages",
+    "list_scenes",
+    "list_character_states",
     "send_message",
     "cancel_generation",
     "regenerate_last",

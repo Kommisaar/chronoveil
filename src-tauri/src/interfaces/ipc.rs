@@ -1,6 +1,7 @@
 //! Tauri 命令层（ADR-010 interfaces 层；TASK-005）。
 //!
 //! 命令面（验收 4）：会话列表/创建/软删、消息列表、发送消息、取消生成、重新生成最后一条、
+//! 场景 / 人物状态列表（叙事账本读路径）、
 //! 角色 CRUD（含 avatar）、角色卡单卡导出/导入（Task-04，原生文件对话框）、config.json 读取/保存。
 //!
 //! wire 契约（类型同源，ADR-010）：
@@ -325,6 +326,107 @@ impl From<ConfigDto> for FileConfig {
 }
 
 // ---------------------------------------------------------------------------
+// DTO：场景与人物状态（FR-011 / FR-012 读路径，叙事账本面板数据地基）
+// ---------------------------------------------------------------------------
+
+/// 人物状态 scope（FR-012：state = 随戏状态，relation = 缓演关系；wire 小写）。
+/// 领域 `models::CharacterStateScope` 的库值同为小写字符串，wire 与存储形态一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum CharacterStateScope {
+    State,
+    Relation,
+}
+
+impl From<models::CharacterStateScope> for CharacterStateScope {
+    fn from(scope: models::CharacterStateScope) -> Self {
+        match scope {
+            models::CharacterStateScope::State => CharacterStateScope::State,
+            models::CharacterStateScope::Relation => CharacterStateScope::Relation,
+        }
+    }
+}
+
+/// 场景（FR-011 边界快照行）：`list_scenes` 按 idx 升序（叙事顺序）返回。
+/// 不含 `session_id`（列表已按会话过滤，调用方已知）与 `deleted_at`
+/// （存储层默认滤墓碑，ADR-009）；在世行才会出现在列表里。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneDto {
+    pub id: i64,
+    /// 同会话内单调自增（含墓碑行一并计序），场景顺序即叙事顺序。
+    pub idx: i64,
+    /// 场景地点，可空。
+    pub location: Option<String>,
+    /// 叙事层时间原文（自由书写），可空。
+    pub time_note: Option<String>,
+    /// 记账层：第几天，可空。
+    pub fic_day: Option<i64>,
+    /// 记账层：时段，可空。
+    pub fic_part: Option<String>,
+    /// 虚拟日历命名缓存（FR-013，如「白蜡月·晨露日·夜」），可空。
+    pub date_label: Option<String>,
+    /// 本场一句话（远景压缩单元），可空。
+    pub summary: Option<String>,
+    /// 桥场加厚回顾（Task-03），可空；渲染回退单行 summary。
+    pub recap: Option<String>,
+    /// 在场 character id 数组。
+    pub present: Vec<i64>,
+}
+
+impl From<models::Scene> for SceneDto {
+    fn from(s: models::Scene) -> Self {
+        Self {
+            id: s.id,
+            idx: s.idx,
+            location: s.location,
+            time_note: s.time_note,
+            fic_day: s.fic_day,
+            fic_part: s.fic_part,
+            date_label: s.date_label,
+            summary: s.summary,
+            recap: s.recap,
+            present: s.present,
+        }
+    }
+}
+
+/// 人物状态（FR-012）：会话内「这个角色」的状态 / 关系条目，`list_character_states`
+/// 按 id 升序返回全部在世行。不含 `session_id` / `deleted_at`（同 [`SceneDto`]）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterStateDto {
+    pub id: i64,
+    /// 状态所属角色（状态挂在会话内的角色上，FR-012）。
+    pub character_id: i64,
+    pub scope: CharacterStateScope,
+    /// 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+    pub key: String,
+    /// 叙事语言的值，非数字。
+    pub value: String,
+    /// 过期三义透传（BR-002：scene_end / event:xxx / manual），可空。
+    pub expiry: Option<String>,
+    /// 来源场景 id，可空。
+    pub source_scene: Option<i64>,
+    pub updated_at: i64,
+}
+
+impl From<models::CharacterState> for CharacterStateDto {
+    fn from(s: models::CharacterState) -> Self {
+        Self {
+            id: s.id,
+            character_id: s.character_id,
+            scope: CharacterStateScope::from(s.scope),
+            key: s.key,
+            value: s.value,
+            expiry: s.expiry,
+            source_scene: s.source_scene,
+            updated_at: s.updated_at,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 命令实现（薄壳：State 解包后走 *_impl，便于不起 Tauri 运行时直接测试）
 // ---------------------------------------------------------------------------
 
@@ -337,6 +439,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             create_session,
             delete_session,
             list_messages,
+            list_scenes,
+            list_character_states,
             send_message,
             cancel_generation,
             regenerate_last,
@@ -537,6 +641,52 @@ pub fn list_messages(
     session_id: i64,
 ) -> Result<Vec<ChatMessage>, IpcError> {
     list_messages_impl(&state, session_id)
+}
+
+// ---- 场景与人物状态（FR-011 / FR-012 读路径：叙事账本面板数据地基）----
+
+fn list_scenes_impl(app: &AppState, session_id: i64) -> Result<Vec<SceneDto>, IpcError> {
+    // 先校验会话在世（不存在 / 已软删报 NotFound，与 list_messages_impl 同语义），
+    // 再走存储端口；列表默认滤墓碑、按 idx 升序（infra/storage/scenes.rs）。
+    app.storage.get_session(session_id)?;
+    Ok(app
+        .storage
+        .list_scenes(session_id)?
+        .into_iter()
+        .map(SceneDto::from)
+        .collect())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_scenes(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> Result<Vec<SceneDto>, IpcError> {
+    list_scenes_impl(&state, session_id)
+}
+
+fn list_character_states_impl(
+    app: &AppState,
+    session_id: i64,
+) -> Result<Vec<CharacterStateDto>, IpcError> {
+    // 同上：先会话在世校验，再读端口；按 id 升序（infra/storage/character_states.rs）。
+    app.storage.get_session(session_id)?;
+    Ok(app
+        .storage
+        .list_character_states(session_id)?
+        .into_iter()
+        .map(CharacterStateDto::from)
+        .collect())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_character_states(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> Result<Vec<CharacterStateDto>, IpcError> {
+    list_character_states_impl(&state, session_id)
 }
 
 // ---- 生成（TASK-006 闭环接线：FR-001 / FR-007 / FR-008 / SEQ-001）----
@@ -996,6 +1146,67 @@ mod tests {
     }
 
     #[test]
+    fn scene_dto_serializes_camel_case_without_session_or_tombstone() {
+        let dto = SceneDto::from(models::Scene {
+            id: 7,
+            session_id: 3,
+            idx: 2,
+            location: Some("旧都 · 灯市".into()),
+            time_note: Some("入夜后一刻".into()),
+            fic_day: Some(45),
+            fic_part: Some("夜".into()),
+            date_label: Some("白蜡月·晨露日·夜（灯节）".into()),
+            summary: Some("灯市口的一场相逢".into()),
+            recap: None,
+            present: vec![1, 5],
+            deleted_at: None,
+        });
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "id": 7, "idx": 2,
+                "location": "旧都 · 灯市", "timeNote": "入夜后一刻",
+                "ficDay": 45, "ficPart": "夜",
+                "dateLabel": "白蜡月·晨露日·夜（灯节）",
+                "summary": "灯市口的一场相逢", "recap": null,
+                "present": [1, 5],
+            })
+        );
+        assert!(json.get("sessionId").is_none(), "列表已按会话过滤，不重复携带 sessionId");
+        assert!(json.get("deletedAt").is_none(), "存储层滤墓碑，wire 不带 deletedAt");
+    }
+
+    #[test]
+    fn character_state_dto_serializes_camel_case_with_scope() {
+        let to_json = |scope| {
+            serde_json::to_value(CharacterStateDto::from(models::CharacterState {
+                id: 9,
+                character_id: 5,
+                session_id: 3,
+                scope,
+                key: "情绪".into(),
+                value: "强撑镇定".into(),
+                expiry: Some("scene_end".into()),
+                source_scene: Some(2),
+                updated_at: 84,
+                deleted_at: None,
+            }))
+            .unwrap()
+        };
+        let json = to_json(models::CharacterStateScope::State);
+        assert_eq!(json["scope"], "state", "scope wire 小写（state | relation）");
+        assert_eq!(json["characterId"], 5);
+        assert_eq!(json["sourceScene"], 2);
+        assert_eq!(json["expiry"], "scene_end");
+        assert_eq!(json["updatedAt"], 84);
+        assert!(json.get("sessionId").is_none(), "同 SceneDto：不重复携带 sessionId");
+
+        let relation = to_json(models::CharacterStateScope::Relation);
+        assert_eq!(relation["scope"], "relation");
+    }
+
+    #[test]
     fn ipc_error_is_serializable_and_typed_by_kind() {
         let e = IpcError::from(crate::domain::error::StorageError::NotFound {
             entity: "session",
@@ -1195,6 +1406,115 @@ mod tests {
 
         assert!(matches!(
             list_messages_impl(&app, 12345),
+            Err(IpcError::NotFound { .. })
+        ));
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- 场景与人物状态列表（FR-011 / FR-012 读路径）----
+
+    #[test]
+    fn scene_and_state_list_commands_check_session_and_order() {
+        let (app, dir) = temp_state("scenes_states");
+        let character = sample_character(&app, "苏鸢");
+        let session = app
+            .storage
+            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .unwrap();
+
+        // 开场锚行无条件存在（FR-014 §7-6）：场景列表按 idx 升序返回在世行。
+        let listed = list_scenes_impl(&app, session.id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].idx, 0);
+        assert_eq!(listed[0].present, vec![character.id]);
+
+        // 再落两行（idx 单调自增），列表按叙事顺序返回、字段逐一映射。
+        app.storage
+            .insert_scene(&models::NewScene {
+                session_id: session.id,
+                location: Some("灯市".into()),
+                time_note: None,
+                fic_day: Some(45),
+                fic_part: Some("夜".into()),
+                date_label: Some("白蜡月·晨露日·夜（灯节）".into()),
+                summary: None,
+                recap: None,
+                present: vec![character.id],
+            })
+            .unwrap();
+        app.storage
+            .insert_scene(&models::NewScene {
+                session_id: session.id,
+                location: None,
+                time_note: Some("次日清晨".into()),
+                fic_day: Some(46),
+                fic_part: Some("清晨".into()),
+                date_label: None,
+                summary: Some("码头启程".into()),
+                recap: None,
+                present: Vec::new(),
+            })
+            .unwrap();
+        let listed = list_scenes_impl(&app, session.id).unwrap();
+        assert_eq!(listed.iter().map(|s| s.idx).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(listed[1].location.as_deref(), Some("灯市"));
+        assert_eq!(listed[1].date_label.as_deref(), Some("白蜡月·晨露日·夜（灯节）"));
+        assert_eq!(listed[2].summary.as_deref(), Some("码头启程"));
+        assert!(listed[2].present.is_empty(), "空在场数组原样透传");
+
+        // 人物状态：空会话返回空数组；upsert 后按 id 升序，scope wire 映射正确。
+        assert!(list_character_states_impl(&app, session.id).unwrap().is_empty());
+        let first = app
+            .storage
+            .upsert_character_state(&models::NewCharacterState {
+                character_id: character.id,
+                session_id: session.id,
+                scope: models::CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "强撑镇定".into(),
+                expiry: Some("scene_end".into()),
+                source_scene: Some(listed[1].id),
+            })
+            .unwrap();
+        app.storage
+            .upsert_character_state(&models::NewCharacterState {
+                character_id: character.id,
+                session_id: session.id,
+                scope: models::CharacterStateScope::Relation,
+                key: "对织灯人的态度".into(),
+                value: "戒备渐消".into(),
+                expiry: None,
+                source_scene: None,
+            })
+            .unwrap();
+        let states = list_character_states_impl(&app, session.id).unwrap();
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].id, first.id);
+        assert_eq!(states[0].scope, CharacterStateScope::State);
+        assert_eq!(states[0].source_scene, Some(listed[1].id));
+        assert_eq!(states[1].scope, CharacterStateScope::Relation);
+
+        // 软删状态不进读路径（ADR-009 墓碑过滤属存储层职责，读端不重复实现）。
+        app.storage.soft_delete_character_state(states[1].id).unwrap();
+        assert_eq!(list_character_states_impl(&app, session.id).unwrap().len(), 1);
+
+        // 不存在 / 已软删会话 → NotFound（与 list_messages_impl 同语义，非空列表）。
+        delete_session_impl(&app, session.id).unwrap();
+        assert!(matches!(
+            list_scenes_impl(&app, session.id),
+            Err(IpcError::NotFound { .. })
+        ));
+        assert!(matches!(
+            list_character_states_impl(&app, session.id),
+            Err(IpcError::NotFound { .. })
+        ));
+        assert!(matches!(
+            list_scenes_impl(&app, 999_999),
+            Err(IpcError::NotFound { .. })
+        ));
+        assert!(matches!(
+            list_character_states_impl(&app, 999_999),
             Err(IpcError::NotFound { .. })
         ));
         drop(app);
@@ -1543,6 +1863,7 @@ mod tests {
         let content = std::fs::read_to_string(&out).unwrap();
         for cmd in [
             "listSessions", "createSession", "deleteSession", "listMessages",
+            "listScenes", "listCharacterStates",
             "sendMessage", "cancelGeneration", "regenerateLast",
             "listCharacters", "createCharacter", "updateCharacter", "deleteCharacter",
             "exportCharacter", "importCharacter",

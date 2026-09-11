@@ -38,6 +38,22 @@ async listMessages(sessionId: number) : Promise<Result<ChatMessage[], IpcError>>
     else return { status: "error", error: e  as any };
 }
 },
+async listScenes(sessionId: number) : Promise<Result<SceneDto[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_scenes", { sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listCharacterStates(sessionId: number) : Promise<Result<CharacterStateDto[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_character_states", { sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async sendMessage(sessionId: number, content: string) : Promise<Result<ChatMessage, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_message", { sessionId, content }) };
@@ -214,6 +230,36 @@ accentColor: string | null;
  */
 voiceConfig: string | null }
 /**
+ * 人物状态（FR-012）：会话内「这个角色」的状态 / 关系条目，`list_character_states`
+ * 按 id 升序返回全部在世行。不含 `session_id` / `deleted_at`（同 [`SceneDto`]）。
+ */
+export type CharacterStateDto = { id: number; 
+/**
+ * 状态所属角色（状态挂在会话内的角色上，FR-012）。
+ */
+characterId: number; scope: CharacterStateScope; 
+/**
+ * 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+ */
+key: string; 
+/**
+ * 叙事语言的值，非数字。
+ */
+value: string; 
+/**
+ * 过期三义透传（BR-002：scene_end / event:xxx / manual），可空。
+ */
+expiry: string | null; 
+/**
+ * 来源场景 id，可空。
+ */
+sourceScene: number | null; updatedAt: number }
+/**
+ * 人物状态 scope（FR-012：state = 随戏状态，relation = 缓演关系；wire 小写）。
+ * 领域 `models::CharacterStateScope` 的库值同为小写字符串，wire 与存储形态一致。
+ */
+export type CharacterStateScope = "state" | "relation"
+/**
  * 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
  * 
  * TASK-008 起 `persona` / `model_config` 随列表返回：编辑表单点选即载入全量
@@ -345,6 +391,48 @@ export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: s
  * 该服务可用的模型名列表；至少一个才能用于生成。
  */
 models: string[] }
+/**
+ * 场景（FR-011 边界快照行）：`list_scenes` 按 idx 升序（叙事顺序）返回。
+ * 不含 `session_id`（列表已按会话过滤，调用方已知）与 `deleted_at`
+ * （存储层默认滤墓碑，ADR-009）；在世行才会出现在列表里。
+ */
+export type SceneDto = { id: number; 
+/**
+ * 同会话内单调自增（含墓碑行一并计序），场景顺序即叙事顺序。
+ */
+idx: number; 
+/**
+ * 场景地点，可空。
+ */
+location: string | null; 
+/**
+ * 叙事层时间原文（自由书写），可空。
+ */
+timeNote: string | null; 
+/**
+ * 记账层：第几天，可空。
+ */
+ficDay: number | null; 
+/**
+ * 记账层：时段，可空。
+ */
+ficPart: string | null; 
+/**
+ * 虚拟日历命名缓存（FR-013，如「白蜡月·晨露日·夜」），可空。
+ */
+dateLabel: string | null; 
+/**
+ * 本场一句话（远景压缩单元），可空。
+ */
+summary: string | null; 
+/**
+ * 桥场加厚回顾（Task-03），可空；渲染回退单行 summary。
+ */
+recap: string | null; 
+/**
+ * 在场 character id 数组。
+ */
+present: number[] }
 /**
  * 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
  * seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。

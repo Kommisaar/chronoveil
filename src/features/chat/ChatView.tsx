@@ -195,8 +195,9 @@ const useStyles = makeStyles({
  * - 场景线 ✦ 挖空底必须与所在表面背景一致：聊天表面是 AppShell content 的
  *   colorNeutralBackground1，暗色主题下 demo 的 #141822 本就是错色矩形；
  * - ✦ 记号色随 UI 次级前景；
- * - 线体 / 动作 / 加粗 / decode 等文字色暂不覆写（亮色对比度评估见 engine.css
- *   变量段注释），保持 demo 观感零回归。
+ * - 线体 / 动作 / 加粗 / decode 等文字色无需在此覆写：引擎已按所在表面明暗
+ *   自适应注入亮/暗两套语法配色（src/engine/theme.ts 双主题调色板，亮色
+ *   对比度达 AA），features 侧零改动。
  */
 const engineThemeVars = {
   '--cv-scene-line-bg': tokens.colorNeutralBackground1,

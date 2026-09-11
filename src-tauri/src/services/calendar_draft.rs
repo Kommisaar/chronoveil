@@ -389,7 +389,8 @@ mod tests {
     fn scripted_server(script: Vec<String>) -> (MockServer, Arc<Mutex<Vec<MockRequest>>>) {
         let queue = Arc::new(Mutex::new(script));
         let captured: Arc<Mutex<Vec<MockRequest>>> = Arc::new(Mutex::new(Vec::new()));
-        let (queue_clone, cap_clone) = (queue.clone(), captured.clone());
+        // 队列原件直接被闭包捕获使用，无需 clone；只 clone 快照表进闭包。
+        let cap_clone = captured.clone();
         let server = MockServer::start(move |req, stream| {
             cap_clone.lock().unwrap().push(req.clone());
             let next = queue.lock().unwrap().remove(0);

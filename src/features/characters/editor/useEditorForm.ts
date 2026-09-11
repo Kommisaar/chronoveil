@@ -150,10 +150,11 @@ export interface EditorForm {
   applyCalendar: (config: CalendarConfigDto) => void;
   canSave: boolean;
   /**
-   * 整卡输入。历法按契约以 wire DTO 携带（与 SessionOpeningInput.calendar 同构）：
-   * CharacterInput 此刻尚无该字段（Rust/DTO 接线任务未落地，serde 忽略未知键），
-   * 故以「CharacterInput + 显式多余属性」的交叉类型如实表达——接线落地后
-   * CharacterInput 自带该字段，交叉自然收敛，本接口无需再改。
+   * 整卡输入。历法按契约以 wire DTO 携带：以「CharacterInput + 可选
+   * calendarConfig」的交叉类型表达前端契约，由 src/api/commands 归一层并进
+   * UpdateCharacterInput（Rust interfaces/ipc.rs，缺键归一为 null = 清除历法，
+   * 随整卡 update_character 落库）——字段不进 CharacterInput，此交叉类型即
+   * 最终形态，无需后续收敛。
    */
   buildInput: () => CharacterInput & { calendarConfig: CalendarConfigDto | null };
   /** 预览演出渲染容器（引擎惰性创建，卸载即 cancel）。 */

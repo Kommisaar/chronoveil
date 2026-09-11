@@ -30,6 +30,20 @@ async deleteSession(sessionId: number) : Promise<Result<null, IpcError>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给前端审阅后
+ * 由用户走既有保存路径（本命令**不做持久化、不自动应用**）。单次调用、前端
+ * 弹窗等待——不走生成注册表（无会话互斥语义）也不流式；cancel 通道本切片
+ * 暂无触发方（UI 取消按钮属后续切片），此处预留打断缝。
+ */
+async draftCalendar(description: string) : Promise<Result<CalendarConfigDto, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("draft_calendar", { description }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listMessages(sessionId: number) : Promise<Result<ChatMessage[], IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_messages", { sessionId }) };

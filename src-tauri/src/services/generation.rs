@@ -366,6 +366,9 @@ async fn generate_once(
     let session = deps.storage.get_session(session_id)?;
     let character = deps.storage.get_character(session.character_id)?;
     let history = deps.storage.list_messages(session_id)?;
+    // ADR-004 场景对齐装配的输入半：场景行供远景编年史 + 近景切分参照（无行为空，
+    // 旧数据会话自动退化为纯字符预算窗口）。
+    let scenes = deps.storage.list_scenes(session_id)?;
     // OQ-006 / FR-008「以相同上文重新发起生成」+ SEQ-001「重发 = 整条重来」：
     // 重新生成（含断流重试的整条替换语义）时，被替换的最后一条 assistant（旧整条
     // 或中断半条）不得进 prompt 上下文——按 id 剔除后再装配，使请求以 user 条结尾，
@@ -380,7 +383,7 @@ async fn generate_once(
     } else {
         history
     };
-    let messages = super::prompt::assemble(&character, &history);
+    let messages = super::prompt::assemble(&character, &scenes, &history);
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
     let ids = MessageIds { session_id, message_id };

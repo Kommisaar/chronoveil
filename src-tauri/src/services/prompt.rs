@@ -1,16 +1,18 @@
 //! Prompt 装配（TASK-006 / FR-001 / FR-003 / FR-012 / ADR-004）：纯函数，可单测，不做 IO。
 //!
 //! ADR-004 场景对齐装配（§7.8 近景/远景，替换 ADR-002 条数滑窗）：
-//! - system = 常驻核心四段（各段空态自然省略；全空时不产生 system 回合）：
+//! - system = 常驻核心五段（各段空态自然省略；全空时不产生 system 回合）：
 //!   1. 人设卡 persona（BR-001「在场完整人设」的 v1 单角色形态）；
 //!   2. 当前虚时行「当前时间：…」（BR-003 记账层的读者侧投影）：最新场景行的
 //!      记账位 + 会话日历快照（FR-013），让角色知道「现在是什么时间」；
 //!   3. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
 //!      一句话摘要中可用的字段），拼在 persona 之后；persona 为空时 system 只含
-//!      其余三段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
+//!      其余四段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
 //!      recap（两三句加厚回顾）时追加一行缩进回顾，无 recap 回退单行，更古老的
 //!      场恒一行；
-//!   4. 人物状态快照（FR-012）：character_state 按 scope 分「当前状态」/「关系」
+//!   4. 相关回忆（卷宗，Task-05 记忆探索器产出）：探索器查证出的与本回合直接
+//!      相关的往事引文与事实（services/explorer.rs）；None / 空白省略；
+//!   5. 人物状态快照（FR-012）：character_state 按 scope 分「当前状态」/「关系」
 //!      两组渲染，让角色知道自己当前的状态；expiry 是给结算的清算线索，不进
 //!      叙事快照（给模型的永远是「现在成立的事实」）；
 //! - 近景 = 最近 N 个已结算场景的整场逐字消息 + 进行中场景全量（窗口数学见
@@ -44,14 +46,18 @@ pub struct AssembleInputs<'a> {
     pub history: &'a [Message],
     pub calendar: &'a CalendarConfig,
     pub states: &'a [CharacterState],
+    /// 相关回忆卷宗（Task-05）：探索器（services/explorer.rs）判定本回合需要往事
+    /// 事实时产出的一段引文/事实，注入 system 第四段；None / 空白 = 无卷宗，段落
+    /// 自然省略（system 退回四段形态，Task-02 行为不变）。
+    pub dossier: Option<&'a str>,
 }
 
-/// 装配一次聊天的完整 messages：system(persona + 当前虚时 + 远景编年史 + 人物状态
-/// 快照) + 近景上下文。persona 为空白时跳过 persona（角色卡允许空人设）；四段全空
-/// 时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前的旧数据会话）
-/// 时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
+/// 装配一次聊天的完整 messages：system(persona + 当前虚时 + 远景编年史 + 相关回忆
+/// 卷宗 + 人物状态快照) + 近景上下文。persona 为空白时跳过 persona（角色卡允许空
+/// 人设）；五段全空时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前
+/// 的旧数据会话）时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
 pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
-    let AssembleInputs { character, scenes, history, calendar, states } = input;
+    let AssembleInputs { character, scenes, history, calendar, states, dossier } = input;
     // 无场景行 = 旧数据：不做场景切分，整段历史视为进行中场走预算兜底。
     let spans = if scenes.is_empty() {
         SceneSpans {
@@ -68,8 +74,8 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     );
 
     let mut out = Vec::new();
-    // system 常驻核心四段（顺序固定）：persona → 当前虚时行 → 远景编年史 →
-    // 人物状态快照；各段空态自然省略，段间空行分隔。
+    // system 常驻核心五段（顺序固定）：persona → 当前虚时行 → 远景编年史 →
+    // 相关回忆（卷宗）→ 人物状态快照；各段空态自然省略，段间空行分隔。
     let mut sections: Vec<String> = Vec::new();
     let persona = character.persona.trim();
     if !persona.is_empty() {
@@ -81,6 +87,11 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     let chronicle = chronicle_block(scenes, near.kept_settled);
     if !chronicle.is_empty() {
         sections.push(chronicle);
+    }
+    // Task-05 卷宗段：编年史（一行流）与人物状态（现在的事实）之间的第五视角——
+    // 「本回合按需查证的往事引文」；空白视为无卷宗，不注入空段。
+    if let Some(dossier) = dossier.map(str::trim).filter(|text| !text.is_empty()) {
+        sections.push(format!("【相关回忆】\n{dossier}"));
     }
     sections.extend(state_snapshot_sections(states));
     if !sections.is_empty() {
@@ -99,7 +110,8 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
 /// 按场景线把历史切成场景分段（模块注释：与结算归属同一切界）。
 /// 末条含场景线的连续段 = 已收束场（含触发行本身），其后直到下一道场景线；
 /// 最后一道场景线之后（或全程无场景线时）为进行中场。
-fn split_into_scene_spans(history: &[Message]) -> SceneSpans<'_> {
+/// Task-05 起探索器 read_scene 复用本切分（pub(super)，同一场景线知识不出 services）。
+pub(super) fn split_into_scene_spans(history: &[Message]) -> SceneSpans<'_> {
     let mut closed = Vec::new();
     let mut start = 0;
     for (index, message) in history.iter().enumerate() {
@@ -218,6 +230,7 @@ mod tests {
             history,
             calendar: &DEFAULT_CALENDAR,
             states: &[],
+            dossier: None,
         })
     }
 
@@ -605,6 +618,7 @@ mod tests {
             history: &multi_scene_history(),
             calendar: &calendar,
             states: &states,
+            dossier: None,
         });
 
         assert_eq!(messages[0].role, ChatRole::System);
@@ -658,6 +672,7 @@ mod tests {
             history: &multi_scene_history(),
             calendar: &calendar,
             states: &[],
+            dossier: None,
         });
 
         let system = &messages[0].content;
@@ -684,6 +699,7 @@ mod tests {
             history: &history,
             calendar: &calendar,
             states: &[],
+            dossier: None,
         });
         assert_eq!(
             messages[0].content,
@@ -707,6 +723,7 @@ mod tests {
             history: &history,
             calendar: &DEFAULT_CALENDAR,
             states: &[],
+            dossier: None,
         });
         assert_eq!(
             messages[0].content,
@@ -731,6 +748,7 @@ mod tests {
             history: &history,
             calendar: &calendar,
             states: &[],
+            dossier: None,
         });
         assert_eq!(
             messages[0].content, "人设",
@@ -750,6 +768,7 @@ mod tests {
             history: &multi_scene_history(),
             calendar: &calendar,
             states: &[],
+            dossier: None,
         });
         assert!(
             !messages[0].content.contains("当前时间"),
@@ -779,6 +798,7 @@ mod tests {
             history: &history,
             calendar: &calendar,
             states: &states,
+            dossier: None,
         });
         assert_eq!(
             messages[0].content,
@@ -794,6 +814,7 @@ mod tests {
             history: &history,
             calendar: &calendar,
             states: &[],
+            dossier: None,
         });
         assert_eq!(messages[0].content, "人设", "状态全空整段省略");
     }
@@ -860,5 +881,64 @@ mod tests {
             "更早的场（锚行）即使有 recap 也保持单行：{system}"
         );
         assert!(system.contains("场一摘要"), "锚行单行原样保留");
+    }
+
+    // ---- Task-05：相关回忆（卷宗）第五段 ----
+
+    /// 卷宗注入：system 五段形态 persona → 虚时 → 编年史 → 相关回忆 → 状态，
+    /// 段标题措辞与既有【往事编年史】/【当前状态】同系；卷宗正文原样进入段落。
+    #[test]
+    fn dossier_renders_between_chronicle_and_states() {
+        let c = character("人设");
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &multi_scene_rows(),
+            history: &multi_scene_history(),
+            calendar: &DEFAULT_CALENDAR,
+            states: &[state(CharacterStateScope::State, "情绪", "释然", None)],
+            dossier: Some("场0：两人曾在钟楼下分食一块饼，并把信物埋在树下。"),
+        });
+
+        let system = &messages[0].content;
+        let persona_at = system.find("人设").unwrap();
+        let time_at = system.find("当前时间：").unwrap();
+        let chronicle_at = system.find("【往事编年史】").unwrap();
+        let memory_at = system.find("【相关回忆】").unwrap();
+        let state_at = system.find("【当前状态】").unwrap();
+        assert!(
+            persona_at < time_at
+                && time_at < chronicle_at
+                && chronicle_at < memory_at
+                && memory_at < state_at,
+            "五段顺序单调递增：{system}"
+        );
+        assert!(
+            system.contains("【相关回忆】\n场0：两人曾在钟楼下分食一块饼，并把信物埋在树下。"),
+            "卷宗正文原样注入：{system}"
+        );
+    }
+
+    /// 卷宗空态省略：None / 纯空白都不产生【相关回忆】段（system 退回四段形态，
+    /// Task-02 及之前的既有测试全部走 None 路径，语义不变）。
+    #[test]
+    fn blank_or_missing_dossier_omits_section() {
+        let c = character("人设");
+        let states = vec![state(CharacterStateScope::State, "情绪", "释然", None)];
+        for dossier in [None, Some("   \n\t  ")] {
+            let messages = assemble(&AssembleInputs {
+                character: &c,
+                scenes: &multi_scene_rows(),
+                history: &multi_scene_history(),
+                calendar: &DEFAULT_CALENDAR,
+                states: &states,
+                dossier,
+            });
+            let system = &messages[0].content;
+            assert!(!system.contains("【相关回忆】"), "无卷宗不产生空段：{system}");
+            assert!(
+                system.find("【往事编年史】").unwrap() < system.find("【当前状态】").unwrap(),
+                "省略后四段形态不变：{system}"
+            );
+        }
     }
 }

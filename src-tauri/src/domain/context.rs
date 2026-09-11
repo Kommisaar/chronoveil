@@ -85,7 +85,8 @@ pub fn near_view<'a>(
 
 /// 头截断（丢最旧消息）：从最新条往旧累加字符，超过余量即停。最新一条无条件
 /// 保留——预算极小也不产生空上下文（生成请求至少要带上最新一轮对话）。
-fn truncate_head(messages: &[Message], budget: usize) -> &[Message] {
+/// Task-05 起探索器 read_scene 的超长场截断复用本函数（pub(crate)，同款语义）。
+pub(crate) fn truncate_head(messages: &[Message], budget: usize) -> &[Message] {
     let mut total = 0usize;
     let mut start = messages.len();
     for (index, message) in messages.iter().enumerate().rev() {

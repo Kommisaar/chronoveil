@@ -2,5 +2,6 @@
 
 pub mod character_io;
 pub mod director;
+pub mod explorer;
 pub mod generation;
 pub mod prompt;

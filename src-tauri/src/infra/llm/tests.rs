@@ -715,3 +715,98 @@ async fn complete_with_tools_retries_retryable_failure() {
     assert_eq!(turn, ToolLoopTurn::Content("重试后正文".into()));
     assert_eq!(server.connection_count(), 2, "5xx 应整条重发一次");
 }
+
+// ---------------------------------------------------------------------------
+// 上轮 review 的 LOW 跟进（Task-05 顺手加固）：重试耗尽终态、content/tool_calls
+// 并存优先级、tool_choice 嵌套随附条件（含空工具切片下线）。
+// ---------------------------------------------------------------------------
+
+/// LOW 1：complete_with_tools 重试耗尽 → Err（持续 5xx + retry_policy(1) = 恰好 2 次连接，
+/// 错误可判别为 Status{500}）——工具回路没有事件面，最终失败只能以 Err 交给调用方。
+#[tokio::test]
+async fn complete_with_tools_retries_exhausted_returns_err() {
+    let server = MockServer::start(move |_req, stream| {
+        let _ = status_head(stream, 500, "Internal Server Error");
+    });
+    let (_signal, _cancel) = cancel_channel();
+    let error = client(&server.url(), retry_policy(1))
+        .complete_with_tools(&messages(), &[memory_tool()])
+        .await
+        .expect_err("持续 5xx 重试耗尽应失败");
+    assert!(
+        matches!(error, LlmError::Status { status: 500, .. }),
+        "错误可判别：{error:?}"
+    );
+    assert_eq!(server.connection_count(), 2, "1 次重试 = 共 2 次尝试");
+}
+
+/// LOW 2：content 与 tool_calls 并存 → 优先 ToolCalls（content 不混入返回值）——
+/// OpenAI 兼容语义：带 tool_calls 的 assistant 消息 content 通常为空或仅有陪跑文本，
+/// 回路以 tool_calls 为准，content 丢弃。
+#[tokio::test]
+async fn content_alongside_tool_calls_prefers_tool_calls() {
+    let body = concat!(
+        r#"{"choices":[{"message":{"role":"assistant","content":"陪跑正文","#,
+        r#""tool_calls":[{"id":"call_x","type":"function","#,
+        r#""function":{"name":"search_memory","arguments":"{\"query\":\"信物\"}"}}]}}]}"#
+    );
+    let server = MockServer::start(move |_req, stream| {
+        let _ = json_raw_body(stream, body);
+    });
+    let (_signal, _cancel) = cancel_channel();
+    let turn = client(&server.url(), retry_policy(0))
+        .complete_with_tools(&messages(), &[memory_tool()])
+        .await
+        .expect("并存形态应解析成功");
+    match turn {
+        ToolLoopTurn::ToolCalls(calls) => {
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].id, "call_x");
+            assert_eq!(calls[0].name, "search_memory");
+        }
+        other => panic!("并存时优先 ToolCalls：{other:?}"),
+    }
+}
+
+/// LOW 3：tool_choice 的嵌套随附条件（构造层现状）——`tool_choice` 只在 `tools`
+/// 存在时才可能随附（chat_request_with_options 的嵌套 if），complete_with_tools
+/// 不暴露 tool_choice → 请求体恒无该键；空工具切片视同未提供（无 tools 键，
+/// 顶层键集合与无工具请求一致）。
+#[tokio::test]
+async fn tool_choice_never_rides_without_tools_and_empty_slice_omits_tools() {
+    // 空工具切片：tools / tool_choice 都不发，顶层恰好 model / messages / stream 三键。
+    let captured: Arc<Mutex<Option<MockRequest>>> = Arc::new(Mutex::new(None));
+    let cap = captured.clone();
+    let empty = MockServer::start(move |req, stream| {
+        *cap.lock().unwrap() = Some(req.clone());
+        let _ = json_body(stream, "收尾正文");
+    });
+    let (_signal, _cancel) = cancel_channel();
+    let turn = client(&empty.url(), retry_policy(0))
+        .complete_with_tools(&messages(), &[])
+        .await
+        .expect("空工具切片应等同无工具请求");
+    assert_eq!(turn, ToolLoopTurn::Content("收尾正文".into()));
+    let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
+    let top = body.as_object().unwrap();
+    assert_eq!(top.len(), 3, "顶层键集合与无工具请求一致：{top:?}");
+    assert!(body.get("tools").is_none(), "空切片不得发空 tools 数组");
+    assert!(body.get("tool_choice").is_none(), "无 tools 时 tool_choice 恒不随附");
+
+    // 对照：提供工具时 tools 随附，但未显式提供 tool_choice 仍不携带（嵌套条件的
+    // 外层成立、内层不成立 → 键缺省不发）。
+    let captured: Arc<Mutex<Option<MockRequest>>> = Arc::new(Mutex::new(None));
+    let cap = captured.clone();
+    let with_tools = MockServer::start(move |req, stream| {
+        *cap.lock().unwrap() = Some(req.clone());
+        let _ = json_body(stream, "正文");
+    });
+    let turn = client(&with_tools.url(), retry_policy(0))
+        .complete_with_tools(&messages(), &[memory_tool()])
+        .await
+        .expect("带工具请求应成功");
+    assert!(matches!(turn, ToolLoopTurn::Content(_)));
+    let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
+    assert!(body["tools"].as_array().is_some(), "提供工具时 tools 随附");
+    assert!(body.get("tool_choice").is_none(), "构造层未暴露 tool_choice，恒不携带");
+}

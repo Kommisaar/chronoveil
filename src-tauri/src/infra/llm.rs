@@ -384,6 +384,7 @@ impl LlmClient {
 
     /// 请求构造的完整形态：`tools`（与可选 `tool_choice`）仅在提供时进入请求体，
     /// 未提供时 wire 形态与 `chat_request` 完全一致（OpenAI 兼容可选字段缺省不发）。
+    /// 空工具切片视同未提供（Task-05 探索器收尾轮「不再带 tools」的干净下线路径）。
     fn chat_request_with_options(
         &self,
         messages: &[ChatMessage],
@@ -392,7 +393,7 @@ impl LlmClient {
         tool_choice: Option<&str>,
     ) -> reqwest::RequestBuilder {
         let mut payload = self.chat_payload(messages, stream);
-        if let Some(specs) = tools {
+        if let Some(specs) = tools.filter(|specs| !specs.is_empty()) {
             payload["tools"] =
                 serde_json::Value::Array(specs.iter().map(tool_spec_wire).collect());
             if let Some(choice) = tool_choice {

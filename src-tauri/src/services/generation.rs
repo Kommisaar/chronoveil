@@ -388,12 +388,32 @@ async fn generate_once(
     } else {
         history
     };
+    // Task-05 记忆探索（切片 C）：主对话装配前，由带工具的一次 LLM 调用自主决定是否
+    // 检索历史、查什么、查多深，产出卷宗注入 system【相关回忆】段。探索器是锦上添花
+    // ——任何失败（网络 / 协议 / 取消）都在 explore 内降级为 None，主对话照常生成，
+    // 不阻塞不报事件（静默 + eprintln 留痕）。regenerate 路径同样执行：卷宗不落库、
+    // 无法跨次复用，重跑一档探索成本可接受（硬约束：失败降级，见 explorer.rs）。
+    // 抽针 = 过滤后历史的最后一条 user（无 user 消息 = 无从判断指涉，跳过探索）。
+    let dossier = match history.iter().rev().find(|m| m.role == MessageRole::User) {
+        Some(latest_user) => {
+            super::explorer::explore(
+                deps.storage.as_ref(),
+                deps.llm.as_ref(),
+                session_id,
+                &latest_user.content,
+                ticket.cancel_handle(),
+            )
+            .await
+        }
+        None => None,
+    };
     let messages = super::prompt::assemble(&super::prompt::AssembleInputs {
         character: &character,
         scenes: &scenes,
         history: &history,
         calendar: &calendar,
         states: &states,
+        dossier: dossier.as_deref(),
     });
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
@@ -497,7 +517,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewCharacter, NewSession};
     use crate::infra::config::ProviderConfig;
-    use crate::infra::llm::mock::{delta_json, json_body, status_head, MockServer, sse_data, sse_head};
+    use crate::infra::llm::mock::{delta_json, json_body, json_raw_body, status_head, MockServer, sse_data, sse_head};
     use crate::infra::storage::test_support::temp_storage;
     use crate::infra::storage::Storage;
     use std::io::Write;
@@ -879,7 +899,13 @@ mod tests {
             .unwrap();
 
         // 流写出半条后挂住不结束（连接保持打开），等客户端取消。
-        let server = MockServer::start(|_req, stream| {
+        // Task-05 起探索器（非流式 tools 请求）先打到本 mock：立即 500 让其降级返回，
+        // 不让顺序处理的 mock 线程挂在聊天脚本上（聊天连接才能被受理）。
+        let server = MockServer::start(|req, stream| {
+            if req.json().get("tools").is_some() {
+                let _ = status_head(stream, 500, "Internal Server Error");
+                return;
+            }
             let _ = sse_head(stream);
             let _ = stream.write_all(sse_data(&delta_json(Some("很久很久"), None)).as_bytes());
             let _ = std::io::Write::flush(stream);
@@ -973,6 +999,7 @@ mod tests {
     }
 
     /// OQ-006 / FR-008 断言辅助：捕获网关收到的请求体（messages 转成 (role, content) 列表）。
+    /// Task-05 起探索器的非流式 tools 请求也打到同一 mock，主对话请求按 stream:true 挑选。
     type CapturedRequests = Arc<std::sync::Mutex<Vec<serde_json::Value>>>;
 
     fn capture_server(captured: CapturedRequests, script: impl Fn(&mut std::net::TcpStream) + Send + Sync + 'static) -> MockServer {
@@ -983,7 +1010,14 @@ mod tests {
     }
 
     fn request_messages(captured: &CapturedRequests) -> Vec<(String, String)> {
-        captured.lock().unwrap()[0]["messages"]
+        let chat = captured
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|body| body["stream"] == serde_json::Value::Bool(true))
+            .expect("应捕获到主对话流式请求")
+            .clone();
+        chat["messages"]
             .as_array()
             .unwrap()
             .iter()
@@ -1248,6 +1282,271 @@ mod tests {
             events.last(),
             Some((LlmEvent::Error { interrupted: false, .. }, 0, _))
         ));
+    }
+
+    // ---- Task-05：记忆探索接线（失败降级不阻塞 + 卷宗注入五段 + regenerate 同探索）----
+
+    /// 探索器挂掉（非流式 tools 请求持续 500）时主对话行为与 Task-02 后完全一致：
+    /// 正常流式生成、终态落库、done 收尾，system 不含【相关回忆】段（硬约束：降级不阻塞）。
+    #[tokio::test]
+    async fn explorer_failure_does_not_block_main_generation() {
+        let (raw, _dir) = temp_storage("gen_expfail");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "上次说的那件事"))
+            .unwrap();
+
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let server = MockServer::start(move |req, stream| {
+            let body = req.json();
+            cap.lock().unwrap().push(body.clone());
+            // 探索器（非流式 tools 请求）持续 500；主对话（流式）正常 SSE。
+            if body.get("tools").is_some() {
+                let _ = status_head(stream, 500, "Internal Server Error");
+                return;
+            }
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("照常回复"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log.clone(), &server.url());
+
+        PendingGeneration { deps, registry: registry.clone(), ticket, regenerate: false }
+            .run()
+            .await;
+
+        let rows = storage.list_messages(session_id).unwrap();
+        assert_eq!(rows.len(), 2, "主对话照常生成落库：{:?}", rows.len());
+        assert_eq!(rows.last().unwrap().content, "照常回复");
+        let events = log.events.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some((LlmEvent::Done { .. }, 1, _))),
+            "done 正常收尾，实际：{:?}",
+            events.last()
+        );
+        assert!(!registry.is_active(session_id), "终态后注册表摘除");
+        let system = &request_messages(&captured)[0];
+        assert_eq!(system.0, "system");
+        assert!(!system.1.contains("【相关回忆】"), "探索失败不注入卷宗段：{}", system.1);
+    }
+
+    /// 卷宗注入：探索器工具往返成功 → 主对话 system 五段形态（persona → 虚时 →
+    /// 编年史 → 相关回忆 → 状态），卷宗正文原样进入第四段；探索回路确实发生了
+    /// 工具执行与回填。
+    #[tokio::test]
+    async fn dossier_injected_between_chronicle_and_states() {
+        let (raw, _dir) = temp_storage("gen_dossier");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .upsert_character_state(&crate::domain::models::NewCharacterState {
+                character_id: 1,
+                session_id,
+                scope: crate::domain::models::CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "惦念".into(),
+                expiry: None,
+                source_scene: None,
+            })
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(
+                session_id,
+                MessageRole::User,
+                "我们曾在灯塔下约定轮流守灯。",
+            ))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::Assistant, "她说好。"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "还记得灯塔的约定吗？"))
+            .unwrap();
+        // 第二行场景行（远景编年史非空的必要条件）：手工插一行已结算形态的行。
+        storage
+            .insert_scene(&crate::domain::models::NewScene {
+                session_id,
+                location: Some("灯塔".into()),
+                time_note: None,
+                fic_day: Some(2),
+                fic_part: Some("夜".into()),
+                date_label: None,
+                summary: Some("灯塔下的约定".into()),
+                recap: None,
+                present: vec![1],
+            })
+            .unwrap();
+
+        let explorer_rounds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rounds = explorer_rounds.clone();
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let server = MockServer::start(move |req, stream| {
+            let body = req.json();
+            cap.lock().unwrap().push(body.clone());
+            if body.get("tools").is_some() {
+                // 探索器两轮：先发起检索，再总结卷宗。
+                if rounds.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    let _ = json_raw_body(
+                        stream,
+                        &serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": null,
+                                "tool_calls": [{"id": "call_1", "type": "function",
+                                    "function": {"name": "search_history",
+                                        "arguments": "{\"keyword\":\"灯塔\"}"}}]}}]
+                        })
+                        .to_string(),
+                    );
+                } else {
+                    let _ = json_raw_body(
+                        stream,
+                        &serde_json::json!({
+                            "choices": [{"message": {"role": "assistant",
+                                "content": "场0：两人约定在灯塔下轮流守灯。"}}]
+                        })
+                        .to_string(),
+                    );
+                }
+                return;
+            }
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("她想起灯塔的约定。"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log.clone(), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: false }.run().await;
+
+        // 主对话请求：以最新 user 结尾，system 五段顺序单调递增，卷宗正文注入。
+        let messages = request_messages(&captured);
+        assert_eq!(messages.last().unwrap().1, "还记得灯塔的约定吗？", "主对话以最新 user 结尾");
+        let system = &messages[0];
+        assert_eq!(system.0, "system");
+        let persona_at = system.1.find("守夜人").unwrap();
+        let time_at = system.1.find("当前时间：第2日·夜").unwrap();
+        let chronicle_at = system.1.find("【往事编年史】").unwrap();
+        let memory_at = system.1.find("【相关回忆】").unwrap();
+        let state_at = system.1.find("【当前状态】").unwrap();
+        assert!(
+            persona_at < time_at
+                && time_at < chronicle_at
+                && chronicle_at < memory_at
+                && memory_at < state_at,
+            "五段形态 persona → 虚时 → 编年史 → 相关回忆 → 状态：{}",
+            system.1
+        );
+        assert!(
+            system.1.contains("【相关回忆】\n场0：两人约定在灯塔下轮流守灯。"),
+            "卷宗正文原样注入：{}",
+            system.1
+        );
+        // 探索回路确实发生：两轮非流式 tools 请求，第二轮带 tool 结果回填。
+        let requests = captured.lock().unwrap().clone();
+        let explorer_reqs: Vec<serde_json::Value> =
+            requests.iter().filter(|body| body.get("tools").is_some()).cloned().collect();
+        assert_eq!(explorer_reqs.len(), 2, "探索器恰好两轮");
+        let explorer_msgs = explorer_reqs[1]["messages"].as_array().unwrap().clone();
+        assert_eq!(explorer_msgs[3]["role"], "tool", "工具结果回填：{explorer_msgs:?}");
+        let tool_content = explorer_msgs[3]["content"].as_str().unwrap();
+        assert!(tool_content.contains("灯塔"), "工具真实命中库中消息：{tool_content}");
+        // 主链路照常：落库 + done 收尾。
+        let rows = storage.list_messages(session_id).unwrap();
+        assert_eq!(rows.last().unwrap().content, "她想起灯塔的约定。");
+        let events = log.events.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some((LlmEvent::Done { .. }, 2, 2))),
+            "done 收尾时 2 条在世 assistant、2 条场景行（无场景线零结算），实际：{:?}",
+            events.last()
+        );
+    }
+
+    /// regenerate 路径同样执行探索（卷宗不落库无法复用，重跑成本一档可接受）：
+    /// 探索请求先于主对话请求发生，主对话 system 含卷宗段，整条替换语义不变。
+    #[tokio::test]
+    async fn regenerate_path_also_explores() {
+        let (raw, _dir) = temp_storage("gen_regen_exp");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "讲讲灯塔的旧事"))
+            .unwrap();
+        let old = storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::Assistant, "旧版本"))
+            .unwrap();
+
+        let explorer_rounds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rounds = explorer_rounds.clone();
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let server = MockServer::start(move |req, stream| {
+            let body = req.json();
+            cap.lock().unwrap().push(body.clone());
+            if body.get("tools").is_some() {
+                if rounds.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    let _ = json_raw_body(
+                        stream,
+                        &serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": null,
+                                "tool_calls": [{"id": "call_1", "type": "function",
+                                    "function": {"name": "search_history",
+                                        "arguments": "{\"keyword\":\"灯塔\"}"}}]}}]
+                        })
+                        .to_string(),
+                    );
+                } else {
+                    let _ = json_raw_body(
+                        stream,
+                        &serde_json::json!({
+                            "choices": [{"message": {"role": "assistant",
+                                "content": "场0：灯塔旧事一条。"}}]
+                        })
+                        .to_string(),
+                    );
+                }
+                return;
+            }
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("新版本从头讲"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log.clone(), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: true }.run().await;
+
+        // 探索先于主对话发生（两条非流式 tools 请求 + 一条流式请求）。
+        let requests = captured.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "探索两轮 + 主对话一轮：{requests:?}");
+        assert!(
+            requests[0].get("tools").is_some() && requests[1].get("tools").is_some(),
+            "前两条为探索器请求"
+        );
+        assert_eq!(requests[2]["stream"], serde_json::Value::Bool(true), "主对话最后发生");
+        let system = &request_messages(&captured)[0];
+        assert!(
+            system.1.contains("【相关回忆】\n场0：灯塔旧事一条。"),
+            "regenerate 的主对话 system 含卷宗段：{}",
+            system.1
+        );
+        // 替换语义不变（FR-008）。
+        let rows = storage.list_messages(session_id).unwrap();
+        assert_eq!(rows.len(), 2, "user + 新 assistant（旧条已隐藏）");
+        let new = rows.last().unwrap();
+        assert_ne!(new.id, old.id);
+        assert_eq!(new.content, "新版本从头讲");
     }
 
     // ---- FR-011 结算接线（ADR-005：done 放行前 scenes / character_state 已在库）----

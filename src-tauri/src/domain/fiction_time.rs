@@ -161,7 +161,7 @@ pub mod presets {
 }
 
 /// 会话 calendar_config JSON → [`CalendarConfig`]：None / 空白 → 默认历；
-/// 坏 JSON → 默认历 + eprintln 降级。FR-013：日历是皮肤，坏了退默认不阻塞结算
+/// 坏 JSON → 默认历 + warn 日志降级。FR-013：日历是皮肤，坏了退默认不阻塞结算
 /// ——与 config.json 的快速失败语义刻意不同，这里降级无账实风险。
 pub fn parse(raw: Option<&str>) -> CalendarConfig {
     let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
@@ -170,7 +170,9 @@ pub fn parse(raw: Option<&str>) -> CalendarConfig {
     match serde_json::from_str(text) {
         Ok(calendar) => calendar,
         Err(e) => {
-            eprintln!("[fiction_time] calendar_config 解析失败，回退默认历：{e}");
+            // log 是纯 facade（无 IO），domain 引用不违反分层（守卫只禁
+            // tauri/rusqlite/reqwest）；后端由组合根的 tauri-plugin-log 装配。
+            log::warn!("calendar_config 解析失败，回退默认历：{e}");
             CalendarConfig::default()
         }
     }

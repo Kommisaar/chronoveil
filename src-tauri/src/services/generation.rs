@@ -395,7 +395,7 @@ async fn generate_once(
     // Task-05 记忆探索（切片 C）：主对话装配前，由带工具的一次 LLM 调用自主决定是否
     // 检索历史、查什么、查多深，产出卷宗注入 system【相关回忆】段。探索器是锦上添花
     // ——任何失败（网络 / 协议 / 取消）都在 explore 内降级为 None，主对话照常生成，
-    // 不阻塞（留痕 eprintln）。regenerate 路径同样执行：卷宗不落库、无法跨次复用，
+    // 不阻塞（留痕 error 日志）。regenerate 路径同样执行：卷宗不落库、无法跨次复用，
     // 重跑一档探索成本可接受（硬约束：失败降级，见 explorer.rs）。
     // Task-06 活动事件：探索的幕后步骤经**原始 deps.sink** 即时透出（不走本函数下方
     // 构造的 GenerationSink——终态闸门只扣 token / reasoning / done / error，活动
@@ -476,7 +476,7 @@ async fn generate_once(
                     interrupt_flag: TerminalState::Cancelled.interrupt_flag().map(str::to_string),
                 };
                 if let Err(e) = persist_terminal(deps, regenerate, &new) {
-                    eprintln!("[generation] 取消半条落库失败：{e}");
+                    log::error!("取消半条落库失败：{e}");
                 }
             }
             sink.release_with(LlmEvent::Error {
@@ -501,7 +501,7 @@ async fn generate_once(
                     interrupt_flag: TerminalState::Error.interrupt_flag().map(str::to_string),
                 };
                 if let Err(e) = persist_terminal(deps, regenerate, &new) {
-                    eprintln!("[generation] 失败半条落库失败：{e}");
+                    log::error!("失败半条落库失败：{e}");
                 }
             }
             sink.release();

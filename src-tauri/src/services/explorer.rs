@@ -5,8 +5,8 @@
 //! 注入 system 的【相关回忆】段（services/prompt.rs 五段装配）。
 //!
 //! **硬约束：探索器是锦上添花——任何失败（网络 / 协议 / 超预算 / 取消）都降级为
-//! 无卷宗（返回 None），主对话照常生成**；降级留痕沿用 eprintln（风格同
-//! generation.rs / director.rs）。
+//! 无卷宗（返回 None），主对话照常生成**；降级留痕走 log facade（warn，
+//! 后端见组合根的 tauri-plugin-log，风格同 generation.rs / director.rs）。
 //!
 //! 活动事件透出（Task-06，切片 D）：探索的幕后步骤经 `EventSink` 以
 //! `LlmEvent::Activity` 即时透出（research_start → tool_call / tool_result →
@@ -86,19 +86,19 @@ pub async fn explore(
     latest_user_message: &str,
     cancel: &CancelHandle,
 ) -> Option<String> {
-    // 读取失败 → 降级无卷宗（eprintln 留痕，主对话不受影响；不发任何活动事件——
+    // 读取失败 → 降级无卷宗（warn 留痕，主对话不受影响；不发任何活动事件——
     // 探索从未开始，错误路径不打扰 UI）。
     let messages = match storage.list_messages(session_id) {
         Ok(rows) => rows,
         Err(error) => {
-            eprintln!("[explorer] 会话 #{session_id} 历史读取失败，本回合无卷宗：{error}");
+            log::warn!("会话 #{session_id} 历史读取失败，本回合无卷宗：{error}");
             return None;
         }
     };
     let scenes = match storage.list_scenes(session_id) {
         Ok(rows) => rows,
         Err(error) => {
-            eprintln!("[explorer] 会话 #{session_id} 场景行读取失败，本回合无卷宗：{error}");
+            log::warn!("会话 #{session_id} 场景行读取失败，本回合无卷宗：{error}");
             return None;
         }
     };
@@ -127,7 +127,7 @@ pub async fn explore(
             // 失败降级（硬约束）：Err（含重试耗尽）→ 留痕 + 无卷宗，不阻塞主对话。
             // 错误路径不发活动事件（research_start 后静默收尾，主对话流式随即开始）。
             Err(error) => {
-                eprintln!("[explorer] 会话 #{session_id} 探索调用失败，本回合无卷宗：{error}");
+                log::warn!("会话 #{session_id} 探索调用失败，本回合无卷宗：{error}");
                 return None;
             }
             Ok(ToolLoopTurn::Content(text)) => {
@@ -161,9 +161,7 @@ pub async fn explore(
                 if tool_rounds >= MAX_TOOL_ROUNDS {
                     // 收尾轮（未带 tools）仍收到工具调用 = 协议异常的服务端行为：
                     // 降级退出防死循环，不回填不重试。
-                    eprintln!(
-                        "[explorer] 会话 #{session_id} 收尾轮仍收到工具调用，本回合无卷宗"
-                    );
+                    log::warn!("会话 #{session_id} 收尾轮仍收到工具调用，本回合无卷宗");
                     return None;
                 }
                 tool_rounds += 1;

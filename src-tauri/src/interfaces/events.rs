@@ -110,7 +110,8 @@ impl EventSink for TauriEventSink {
     fn emit(&self, event: LlmEvent) {
         if let Err(e) = StreamEvent::from(event).emit(&self.handle) {
             // 发射失败不 panic：流式事件丢失不应击穿生成闭环（终态以落库为准）。
-            eprintln!("[events] stream-event 发射失败：{e}");
+            // 事件是可丢旁路 → 降级记 warn，不动主对话闭环。
+            log::warn!("stream-event 发射失败：{e}");
         }
     }
 }

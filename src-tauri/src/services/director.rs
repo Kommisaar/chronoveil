@@ -215,7 +215,7 @@ pub fn normalize(raw: &DirectorVerdict, roster: &[i64], latest: Option<&Scene>) 
 /// 循环责任在调用方，`complete_json` 单次尝试自持 read_timeout 兜底不永久挂起）。
 const BACKOFF_INITIAL_MS: u64 = 500;
 const BACKOFF_MAX_MS: u64 = 8_000;
-/// 连续失败日志节流（§7-6：一期只做日志，每满 3 次连续失败 eprintln 一条）。
+/// 连续失败日志节流（§7-6：一期只做日志，每满 3 次连续失败 error 一条）。
 const LOG_EVERY_N_FAILURES: u32 = 3;
 /// 叙事窗口：触发消息全文 + 其前 K 条（§2 建议 K=6）。
 const NARRATIVE_WINDOW_MESSAGES: usize = 6;
@@ -502,7 +502,7 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
     }
     let session_id = ticket.session_id;
     let Ok((session, character, history, states, latest)) = gather_input(deps, session_id) else {
-        eprintln!("[director] 会话 #{session_id} 结算输入读取失败，本轮放弃（欠账由下次结算自愈）");
+        log::warn!("会话 #{session_id} 结算输入读取失败，本轮放弃（欠账由下次结算自愈）");
         return;
     };
     let calendar = fiction_time::parse(session.calendar_config.as_deref());
@@ -525,7 +525,7 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
     let mut failures: u32 = 0;
     loop {
         if ticket.cancel_handle().is_cancelled() {
-            eprintln!("[director] 会话 #{session_id} 结算被用户打断，本轮放弃（欠账由下次结算自愈）");
+            log::warn!("会话 #{session_id} 结算被用户打断，本轮放弃（欠账由下次结算自愈）");
             return;
         }
         match llm.complete_json::<DirectorVerdict>(&prompt).await {
@@ -556,7 +556,7 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
         tokio::select! {
             _ = waited => {}
             _ = ticket.cancel_handle().wait() => {
-                eprintln!("[director] 会话 #{session_id} 结算重试等待中被取消，本轮放弃（欠账由下次结算自愈）");
+                log::warn!("会话 #{session_id} 结算重试等待中被取消，本轮放弃（欠账由下次结算自愈）");
                 return;
             }
         }
@@ -564,13 +564,13 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
     }
 }
 
-/// §7-6：重试不设上限、无降级路径，一期只做日志——每满 3 次连续失败 eprintln 一条
-/// （风格同 generation.rs 的 eprintln 日志）。
+/// §7-6：重试不设上限、无降级路径，一期只做日志——每满 3 次连续失败 error 一条
+/// （错误后果级：结算持续失败不可自愈时只能靠人看日志介入）。
 fn note_failure(error: impl std::fmt::Display, failures: &mut u32, backoff_ms: u64) {
     *failures += 1;
     if *failures % LOG_EVERY_N_FAILURES == 0 {
-        eprintln!(
-            "[director] 结算已连续失败 {failures} 次（ADR-005 重试直到成功，当前退避 {backoff_ms}ms）：{error}"
+        log::error!(
+            "结算已连续失败 {failures} 次（ADR-005 重试直到成功，当前退避 {backoff_ms}ms）：{error}"
         );
     }
 }

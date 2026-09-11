@@ -2,6 +2,8 @@
 // festivals 数字字符串键）、表单字段序列化（节日按天升序、行归一）、
 // buildCalendar 客户端校验（对齐 Rust fiction_time::validate：天数 ≥1 且
 // 月名/日名至少其一非空；节日行「N=名称」N≥1）。文案断言不在此层。
+// 另含一条 mock 落库往返用例（features → api 合法方向）：以真实消费方
+// parseCalendarJson 守 api/mock 落库键形，防 camelCase 直落回归。
 import { describe, expect, it } from 'vitest';
 import type { CalendarConfigDto } from '../../../api/types';
 import {
@@ -187,5 +189,53 @@ describe('往返（存储 JSON ↔ 表单字段 ↔ 校验产物）', () => {
     const fields = fieldsFromCalendar(parseCalendarJson(FANTASY_JSON));
     const build = buildCalendar(fields);
     expect(build.kind === 'valid' && build.config).toEqual(FANTASY);
+  });
+});
+
+describe('mock 落库往返（防键形回归：api/mock 落库形态 × parseCalendarJson 消费键）', () => {
+  it('updateCharacter 保存历法后，parseCalendarJson 读回月天数 / 日名 / 节日完整', async () => {
+    // api 层禁引 features（depcruise api-no-upper），故在此以 features → api 的
+    // 合法方向引 mock backend：编辑器「保存 → 重开」链路里 parseCalendarJson 是
+    // 存储字符串的唯一解消费者，camelCase 直落会在此降级（daysPerMonth → 0）。
+    const { createCharacter, listCharacters, updateCharacter } = await import(
+      '../../../api/mock/backend'
+    );
+    const created = await createCharacter({
+      name: '历法往返员',
+      avatar: null,
+      persona: '验证 mock 落库键形的临时卡',
+      gender: null,
+      age: null,
+      renderStyle: 'type',
+      modelConfig: null,
+      accentColor: null,
+      voiceConfig: null,
+    });
+    await updateCharacter(created.id, {
+      name: created.name,
+      avatar: null,
+      persona: created.persona,
+      gender: null,
+      age: null,
+      renderStyle: 'type',
+      modelConfig: null,
+      accentColor: null,
+      voiceConfig: null,
+      calendarConfig: {
+        name: '星槎历',
+        months: ['潮生月', '风信月'],
+        daysPerMonth: 12,
+        dayNames: ['潮日', '汐日', '星日'],
+        festivals: { 2: '归潮祭' },
+      },
+    });
+    const stored = (await listCharacters()).find((c) => c.id === created.id);
+    expect(parseCalendarJson(stored?.calendarConfig ?? null)).toEqual({
+      name: '星槎历',
+      months: ['潮生月', '风信月'],
+      daysPerMonth: 12,
+      dayNames: ['潮日', '汐日', '星日'],
+      festivals: { 2: '归潮祭' },
+    });
   });
 });

@@ -302,6 +302,24 @@ export async function createCharacter(
   return character;
 }
 
+/**
+ * wire DTO（camelCase）→ 存储 JSON 字符串（domain `CalendarConfig` 的 snake_case
+ * serde 形态）：逐键对齐 Rust update_character_impl 的
+ * `serde_json::to_string(&CalendarConfig::from(dto))`——name null → `"name":null`、
+ * festivals null → `"festivals":{}`（unwrap_or_default 后 BTreeMap 恒序列化为对象）。
+ * 存储消费方（parseCalendarJson / 开局向导「跟随角色卡」）按 snake_case 键读，
+ * camelCase 直落会在回读时降级（月天数 / 日名丢失）。
+ */
+export function calendarConfigToStorageJson(calendar: CalendarConfigDto): string {
+  return JSON.stringify({
+    name: calendar.name,
+    months: calendar.months,
+    days_per_month: calendar.daysPerMonth,
+    day_names: calendar.dayNames,
+    festivals: calendar.festivals ?? {},
+  });
+}
+
 export async function updateCharacter(
   id: number,
   input: UpdateCharacterInput,
@@ -316,11 +334,12 @@ export async function updateCharacter(
   character.renderStyle = input.renderStyle;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;
-  // 历法整卡覆盖（FR-013，对齐 Rust update_character_impl）：DTO 序列化为存储
-  // JSON 字符串（CharacterSummary.calendarConfig 的 wire 契约是字符串透传）；
+  // 历法整卡覆盖（FR-013，对齐 Rust update_character_impl）：DTO 折叠为 domain
+  // snake_case 存储形态（calendarConfigToStorageJson；mock 生态契约见 data.ts 种子
+  // 注释），CharacterSummary.calendarConfig 的 wire 契约是字符串透传；
   // null / 缺键 = 清除历法（回退内置默认历）。
   const calendar = input.calendarConfig ?? null;
-  character.calendarConfig = calendar === null ? null : JSON.stringify(calendar);
+  character.calendarConfig = calendar === null ? null : calendarConfigToStorageJson(calendar);
   character.updatedAt = Date.now();
 }
 

@@ -529,7 +529,7 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
     });
   });
 
-  it('updateCharacter 携带历法整卡覆盖（FR-013）：读回带回（festivals 数字字符串键）；null = 清除', async () => {
+  it('updateCharacter 携带历法整卡覆盖（FR-013）：落内存态折叠 snake_case 存储键；null = 清除', async () => {
     const { backend } = await loadMock();
     const calendar: CalendarConfigDto = {
       name: '星槎历',
@@ -540,9 +540,20 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
     };
     await backend.updateCharacter(2, characterInput({ calendarConfig: calendar }));
     const updated = (await backend.listCharacters()).find((c) => c.id === 2);
-    // 与 Rust CharacterSummary wire 契约同构：calendarConfig 为存储 JSON 字符串透传。
+    // 与 Rust CharacterSummary wire 契约同构：calendarConfig 为存储 JSON 字符串透传；
+    // 键形为 domain snake_case（ipc.rs update_character_impl 序列化 CalendarConfig 的
+    // 形态；parseCalendarJson 等消费方按 days_per_month / day_names 读）。
     expect(typeof updated?.calendarConfig).toBe('string');
-    expect(JSON.parse(updated?.calendarConfig ?? '')).toEqual(calendar);
+    const stored = JSON.parse(updated?.calendarConfig ?? '') as Record<string, unknown>;
+    expect(stored).not.toHaveProperty('daysPerMonth');
+    expect(stored).not.toHaveProperty('dayNames');
+    expect(stored).toEqual({
+      name: '星槎历',
+      months: ['潮生月', '风信月'],
+      days_per_month: 12,
+      day_names: ['潮日', '汐日', '星日'],
+      festivals: { 2: '归潮祭' },
+    });
 
     // calendarConfig 传 null / 缺键 → 清除（整卡覆盖语义，对齐 Rust update_character_impl）。
     await backend.updateCharacter(2, characterInput({ name: '林深（再改）' }));
@@ -562,6 +573,37 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
       entity: 'character',
       id: 1,
     });
+  });
+});
+
+describe('calendarConfigToStorageJson（wire DTO → 存储 JSON 键形折叠）', () => {
+  it('逐键折叠为 domain snake_case 形态，与 ipc.rs update_character_impl 的 serde 序列化字节同构', async () => {
+    const { backend } = await loadMock();
+    expect(
+      backend.calendarConfigToStorageJson({
+        name: '星槎历',
+        months: ['潮生月', '风信月'],
+        daysPerMonth: 12,
+        dayNames: ['潮日', '汐日', '星日'],
+        festivals: { 2: '归潮祭' },
+      }),
+    ).toBe(
+      '{"name":"星槎历","months":["潮生月","风信月"],"days_per_month":12,'
+        + '"day_names":["潮日","汐日","星日"],"festivals":{"2":"归潮祭"}}',
+    );
+  });
+
+  it('空缺位折叠：name null → null；festivals null → `{}`（unwrap_or_default 后 BTreeMap 恒序列化为对象）', async () => {
+    const { backend } = await loadMock();
+    expect(
+      backend.calendarConfigToStorageJson({
+        name: null,
+        months: [],
+        daysPerMonth: 30,
+        dayNames: [],
+        festivals: null,
+      }),
+    ).toBe('{"name":null,"months":[],"days_per_month":30,"day_names":[],"festivals":{}}');
   });
 });
 

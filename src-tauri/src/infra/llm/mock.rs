@@ -136,6 +136,16 @@ pub fn json_body(stream: &mut TcpStream, content: &str) -> std::io::Result<()> {
         "choices": [{ "message": { "role": "assistant", "content": content } }]
     });
     let body = payload.to_string();
+    write_json_response(stream, &body)
+}
+
+/// 非流式任意 JSON body 响应（工具调用回路测试用：需要完整 message 形态，含 tool_calls）。
+pub fn json_raw_body(stream: &mut TcpStream, body: &str) -> std::io::Result<()> {
+    write_json_response(stream, body)
+}
+
+/// 非流式 JSON 响应的公共写出：定长 body + 关连接。
+fn write_json_response(stream: &mut TcpStream, body: &str) -> std::io::Result<()> {
     stream.write_all(
         format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",

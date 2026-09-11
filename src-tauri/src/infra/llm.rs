@@ -2,7 +2,8 @@
 //!
 //! 职责边界（CMP-002）：SSE 流解析、reasoning 两形态分离路由（字段型直通 + 内联 `<think>` 状态机）、
 //! 类型化事件发射（FR-001：token/reasoning/done/error，携 session_id/message_id）、
-//! 消息级断流重发、立即取消、结构化 JSON 调用 helper。
+//! 消息级断流重发、立即取消、结构化 JSON 调用 helper、非流式工具调用回路
+//! （OpenAI 兼容 tools / tool_calls，切片 C 记忆探索 agent 的地基，暂无业务接线）。
 //! 不负责：渲染决策、落库时机（只上报终态，ADR-001 由调用方落库）、prompt 业务装配。
 //!
 //! 分层约束：本模块不 `use tauri`——事件经 `EventSink` 抽象回调发射（TASK-005 接通道）。
@@ -216,7 +217,7 @@ pub fn cancel_channel() -> (CancelSignal, CancelHandle) {
 }
 
 // ---------------------------------------------------------------------------
-// 消息入参
+// 消息入参（含 OpenAI 兼容工具调用：Tool 角色 / tool_calls 回传 / 工具定义）
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,6 +225,8 @@ pub enum ChatRole {
     System,
     User,
     Assistant,
+    /// 工具执行结果回传（OpenAI 兼容 "tool" 角色，需携带 tool_call_id 回链）。
+    Tool,
 }
 
 impl ChatRole {
@@ -232,20 +235,66 @@ impl ChatRole {
             ChatRole::System => "system",
             ChatRole::User => "user",
             ChatRole::Assistant => "assistant",
+            ChatRole::Tool => "tool",
         }
     }
+}
+
+/// assistant 消息携带的一次工具调用（OpenAI 兼容 tool_calls 元素的业务面投影）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCall {
+    /// 调用标识：后续 tool 消息凭此回链（模型生成，原样透传）。
+    pub id: String,
+    pub name: String,
+    /// 参数 JSON 字符串原样透传：模型侧输出形态即字符串，由调用方按需解析。
+    pub arguments: String,
+}
+
+/// 工具定义（OpenAI 兼容 tools 数组元素；parameters 为 JSON Schema 形态，原样透传）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: String,
+    /// tool 角色消息：回链 assistant 某次工具调用的 tool_call_id。
+    /// Option 缺省不入请求体（无工具请求与旧 wire 形态逐字段一致）。
+    pub tool_call_id: Option<String>,
+    /// assistant 消息：模型发起的工具调用列表，原样回传以续接多轮工具回路。
+    /// Option 缺省不入请求体（同上）。
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 impl ChatMessage {
     pub fn new(role: ChatRole, content: impl Into<String>) -> Self {
-        Self { role, content: content.into() }
+        Self { role, content: content.into(), tool_call_id: None, tool_calls: None }
     }
+
+    /// 附加 tool_call_id（tool 角色消息回链 assistant 的某次工具调用）。
+    pub fn with_tool_call_id(mut self, id: impl Into<String>) -> Self {
+        self.tool_call_id = Some(id.into());
+        self
+    }
+
+    /// 附加 tool_calls（assistant 消息携带模型发起的工具调用，续接多轮工具回路）。
+    pub fn with_tool_calls(mut self, calls: Vec<ToolCall>) -> Self {
+        self.tool_calls = Some(calls);
+        self
+    }
+}
+
+/// 非流式工具调用回路的单轮产物：模型要么给出最终正文，要么发起工具调用，二者取一。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolLoopTurn {
+    /// 模型直接给出正文（本轮未发起工具调用）。
+    Content(String),
+    /// 模型发起工具调用：调用方执行后以 tool 角色消息回传并再次调用，循环直到 Content。
+    ToolCalls(Vec<ToolCall>),
 }
 
 // ---------------------------------------------------------------------------
@@ -323,18 +372,38 @@ impl LlmClient {
             "model": self.config.model,
             "messages": messages
                 .iter()
-                .map(|m| serde_json::json!({ "role": m.role.as_str(), "content": m.content }))
+                .map(chat_message_wire)
                 .collect::<Vec<_>>(),
             "stream": stream,
         })
     }
 
     fn chat_request(&self, messages: &[ChatMessage], stream: bool) -> reqwest::RequestBuilder {
+        self.chat_request_with_options(messages, stream, None, None)
+    }
+
+    /// 请求构造的完整形态：`tools`（与可选 `tool_choice`）仅在提供时进入请求体，
+    /// 未提供时 wire 形态与 `chat_request` 完全一致（OpenAI 兼容可选字段缺省不发）。
+    fn chat_request_with_options(
+        &self,
+        messages: &[ChatMessage],
+        stream: bool,
+        tools: Option<&[ToolSpec]>,
+        tool_choice: Option<&str>,
+    ) -> reqwest::RequestBuilder {
+        let mut payload = self.chat_payload(messages, stream);
+        if let Some(specs) = tools {
+            payload["tools"] =
+                serde_json::Value::Array(specs.iter().map(tool_spec_wire).collect());
+            if let Some(choice) = tool_choice {
+                payload["tool_choice"] = serde_json::Value::String(choice.to_owned());
+            }
+        }
         let mut rb = self
             .http
             .post(self.endpoint())
             .header(reqwest::header::ACCEPT, if stream { "text/event-stream" } else { "application/json" })
-            .json(&self.chat_payload(messages, stream));
+            .json(&payload);
         if !self.config.api_key.is_empty() {
             rb = rb.bearer_auth(&self.config.api_key);
         }
@@ -529,6 +598,59 @@ impl LlmClient {
         serde_json::from_value(value)
             .map_err(|e| LlmError::Json(format!("模型输出与目标结构不符：{e}")))
     }
+
+    /// 非流式工具调用回路单轮：携带工具定义请求，返回本轮「正文或工具调用」；
+    /// 调用方执行工具后以 tool 角色消息回传并再次调用，循环直到 Content
+    /// （循环责任在调用方，本方法只做一轮）。重试语义与 chat_stream 一致：
+    /// 可重试错误（超时 / 网络 / 429 / 5xx）按整条消息重发，max_retries 与指数退避同池。
+    pub async fn complete_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolSpec],
+    ) -> Result<ToolLoopTurn, LlmError> {
+        let mut attempt: u32 = 0;
+        loop {
+            match self.attempt_complete_with_tools(messages, tools).await {
+                Ok(turn) => return Ok(turn),
+                Err(error) => {
+                    if error.is_retryable() && attempt < self.config.retry.max_retries {
+                        self.backoff(attempt).await;
+                        attempt += 1;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+    }
+
+    /// 工具回路单次尝试：请求 → 状态映射（与 complete_json 同一套）→ tool_calls / content 分支解析。
+    async fn attempt_complete_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolSpec],
+    ) -> Result<ToolLoopTurn, LlmError> {
+        let response = self
+            .chat_request_with_options(messages, false, Some(tools), None)
+            .send()
+            .await
+            .map_err(map_reqwest_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            let code = status.as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err(match code {
+                401 => LlmError::Unauthorized,
+                429 => LlmError::RateLimited,
+                _ => LlmError::Status { status: code, body },
+            });
+        }
+        let payload: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| LlmError::Protocol(format!("非流式响应不是合法 JSON：{e}")))?;
+        parse_tool_turn(&payload)
+    }
 }
 
 /// 事件发射路由：跟踪「重发尝试首事件」以打 `reset` 标。
@@ -569,6 +691,92 @@ impl EventRouter<'_> {
 
 fn non_empty(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
+}
+
+/// 单条消息的 wire 形态：role / content 恒发；tool_call_id / tool_calls 仅在携带时发送
+/// （Option 缺省不发 → 无工具请求与旧形态逐字段一致，OpenAI 兼容可选字段惯例）。
+fn chat_message_wire(m: &ChatMessage) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("role".into(), m.role.as_str().into());
+    obj.insert("content".into(), m.content.clone().into());
+    if let Some(id) = &m.tool_call_id {
+        obj.insert("tool_call_id".into(), id.clone().into());
+    }
+    if let Some(calls) = &m.tool_calls {
+        let calls: Vec<_> = calls
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "type": "function",
+                    "function": { "name": c.name, "arguments": c.arguments },
+                })
+            })
+            .collect();
+        obj.insert("tool_calls".into(), serde_json::Value::Array(calls));
+    }
+    serde_json::Value::Object(obj)
+}
+
+/// 工具定义的 wire 形态（OpenAI 兼容：type 固定 function，parameters 为 JSON Schema 原样透传）。
+fn tool_spec_wire(s: &ToolSpec) -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": s.name,
+            "description": s.description,
+            "parameters": s.parameters,
+        },
+    })
+}
+
+/// 解析非流式响应的 choices[0].message：tool_calls 存在且非空 → ToolCalls
+/// （arguments 为 JSON 字符串原样透传，不在此解析）；否则（缺失 / null / 空数组）回落
+/// content → Content。两者皆缺或形态不符 → Protocol 错误（不可重试）。
+fn parse_tool_turn(payload: &serde_json::Value) -> Result<ToolLoopTurn, LlmError> {
+    let message = payload
+        .get("choices")
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.first())
+        .and_then(|c| c.get("message"))
+        .ok_or_else(|| LlmError::Protocol("响应缺少 choices[0].message".into()))?;
+    if let Some(calls) = message.get("tool_calls").and_then(|t| t.as_array()) {
+        if !calls.is_empty() {
+            let parsed = calls
+                .iter()
+                .map(|c| {
+                    let id = c
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| LlmError::Protocol("tool_calls 元素缺少 id".into()))?;
+                    let function = c
+                        .get("function")
+                        .ok_or_else(|| LlmError::Protocol("tool_calls 元素缺少 function".into()))?;
+                    let name = function
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| LlmError::Protocol("tool_calls.function 缺少 name".into()))?;
+                    let arguments = function
+                        .get("arguments")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            LlmError::Protocol("tool_calls.function 缺少 arguments".into())
+                        })?;
+                    Ok(ToolCall {
+                        id: id.to_owned(),
+                        name: name.to_owned(),
+                        arguments: arguments.to_owned(),
+                    })
+                })
+                .collect::<Result<Vec<_>, LlmError>>()?;
+            return Ok(ToolLoopTurn::ToolCalls(parsed));
+        }
+    }
+    let content = message
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| LlmError::Protocol("响应缺少 choices[0].message.content".into()))?;
+    Ok(ToolLoopTurn::Content(content.to_owned()))
 }
 
 /// 从模型自由文本中提取 JSON：直接解析 → 剥 ``` 围栏 → 截取首尾花/方括号之间的子串。

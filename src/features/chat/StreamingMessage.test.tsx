@@ -14,10 +14,14 @@
  * sessionActivity.test.tsx 的卫生策略）。
  */
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, render, type RenderResult } from '@testing-library/react';
+import { cleanup, fireEvent, render, type RenderResult } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { StreamEvent, StreamEventHandler } from '../../api/events';
+import type { ActivityPhase } from '../../api/generated/bindings';
+// 活动条集成断言用 zh 文案：初始化 i18n（i18n/index 以 lng:'zh' 启动）
+import '../../i18n';
 import { StreamingMessage, type RendererTuning } from './StreamingMessage';
 import { CANCEL_REASON, streamHub, type StreamState } from './streamHub';
 
@@ -76,6 +80,13 @@ const err = (sessionId: number, reason: string, interrupted = false): StreamEven
   messageId: -1,
   reason,
   interrupted,
+});
+const act = (sessionId: number, phase: ActivityPhase, detail: string | null, messageId = -1): StreamEvent => ({
+  type: 'activity',
+  sessionId,
+  messageId,
+  phase,
+  detail,
 });
 
 function emit(sessionId: number, event: StreamEvent): void {
@@ -289,6 +300,58 @@ describe('卸载与 hub 解耦（切走不取消，ADR-007）', () => {
     expect(onSettled).not.toHaveBeenCalled(); // 卸载后不再驱动/收尾
     expect(streamHub.stateOf(12)?.content).toBe('正文迟到'); // hub 照常累积
     expect(streamHub.stateOf(12)?.status).toBe('done');
+  });
+});
+
+describe('幕后活动条集成（Task-07：探索透出 → 活动条 → 让位 → 终态清空）', () => {
+  /**
+   * 复刻 ChatView 的 hub 接线：useSyncExternalStore 版本驱动重渲染——活动条是
+   * React 呈现（非引擎直插 DOM），没有这层订阅 hub 的原地更新不会触发渲染。
+   */
+  function activityHost(sessionId: number, onSettled: () => void): ReactElement {
+    const Host = (): ReactElement => {
+      useSyncExternalStore(streamHub.subscribe, streamHub.getVersion);
+      const state = streamHub.stateOf(sessionId);
+      if (!state) return <></>;
+      return (
+        <StreamingMessage state={state} speaker={SPEAKER} tuning={{ msPerChar: 10 }} onSettled={onSettled} />
+      );
+    };
+    return (
+      <FluentProvider theme={webLightTheme}>
+        <Host />
+      </FluentProvider>
+    );
+  }
+
+  it('探索期活动条出现在流式行；首个 token 让位为小标记；done 后随轨迹清空消失', async () => {
+    streamHub.begin(40);
+    const onSettled = vi.fn();
+    const view = render(activityHost(40, onSettled));
+
+    // 探索幕后步骤先于正文到达：折叠条「正在回忆…」→ dossierReady「翻到了。」
+    emit(40, act(40, 'researchStart', null));
+    await vi.waitFor(() => expect(view.container.textContent).toContain('正在回忆…'));
+    emit(40, act(40, 'toolCall', 'search_memory(q=雨夜)'));
+    emit(40, act(40, 'dossierReady', '【卷宗】伞'));
+    await vi.waitFor(() => expect(view.container.textContent).toContain('翻到了。'));
+
+    // 首个正文 token：活动条让位为「已回忆」小标记，正文照常开演
+    emit(40, tok(40, '答'));
+    await vi.waitFor(() => expect(view.container.textContent).toContain('已回忆'));
+    expect(view.container.textContent).not.toContain('正在回忆…');
+    expect(view.container.textContent).not.toContain('翻到了。');
+    // 让位后仍保留一次展开入口：技术步骤可回看
+    const mark = view.container.querySelector('button');
+    if (!mark) throw new Error('让位标记按钮应存在');
+    fireEvent.click(mark);
+    await vi.waitFor(() => expect(view.container.textContent).toContain('search_memory(q=雨夜)'));
+
+    // done 终态清空轨迹：重拉收尾前标记消失，正文排空定格
+    emit(40, fin(40, 5));
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(view.container.textContent).not.toContain('已回忆');
+    expect(bodyText(view)).toBe('答');
   });
 });
 

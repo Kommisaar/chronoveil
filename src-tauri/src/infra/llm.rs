@@ -182,7 +182,7 @@ pub enum LlmEvent {
 pub enum ActivityPhase {
     /// 进入探索（存储读取成功、即将发起研究员 LLM 调用）。
     ResearchStart,
-    /// 向模型发出的单次工具调用（detail = 工具名 + 参数摘要）。
+    /// 模型发起的单次工具调用（本地执行前；detail = 工具名 + 参数摘要）。
     ToolCall,
     /// 单次工具结果回填（detail = 结果截断）。
     ToolResult,

@@ -24,6 +24,7 @@ import {
   type RendererOptions,
 } from '../../engine';
 import { streamHub, type StreamState } from './streamHub';
+import { ActivityBar } from './ActivityBar';
 
 const useStyles = makeStyles({
   row: {
@@ -133,6 +134,7 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
     const drive = (event: StreamEvent): void => {
       const r = rendererRef.current;
       if (!r || settledRef.current) return;
+      if (event.type === 'activity') return; // 幕后活动（Task-07）：不驱动引擎，活动条经 store 渲染
       if (event.type === 'token' || event.type === 'reasoning') {
         if (event.reset) {
           // 重发尝试首事件：清空该回合已累积内容，从零重来
@@ -237,6 +239,8 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
       <div className={styles.header}>
         <Text className={styles.speaker}>{speaker}</Text>
       </div>
+      {/* 幕后活动条（Task-07）：探索期间「正在回忆…」，正文开始让位；空轨迹不渲染 */}
+      <ActivityBar activity={state.activity} yielded={state.activityYielded} />
       <div ref={containerRef} className={styles.body} />
     </div>
   );

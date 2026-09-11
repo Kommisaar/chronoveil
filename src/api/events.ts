@@ -5,10 +5,12 @@
  *   `./generated/bindings.ts`（事件名 `stream-event`）；此处转换为前端 camelCase。
  * - token / reasoning 另携 `reset`（INT-001「只增不改」增字段，TASK-002）：true 表示
  *   重发尝试首事件，消费方应清空该 message_id 已累积内容后重新累积。
+ * - activity（Task-06 记忆探索透出）：非流式生命周期事件，先于主对话首条
+ *   reasoning / token 到达；phase 枚举同源自 `ActivityPhase`。
  * - 订阅按 session_id 过滤（多路并发路由，FR-007）；未知事件类型忽略（向前兼容）。
  */
 
-import { events } from './generated/bindings';
+import { events, type ActivityPhase } from './generated/bindings';
 import { isTauri } from './client';
 
 /** 前端形态的流式事件（wire → camelCase；done 补 thinkMs，FR-001）。 */
@@ -16,7 +18,21 @@ export type StreamEvent =
   | { type: 'token'; sessionId: number; messageId: number; text: string; reset: boolean }
   | { type: 'reasoning'; sessionId: number; messageId: number; text: string; reset: boolean }
   | { type: 'done'; sessionId: number; messageId: number; thinkMs: number | null }
-  | { type: 'error'; sessionId: number; messageId: number; reason: string; interrupted: boolean };
+  | { type: 'error'; sessionId: number; messageId: number; reason: string; interrupted: boolean }
+  | { type: 'activity'; sessionId: number; messageId: number; phase: ActivityPhase; detail: string | null };
+
+/** wire activity 阶段合法值（与生成端 ActivityPhase 同源，Task-06）：未知值拒收（向前兼容）。 */
+const ACTIVITY_PHASES = new Set<string>([
+  'researchStart',
+  'toolCall',
+  'toolResult',
+  'dossierReady',
+  'researchSkipped',
+]);
+
+function isActivityPhase(value: unknown): value is ActivityPhase {
+  return typeof value === 'string' && ACTIVITY_PHASES.has(value);
+}
 
 export type StreamEventHandler = (event: StreamEvent) => void;
 
@@ -48,6 +64,10 @@ export function fromWireEvent(raw: unknown): StreamEvent | null {
     case 'error':
       return typeof wire.reason === 'string' && typeof wire.interrupted === 'boolean'
         ? { type: 'error', sessionId, messageId, reason: wire.reason, interrupted: wire.interrupted }
+        : null;
+    case 'activity':
+      return isActivityPhase(wire.phase) && (wire.detail === null || typeof wire.detail === 'string')
+        ? { type: 'activity', sessionId, messageId, phase: wire.phase, detail: wire.detail }
         : null;
     default:
       // 未知事件类型忽略（INT-001：只增不改，旧前端遇新事件静默跳过）。

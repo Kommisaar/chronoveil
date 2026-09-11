@@ -65,6 +65,18 @@ export const en = {
     you: 'You',
     reasoning: 'Reasoning',
     interrupted: 'Interrupted',
+    activity: {
+      recalling: 'Recalling…',
+      found: 'Found it.',
+      recalled: 'Recalled',
+      phase: {
+        researchStart: 'Research started',
+        toolCall: 'Tool call',
+        toolResult: 'Tool result',
+        dossierReady: 'Dossier ready',
+        researchSkipped: 'Research skipped',
+      },
+    },
   },
   characters: {
     title: 'Characters',

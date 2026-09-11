@@ -10,10 +10,22 @@
  * - `streaming`：生成进行中（token / reasoning 到达即累积）；
  * - `stopping`：用户点停止后的本地静止态（渲染端立即冻结引擎，等待取消终态事件）；
  * - `done` / `error`：终态（Rust 侧已落库，ADR-001），UI 收尾（重拉列表）后 `end()`。
+ *
+ * 幕后活动轨迹（Task-06/07）：activity 事件在 token / reasoning 之前按到达顺序
+ * 追加进 `activity`，供活动条渲染；首个 token / reasoning 置 `activityYielded`
+ * （让位标记，reset 不回退）；终态事件清空轨迹（回看入口随流式行收尾消失）。
  */
 import { subscribeStream, type StreamEvent } from '../../api/events';
+import type { ActivityPhase } from '../../api/generated/bindings';
 
 export type StreamStatus = 'streaming' | 'stopping' | 'done' | 'error';
+
+/** 单条幕后活动轨迹（Task-07 活动条数据源）：phase + 技术摘要 + 到达时刻（毫秒）。 */
+export interface ActivityStep {
+  readonly phase: ActivityPhase;
+  readonly detail: string | null;
+  readonly at: number;
+}
 
 /**
  * 取消终态的稳定 reason 标记（Rust services/generation `CANCEL_REASON`）：
@@ -32,6 +44,13 @@ export interface StreamState {
   status: StreamStatus;
   /** error 终态原因；用户取消为稳定标记 'cancelled' */
   errorReason: string | null;
+  /** 幕后活动轨迹（Task-06/07）：activity 事件按到达顺序累积；done / error 终态清空。 */
+  activity: ActivityStep[];
+  /**
+   * 正文已开始（收到过 token / reasoning）：活动条让位标记。reset 重发不回退——
+   * 探索只在回合开头跑一次，重试不应让「正在回忆…」重现。
+   */
+  activityYielded: boolean;
 }
 
 type StoreListener = () => void;
@@ -59,6 +78,8 @@ class StreamHub {
       reasoning: '',
       status: 'streaming',
       errorReason: null,
+      activity: [],
+      activityYielded: false,
     });
     this.notifyStore();
   }
@@ -127,8 +148,13 @@ class StreamHub {
     const state = this.states.get(sessionId);
     if (!state) return; // end() 之后的迟到事件（重试尾巴等）：忽略
     switch (event.type) {
+      case 'activity':
+        // 只追加轨迹：不动 messageId 与状态机（活动事件先于正文，非流式语义）
+        state.activity.push({ phase: event.phase, detail: event.detail, at: Date.now() });
+        break;
       case 'token':
         state.messageId = event.messageId;
+        state.activityYielded = true; // 正文开始：活动条让位
         if (event.reset) {
           state.content = '';
           state.reasoning = '';
@@ -137,6 +163,7 @@ class StreamHub {
         break;
       case 'reasoning':
         state.messageId = event.messageId;
+        state.activityYielded = true;
         if (event.reset) {
           state.content = '';
           state.reasoning = '';
@@ -145,11 +172,13 @@ class StreamHub {
         break;
       case 'done':
         state.status = 'done';
+        state.activity = []; // 终态清空：回看入口随流式行收尾消失
         this.notifyTerminal(sessionId);
         break;
       case 'error':
         state.status = 'error';
         state.errorReason = event.reason;
+        state.activity = [];
         this.notifyTerminal(sessionId);
         break;
     }

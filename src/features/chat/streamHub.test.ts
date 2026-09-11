@@ -9,6 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEvent, StreamEventHandler } from '../../api/events';
+import type { ActivityPhase } from '../../api/generated/bindings';
 import type { StreamState } from './streamHub';
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +69,13 @@ const err = (sessionId: number, reason: string, interrupted = false): StreamEven
   reason,
   interrupted,
 });
+const act = (sessionId: number, phase: ActivityPhase, detail: string | null, messageId = -1): StreamEvent => ({
+  type: 'activity',
+  sessionId,
+  messageId,
+  phase,
+  detail,
+});
 
 function emit(sessionId: number, event: StreamEvent): void {
   const handler = handlers.get(sessionId);
@@ -98,6 +106,8 @@ describe('begin()：订阅登记与流状态重置', () => {
       reasoning: '',
       status: 'streaming',
       errorReason: null,
+      activity: [],
+      activityYielded: false,
     });
     expect(mod.streamHub.stateOf(null)).toBeNull();
     expect(mod.streamHub.stateOf(42)).toBeNull(); // 未 begin 的会话无状态
@@ -291,6 +301,59 @@ describe('多会话隔离（FR-007 多路并发）', () => {
     expect(stateOf(2).status).toBe('error');
     expect(handlers.has(1)).toBe(false);
     expect(handlers.has(2)).toBe(true);
+  });
+});
+
+describe('幕后活动轨迹（Task-07 活动条数据源）', () => {
+  it('activity 事件按到达顺序累积为轨迹，不改状态机与 messageId', () => {
+    begin(1);
+    emit(1, act(1, 'researchStart', null, -3));
+    emit(1, act(1, 'toolCall', 'search_memory(q=雨夜)', -3));
+    emit(1, act(1, 'toolResult', '命中 3 条', -3));
+    const state = stateOf(1);
+    expect(state.activity.map((s) => s.phase)).toEqual(['researchStart', 'toolCall', 'toolResult']);
+    expect(state.activity.map((s) => s.detail)).toEqual([null, 'search_memory(q=雨夜)', '命中 3 条']);
+    // 只追加轨迹：非流式语义，不触碰 token / reasoning / 终态状态机
+    expect(state.messageId).toBeNull();
+    expect(state.content).toBe('');
+    expect(state.reasoning).toBe('');
+    expect(state.status).toBe('streaming');
+    expect(state.activityYielded).toBe(false);
+  });
+
+  it('首个 token / reasoning 置让位标记；reset 重发不回退（探索不重跑）', () => {
+    begin(1);
+    emit(1, act(1, 'researchStart', null));
+    emit(1, think(1, '想想'));
+    expect(stateOf(1).activityYielded).toBe(true);
+
+    begin(2);
+    emit(2, act(2, 'researchStart', null));
+    emit(2, tok(2, '正文'));
+    emit(2, tok(2, '重发正文', -9, true)); // reset 双清内容，但让位标记不回退
+    const state = stateOf(2);
+    expect(state.activityYielded).toBe(true);
+    expect(state.content).toBe('重发正文');
+    expect(state.activity).toHaveLength(1); // 轨迹本身不受 reset 影响
+  });
+
+  it('done / error 终态清空轨迹；重新 begin 从头重置', () => {
+    begin(1);
+    emit(1, act(1, 'researchStart', null));
+    emit(1, act(1, 'dossierReady', '卷宗前若干字'));
+    emit(1, tok(1, '正文'));
+    emit(1, fin(1, 10));
+    expect(stateOf(1).activity).toEqual([]); // 终态清空：回看入口随收尾消失
+
+    begin(2);
+    emit(2, act(2, 'researchStart', null));
+    emit(2, err(2, 'boom'));
+    expect(stateOf(2).activity).toEqual([]);
+
+    // 重新生成：begin 给出全新轨迹与让位标记
+    begin(1);
+    expect(stateOf(1).activity).toEqual([]);
+    expect(stateOf(1).activityYielded).toBe(false);
   });
 });
 

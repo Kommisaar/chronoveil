@@ -64,6 +64,18 @@ export const zh = {
     you: '你',
     reasoning: '思考过程',
     interrupted: '已中断',
+    activity: {
+      recalling: '正在回忆…',
+      found: '翻到了。',
+      recalled: '已回忆',
+      phase: {
+        researchStart: '进入探索',
+        toolCall: '工具调用',
+        toolResult: '工具结果',
+        dossierReady: '卷宗就绪',
+        researchSkipped: '免检索放行',
+      },
+    },
   },
   characters: {
     title: '角色',

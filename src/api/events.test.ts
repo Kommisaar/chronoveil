@@ -65,6 +65,39 @@ describe('fromWireEvent 防御式解析（INT-001 / 验收 7）', () => {
     expect(fromWireEvent({ type: undefined, session_id: 1, message_id: 7 })).toBeNull();
   });
 
+  it('activity 合法负载 → camelCase 事件（Task-06 记忆探索透出）', async () => {
+    const { fromWireEvent } = await importEvents();
+    expect(
+      fromWireEvent({ type: 'activity', session_id: 4, message_id: -3, phase: 'researchStart', detail: null }),
+    ).toEqual({ type: 'activity', sessionId: 4, messageId: -3, phase: 'researchStart', detail: null });
+    expect(
+      fromWireEvent({
+        type: 'activity',
+        session_id: 4,
+        message_id: -3,
+        phase: 'toolCall',
+        detail: 'search_memory(q=雨夜)',
+      }),
+    ).toEqual({
+      type: 'activity',
+      sessionId: 4,
+      messageId: -3,
+      phase: 'toolCall',
+      detail: 'search_memory(q=雨夜)',
+    });
+  });
+
+  it('activity 未知 phase 或 detail 类型不符 → 拒收（向前兼容不变量保持）', async () => {
+    const { fromWireEvent } = await importEvents();
+    // phase 未知值：未来新增阶段旧前端静默跳过（bindings ActivityPhase 注释契约）
+    expect(
+      fromWireEvent({ type: 'activity', session_id: 1, message_id: -3, phase: 'quantumLeap', detail: null }),
+    ).toBeNull();
+    expect(fromWireEvent({ type: 'activity', session_id: 1, message_id: -3, detail: null })).toBeNull();
+    // detail 只允许 string | null
+    expect(fromWireEvent({ type: 'activity', session_id: 1, message_id: -3, phase: 'toolCall', detail: 7 })).toBeNull();
+  });
+
   it('缺路由键 / 字段类型不符 / 非对象输入一律拒收', async () => {
     const { fromWireEvent } = await importEvents();
     // 缺 session_id / message_id（路由键，INT-001 身份字段）

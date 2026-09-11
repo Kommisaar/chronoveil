@@ -18,9 +18,9 @@ import '../../i18n';
 import { ActivityBar } from './ActivityBar';
 import type { ActivityStep } from './streamHub';
 
-/** 轨迹构造：at 只记到达时刻，不影响呈现断言，统给固定值 */
+/** 轨迹构造：ActivityStep 只含 phase + detail（呈现层无时间维度） */
 function step(phase: ActivityStep['phase'], detail: string | null): ActivityStep {
-  return { phase, detail, at: 1_000 };
+  return { phase, detail };
 }
 
 function bar(activity: readonly ActivityStep[], yielded = false) {

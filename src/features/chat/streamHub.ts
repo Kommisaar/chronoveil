@@ -20,11 +20,10 @@ import type { ActivityPhase } from '../../api/generated/bindings';
 
 export type StreamStatus = 'streaming' | 'stopping' | 'done' | 'error';
 
-/** 单条幕后活动轨迹（Task-07 活动条数据源）：phase + 技术摘要 + 到达时刻（毫秒）。 */
+/** 单条幕后活动轨迹（Task-07 活动条数据源）：phase + 技术摘要（呈现层无时间维度）。 */
 export interface ActivityStep {
   readonly phase: ActivityPhase;
   readonly detail: string | null;
-  readonly at: number;
 }
 
 /**
@@ -150,7 +149,7 @@ class StreamHub {
     switch (event.type) {
       case 'activity':
         // 只追加轨迹：不动 messageId 与状态机（活动事件先于正文，非流式语义）
-        state.activity.push({ phase: event.phase, detail: event.detail, at: Date.now() });
+        state.activity.push({ phase: event.phase, detail: event.detail });
         break;
       case 'token':
         state.messageId = event.messageId;

@@ -130,44 +130,56 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
       onSettledRef.current();
     };
 
-    // 事件 → 引擎驱动（FR-003 思考流式收拢；FR-002 正文缓冲吐字；TASK-002 reset 重来）
+    // 事件 → 引擎驱动（FR-003 思考流式收拢；FR-002 正文缓冲吐字；TASK-002 reset 重来）。
+    // 分派用 switch + 编译期穷尽断言：activity 是设计上忽略的透传变体（活动条经
+    // store 渲染，不驱动引擎），显式 case 而非伪装成不可达；未来新增 StreamEvent
+    // 变体时 default 处编译报错，强制显式决定该变体对演出的意义。
     const drive = (event: StreamEvent): void => {
       const r = rendererRef.current;
       if (!r || settledRef.current) return;
-      if (event.type === 'activity') return; // 幕后活动（Task-07）：不驱动引擎，活动条经 store 渲染
-      if (event.type === 'token' || event.type === 'reasoning') {
-        if (event.reset) {
-          // 重发尝试首事件：清空该回合已累积内容，从零重来
-          r.cancel();
-          phaseRef.current = 'idle';
-        }
-        if (event.type === 'reasoning') {
-          if (phaseRef.current === 'idle') {
-            r.thinkStreaming();
-            phaseRef.current = 'think';
+      switch (event.type) {
+        case 'activity':
+          return; // 幕后活动（Task-07）：不驱动引擎
+        case 'token':
+        case 'reasoning': {
+          if (event.reset) {
+            // 重发尝试首事件：清空该回合已累积内容，从零重来
+            r.cancel();
+            phaseRef.current = 'idle';
           }
-          if (phaseRef.current === 'think') r.appendThink(event.text);
+          if (event.type === 'reasoning') {
+            if (phaseRef.current === 'idle') {
+              r.thinkStreaming();
+              phaseRef.current = 'think';
+            }
+            if (phaseRef.current === 'think') r.appendThink(event.text);
+            return;
+          }
+          if (phaseRef.current === 'idle') {
+            r.beginTurn();
+            phaseRef.current = 'body';
+          } else if (phaseRef.current === 'think') {
+            r.finishThinking(); // 思考通道收拢 → 自动开演正文
+            phaseRef.current = 'body';
+          }
+          r.enqueue(event.text);
           return;
         }
-        if (phaseRef.current === 'idle') {
-          r.beginTurn();
-          phaseRef.current = 'body';
-        } else if (phaseRef.current === 'think') {
-          r.finishThinking(); // 思考通道收拢 → 自动开演正文
-          phaseRef.current = 'body';
+        case 'done':
+          if (phaseRef.current === 'think') {
+            r.finishThinking();
+            phaseRef.current = 'body';
+          }
+          r.finish(); // 生产者完毕：队列排空定格后 onFinish → onSettled（无直出跳进）
+          return;
+        case 'error':
+          freeze(); // 半条已落库，立即静止
+          return;
+        default: {
+          const _exhaustive: never = event; // 穷尽断言：现有变体已全部显式处理
+          return _exhaustive;
         }
-        r.enqueue(event.text);
-        return;
       }
-      if (event.type === 'done') {
-        if (phaseRef.current === 'think') {
-          r.finishThinking();
-          phaseRef.current = 'body';
-        }
-        r.finish(); // 生产者完毕：队列排空定格后 onFinish → onSettled（无直出跳进）
-        return;
-      }
-      freeze(); // error：半条已落库，立即静止
     };
 
     // 回放积压（事件早于挂载 / 切会话重挂）：正文直接上屏，思考走快滚追上

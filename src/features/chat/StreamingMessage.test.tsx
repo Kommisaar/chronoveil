@@ -355,6 +355,35 @@ describe('幕后活动条集成（Task-07：探索透出 → 活动条 → 让�
   });
 });
 
+describe('事件分派穷尽断言回归（全部现有变体过一遍 drive）', () => {
+  it('五个事件变体全部经 drive 分派不抛错，行为与既有语义一致', async () => {
+    // 完整生成链路：activity（设计上忽略，不驱动引擎）→ reasoning → token → done
+    const stateA = beginSession(50);
+    const onSettledA = vi.fn();
+    const viewA = render(messageTree(stateA, onSettledA));
+    expect(() => {
+      emit(50, act(50, 'researchStart', null));
+      emit(50, think(50, '想一想'));
+      emit(50, tok(50, '答案'));
+      emit(50, fin(50, 7));
+    }).not.toThrow();
+    // 收拢链路走真实时序，排空定格后恰一次收尾
+    await vi.waitFor(() => expect(onSettledA).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(bodyText(viewA)).toBe('答案');
+
+    // error 分支：立即冻结收尾（挂载前先积压半条：replayInstant 同步上屏）
+    const stateB = beginSession(51);
+    emit(51, tok(51, '半条'));
+    const onSettledB = vi.fn();
+    const viewB = render(messageTree(stateB, onSettledB));
+    expect(() => {
+      emit(51, err(51, 'provider 挂了', true));
+    }).not.toThrow();
+    expect(bodyText(viewB)).toBe('半条');
+    expect(onSettledB).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('tuning 中途热更（TASK-12 / 审计问题 8）', () => {
   afterEach(() => {
     vi.useRealTimers();

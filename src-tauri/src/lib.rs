@@ -34,6 +34,17 @@ pub fn run() {
         .expect("导出 TS bindings 失败");
 
     tauri::Builder::default()
+        // 日志插件（log facade 的后端装配）：Stdout 输出、Info 级别（warn/error 必现），
+        // 默认格式自带时间与模块路径（本次替换已去掉手写 `[generation]` 类前缀）。
+        // 纯 Stdout 保持克制；后续要文件落盘再扩展 TargetKind::LogDir。
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                )])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         // 原生文件对话框插件（Task-04 角色卡导入/导出）：命令层经 DialogExt 的
         // Rust 侧 blocking API 调用，不经前端 IPC，无需 capabilities 权限项。
         .plugin(tauri_plugin_dialog::init())

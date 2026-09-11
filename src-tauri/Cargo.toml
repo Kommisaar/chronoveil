@@ -20,6 +20,11 @@ tauri = { version = "2", features = ["specta"] }
 # 原生文件对话框（Task-04 角色卡导入/导出）：仅用 Rust 侧 API（DialogExt blocking），
 # 不经前端 IPC 权限，capabilities 无需登记 dialog 权限项。
 tauri-plugin-dialog = "2"
+# 日志 facade（log 0.4 纯门面，无 IO）：domain/services 允许引用，不违反分层禁令
+# （守卫只禁 tauri/rusqlite/reqwest）；具体后端由组合根的 tauri-plugin-log 装配。
+log = "0.4"
+# 日志插件后端（组合根专用）：Stdout 输出 + Info 级别；后续要文件落盘再扩展。
+tauri-plugin-log = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 类型同源（ADR-010 / TASK-005）：tauri-specta 生成 TS bindings。

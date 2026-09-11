@@ -569,7 +569,8 @@ mod tests {
         );
         assert_eq!(
             reloaded.last().unwrap().recap, None,
-            "新行只预填 verdict 给出的 recap（本例 None），list_scenes 往返读出"
+            "新行 recap 按调用方原样落库并往返读出（存储层不设策略；\
+             编排层恒传 None，见 director::build_write 的 2026-09-12 裁决修订）"
         );
         assert_eq!(
             attached_scene_ids(&storage, session_id),

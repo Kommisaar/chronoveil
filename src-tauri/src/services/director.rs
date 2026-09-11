@@ -418,8 +418,13 @@ fn build_write(
         fic_day: verdict.fic_day,
         fic_part: verdict.fic_part.clone(),
         date_label,
-        summary: verdict.summary.clone(),
-        recap: verdict.recap.clone(),
+        // 边界快照只属于被收束的场景（2026-09-12 裁决修订）：新行是「进行中场景」的
+        // header，summary / recap 恒 None——不携带上一场的裁决文本。行上两档的唯一来源
+        // = 它自己被收束时的 close_* 回写；模型未产出（None）时字段缺失自然省略，
+        // 不会像旧预填方案那样把上一场的文本冻结在行上（陈旧 recap/summary 错位），
+        // 结算 prompt 读到的 latest recap 也不再可能是上一场的残留。
+        summary: None,
+        recap: None,
         present: verdict.present.clone(),
     };
     let attach = close_scene_id.map(|scene_id| AttachRange {
@@ -454,9 +459,11 @@ fn build_write(
     SettlementWrite {
         scene,
         close_scene_id,
-        // 边界快照（§7-1）：收束段摘要落新行，同时回写上一行使上一行与其归属消息自洽。
+        // 边界快照（§7-1）：裁决两档只回写上一行，使上一行与其归属消息自洽；
+        // 无上一行（开场即结算）时两者皆 None，裁决文本不落任何行。
         close_summary: verdict.summary.clone().filter(|_| close_scene_id.is_some()),
-        // Task-03 桥场加厚：recap 随 summary 同路径回写上一行（新行亦预填一份）。
+        // Task-03 桥场加厚：recap 随 summary 同路径回写上一行；None → COALESCE 不动
+        // 既有值（预填废除后，行上不再存在需要被 COALESCE「保住」的外来残留）。
         close_recap: verdict.recap.clone().filter(|_| close_scene_id.is_some()),
         attach,
         state_upserts,
@@ -814,27 +821,31 @@ mod tests {
         assert_eq!(blank.summary.as_deref(), Some("s"), "summary 不受 recap 噪声影响");
     }
 
-    /// Task-03：recap 与 summary 同路径——新行预填一份、上一行回写一份；
-    /// 开场即结算（无上一行）时 close_* 全 None、新行仍预填。
+    /// Task-03 裁决修订（2026-09-12）：边界快照只属于被收束的场景——summary / recap
+    /// 仅回写上一行（COALESCE），新行（进行中场景 header）两档恒 None；
+    /// 开场即结算（无上一行）时 close_* 全 None，裁决两档不落任何行。
     #[test]
-    fn build_write_prefills_recap_and_backfills_previous_row() {
+    fn build_write_backfills_previous_row_without_prefilling_new_row() {
         let calendar = fiction_time::CalendarConfig::default();
         let verdict = normalize_json(
             r#"{"location":"旧书店","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人隔着巷口的灯沉默对望。最后谁也没先开口。"}"#,
             Some(&scene(Some(1))),
         );
-        // 有上一行：新行预填两档，close_summary / close_recap 均回写（scene() 夹具 id = 10）。
+        // 有上一行：close_summary / close_recap 回写上一行（scene() 夹具 id = 10），
+        // 新行两档恒 None——预填已废除（消陈旧 recap/summary 错位）。
         let write = build_write(7, &verdict, Some(&scene(Some(1))), &[], 2, 5, &calendar);
-        assert_eq!(write.scene.recap, verdict.recap, "新行预填 recap");
+        assert_eq!(write.scene.summary, None, "新行不再预填 summary");
+        assert_eq!(write.scene.recap, None, "新行不再预填 recap");
         assert_eq!(write.close_scene_id, Some(10));
         assert_eq!(write.close_summary, verdict.summary);
         assert_eq!(write.close_recap, verdict.recap, "recap 随 summary 同路径回写上一行");
-        // 开场即结算（无上一行）：close_* 全 None，新行仍预填两档。
+        // 开场即结算（无上一行）：close_* 全 None，两档裁决不落任何行。
         let first = build_write(7, &verdict, None, &[], 0, 5, &calendar);
         assert_eq!(first.close_scene_id, None);
         assert_eq!(first.close_summary, None);
         assert_eq!(first.close_recap, None);
-        assert_eq!(first.scene.recap, verdict.recap);
+        assert_eq!(first.scene.summary, None);
+        assert_eq!(first.scene.recap, None);
     }
 
     // ---- 编排半：模型解析 / prompt 装配（纯函数） ----
@@ -1117,7 +1128,8 @@ mod tests {
         let deps = deps_with_director(&storage, &server.url());
         run_settlement(&deps, &ticket, &trigger).await;
 
-        // 边界快照新行：idx 自增、四字段 + 派生 date_label + summary + present。
+        // 边界快照新行：idx 自增、四字段 + 派生 date_label + present；
+        // summary / recap 恒 None（2026-09-12 裁决修订：新行不再预填裁决两档）。
         // （scenes[0] = 建会话 seed 的开场锚行，FR-014。）
         let scenes = storage.list_scenes(session_id).unwrap();
         assert_eq!(scenes.len(), 3, "开场锚行 + 上一行 + 结算新行");
@@ -1128,7 +1140,7 @@ mod tests {
         assert_eq!(newest.fic_day, Some(2));
         assert_eq!(newest.fic_part.as_deref(), Some("清晨"));
         assert_eq!(newest.date_label.as_deref(), Some("第2日·清晨"), "date_label 由日历派生");
-        assert_eq!(newest.summary.as_deref(), Some("钟楼下的对峙无果而终"));
+        assert_eq!(newest.summary, None, "新行不再预填 summary");
         assert_eq!(newest.present, vec![char_id], "§7-7：在场恒为会话角色");
         // 上一行 summary / recap 回写（边界快照：上一行与其归属消息自洽；Task-03 recap
         // 随 summary 同路径）。
@@ -1138,10 +1150,7 @@ mod tests {
             Some("对峙从一句口信误会开始。两人在钟楼下的巷口对望。最后她转身走进夜色。"),
             "recap 回写上一行"
         );
-        assert_eq!(
-            newest.recap, scenes[1].recap,
-            "新行预填同一份 recap（两档随行 header 落库）"
-        );
+        assert_eq!(newest.recap, None, "新行不再预填 recap（消陈旧错位）");
         // 状态清算：upsert 新键（source_scene = 收束场景）、clear 旧键（软删）。
         let states = storage.list_character_states(session_id).unwrap();
         assert_eq!(states.len(), 1, "「别扭」已清除、「情绪」已 upsert");
@@ -1196,8 +1205,122 @@ mod tests {
             2,
             "重试成功后恰好结算一次（INT-003 幂等）；scenes[0] = 开场锚行（FR-014）"
         );
-        assert_eq!(scenes[1].summary.as_deref(), Some("重试后的裁决"));
-        assert_eq!(scenes[1].recap, None, "裁决未给 recap → 落库 None（不是错误、不重试）");
+        assert_eq!(
+            scenes[0].summary.as_deref(),
+            Some("重试后的裁决"),
+            "裁决回写上一行（此处上一行 = 开场锚行）"
+        );
+        assert_eq!(scenes[1].summary, None, "新行不再预填 summary");
+        assert_eq!(scenes[1].recap, None, "裁决未给 recap → 新行两档缺席（不是错误、不重试）");
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 陈旧残留回归（2026-09-12 裁决修订）：行上 summary / recap 的唯一来源 =
+    /// 它自己被收束时的回写，不因预填继承上一场的裁决文本。
+    /// 结算 1 产出 recap R1 → 新行 X1 两档缺席；结算 2 无 recap → X1 只收到自己的
+    /// summary、recap 保持缺席（旧预填方案会把 R1 冻结在 X1 上，桥场回顾错位到
+    /// 上一场），R1 仍只留在锚行；结算 3 产出 recap R3 → X2 正确收到自己的两档。
+    #[tokio::test]
+    async fn run_settlement_does_not_freeze_previous_recap_on_new_row() {
+        let (storage, dir, session_id, _char_id, _trigger_id) = settlement_setup("dir_stale");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        let server = MockServer::start(move |_req, stream| {
+            let nth = counter.fetch_add(1, Ordering::SeqCst);
+            let body = match nth {
+                0 => r#"{"location":"巷口","fic_day":2,"summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人隔着巷口的灯沉默对望。最后谁也没先开口。"}"#,
+                1 => r#"{"location":"书店","fic_day":3,"summary":"打烊后的整理与和解"}"#,
+                _ => r#"{"location":"码头","fic_day":4,"summary":"雨夜码头的告别","recap":"告别从一封迟到的信开始。两人在雨里把话说尽。最后她先转身。"}"#,
+            };
+            let _ = json_body(stream, body);
+        });
+
+        let registry = GenerationRegistry::new();
+        let deps = deps_with_director(&storage, &server.url());
+        let mut trigger = trigger_of(&storage, session_id);
+        for _ in 0..3 {
+            let ticket = registry.begin(session_id).unwrap();
+            run_settlement(&deps, &ticket, &trigger).await;
+            registry.finish(session_id);
+            trigger = storage
+                .insert_message(&NewMessage::new(
+                    session_id,
+                    crate::domain::models::MessageRole::Assistant,
+                    "场景推进。\n\n---\n\n下一场开头。",
+                ))
+                .unwrap();
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 3, "三次结算各一次成功调用");
+
+        // 锚行（idx 0）收到结算 1 回写并保持；其后各行只携带自己被收束时的两档。
+        let scenes = storage.list_scenes(session_id).unwrap();
+        assert_eq!(scenes.len(), 4, "开场锚行 + 三次结算各一行");
+        assert_eq!(scenes[0].summary.as_deref(), Some("钟楼下的对峙无果而终"));
+        assert_eq!(
+            scenes[0].recap.as_deref(),
+            Some("对峙从一句口信误会开始。两人隔着巷口的灯沉默对望。最后谁也没先开口。"),
+            "结算 1 的 recap 只留在它收束的锚行"
+        );
+        // X1：结算 2 只回写 summary；recap 保持缺席（无产出 = 字段缺失，不是继承上一场）。
+        assert_eq!(scenes[1].summary.as_deref(), Some("打烊后的整理与和解"));
+        assert_eq!(scenes[1].recap, None, "无产出 ≠ 上一场的陈旧 recap");
+        // X2：结算 3 的两档正确落位。
+        assert_eq!(scenes[2].summary.as_deref(), Some("雨夜码头的告别"));
+        assert_eq!(
+            scenes[2].recap.as_deref(),
+            Some("告别从一封迟到的信开始。两人在雨里把话说尽。最后她先转身。"),
+            "结算 3 的 recap 写进它收束的行"
+        );
+        // X3：进行中 header，两档缺席。
+        assert_eq!(scenes[3].summary, None);
+        assert_eq!(scenes[3].recap, None);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// director 输入纯净性（2026-09-12 裁决修订）：预填废除后，下一次结算读到的
+    /// latest 行（进行中 header）summary / recap 均缺席——「上一场快照」不再携带
+    /// 上一场的陈旧回顾文本。
+    #[tokio::test]
+    async fn run_settlement_prompt_reads_unprefilled_latest_scene() {
+        let (storage, dir, session_id, _char_id, _trigger_id) = settlement_setup("dir_pure");
+        let captured: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let cap = captured.clone();
+        let server = MockServer::start(move |req, stream| {
+            cap.lock().unwrap().push(req.json());
+            let _ = json_body(
+                stream,
+                r#"{"location":"巷口","fic_day":2,"summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人隔着巷口的灯沉默对望。最后谁也没先开口。"}"#,
+            );
+        });
+
+        let registry = GenerationRegistry::new();
+        let deps = deps_with_director(&storage, &server.url());
+        // 结算 1：两档只回写锚行，新行 X1（进行中 header）两档缺席。
+        let ticket = registry.begin(session_id).unwrap();
+        run_settlement(&deps, &ticket, &trigger_of(&storage, session_id)).await;
+        registry.finish(session_id);
+        // 结算 2：latest = X1，无预填残留可读。
+        let second = storage
+            .insert_message(&NewMessage::new(
+                session_id,
+                crate::domain::models::MessageRole::Assistant,
+                "第二场推进。\n\n---\n\n下一场开头。",
+            ))
+            .unwrap();
+        let ticket = registry.begin(session_id).unwrap();
+        run_settlement(&deps, &ticket, &second).await;
+
+        let requests = captured.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        let user = requests[1]["messages"][1]["content"].as_str().unwrap();
+        assert!(!user.contains("上一场回顾"), "latest 行 recap 缺席 → 快照无回顾行：{user}");
+        assert!(
+            !user.contains("对峙从一句口信误会开始"),
+            "上一场的 recap 不进入下一次结算输入：{user}"
+        );
+        assert!(user.contains("上一场摘要：（无）"), "latest 行 summary 亦缺席（不再预填）：{user}");
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }

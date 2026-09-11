@@ -1623,7 +1623,12 @@ mod tests {
         assert_eq!(settled.fic_day, Some(2));
         assert_eq!(settled.fic_part.as_deref(), Some("清晨"));
         assert_eq!(settled.date_label.as_deref(), Some("第2日·清晨"));
-        assert_eq!(settled.summary.as_deref(), Some("雨夜争执后无言告别"));
+        assert_eq!(settled.summary, None, "新行不再预填裁决 summary（2026-09-12 裁决修订）");
+        assert_eq!(
+            scenes[0].summary.as_deref(),
+            Some("雨夜争执后无言告别"),
+            "裁决 summary 回写上一行（此处上一行 = 开场锚行）"
+        );
         assert_eq!(settled.present, vec![1], "§7-7：在场恒为会话角色");
         // 状态清算落库。
         let states = storage.list_character_states(session_id).unwrap();

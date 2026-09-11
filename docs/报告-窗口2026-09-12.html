@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 凌晨窗口迭代报告 · 2026-09-12</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --surface: #232323; --surface2: #292929;
+    --border: #383838; --text: #e8e4dc; --text-dim: #a8a49c;
+    --accent: #93a5c8; --accent2: #e8b06a; --green: #6cc0a0; --red: #d08080;
+    --blue: #7aa2c8; --mono: "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.7; padding: 2rem; max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: .25rem; }
+  h1 .sub { color: var(--text-dim); font-size: 1rem; font-weight: 400; margin-left: .75rem; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 2.2rem 0 .9rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); color: var(--accent2); }
+  h3 { font-size: 1rem; font-weight: 600; margin: 1.2rem 0 .5rem; color: var(--accent); }
+  p { margin: .5rem 0; }
+  .meta { color: var(--text-dim); font-size: .9rem; margin-bottom: 1.5rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .8rem; margin: 1rem 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1.1rem; }
+  .card .num { font-size: 1.7rem; font-weight: 700; color: var(--accent2); font-family: var(--mono); }
+  .card .lbl { font-size: .82rem; color: var(--text-dim); }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; font-size: .88rem; }
+  th, td { padding: .45rem .65rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--surface2); color: var(--accent); font-weight: 600; white-space: nowrap; }
+  td code, p code, li code { font-family: var(--mono); font-size: .84em; background: var(--surface2); padding: .08em .4em; border-radius: 4px; color: var(--accent2); }
+  .ok { color: var(--green); font-weight: 600; }
+  .dim { color: var(--text-dim); }
+  ul { padding-left: 1.4rem; margin: .5rem 0; }
+  li { margin: .3rem 0; }
+  .dir { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent2); border-radius: 6px; padding: .9rem 1.1rem; margin: .8rem 0; }
+  .dir b { color: var(--accent2); }
+  .chain { display: flex; align-items: baseline; gap: .6rem; padding: .35rem 0; border-bottom: 1px dashed var(--border); }
+  .chain:last-child { border-bottom: none; }
+  .chain .badge { flex: 0 0 3.2rem; text-align: center; font-size: .78rem; font-weight: 700; color: var(--green); border: 1px solid var(--green); border-radius: 4px; padding: .05rem 0; }
+  .commit-list { font-family: var(--mono); font-size: .8rem; color: var(--text-dim); columns: 2; column-gap: 2rem; }
+  .commit-list div { break-inside: avoid; margin: .15rem 0; }
+  .commit-list .h { color: var(--accent); }
+  .note { background: var(--surface); border-radius: 6px; padding: .8rem 1rem; margin: .7rem 0; font-size: .9rem; }
+  .note.warn { border-left: 3px solid var(--accent2); }
+  .note.info { border-left: 3px solid var(--blue); }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<h1>ChronoVeil 凌晨窗口迭代报告<span class="sub">自主迭代 · 2026-09-12 01:20 – 05:45</span></h1>
+<p class="meta">运行 ID <code>20260911T134930Z-292a175d</code> · 策略 feature → balanced · 并发 6 · master <code>234b879 → c43f126</code>（22 提交）· 总结已入 <code>docs/迭代记录.md</code></p>
+
+<div class="cards">
+  <div class="card"><div class="num">13</div><div class="lbl">任务（12 合并 + 1 纯验证）</div></div>
+  <div class="card"><div class="num">261+1</div><div class="lbl">Rust 测试（229 → 261）</div></div>
+  <div class="card"><div class="num">441</div><div class="lbl">前端用例（369 → 441）</div></div>
+  <div class="card"><div class="num">0</div><div class="lbl">并行冲突（并发 6）</div></div>
+  <div class="card"><div class="num">6/6</div><div class="lbl">真实回路回归链通过</div></div>
+</div>
+
+<h2>一、三大方向全闭环</h2>
+
+<div class="dir"><b>① 叙事账本（状态面板 / 场景史）</b><br>
+<code>list_scenes</code> / <code>list_character_states</code> 读命令（camelCase DTO、墓碑过滤、NotFound 同构）+ ChatView 右侧账本面板：状态按「当前状态 / 关系」两组、场景 idx 倒序、时间标签链（dateLabel → ficDay/ficPart）、recap 折叠回顾；经 <code>streamHub.onTerminal</code> 终态自动刷新（ADR-005 时序：done 放行前账已落库，实证于 generation.rs）。</div>
+
+<div class="dir"><b>② 亮色主题对比度达标</b><br>
+引擎自适应注入（<code>src/engine/theme.ts</code>，零依赖纯 TS+DOM，祖先链表面探测，jsdom 安全回落）。白底实测：action <b>2.48 → 5.82</b>、bold <b>1.22 → 9.65</b>、decode <b>1.94 → 5.79</b>，全部 ≥ WCAG AA 4.5:1；暗色 <code>:root</code> 契约测试锚定零回归。</div>
+
+<div class="dir"><b>③ AI 起草历法全链闭环（FR-014 二期）</b><br>
+<code>draft_calendar</code> 命令（schema prompt + snake/camel 双键容错 + 钳制 + 越年节日兜底 + 一次修正重试；复用 complete_json 零 infra 扩展）→ 编辑器历法区块（查看 / 编辑 / 四预设下沉 components + AI 起草对话框：4000 字符计数、序号守卫防迟到结果）→ <code>update_character</code> 接通 <code>calendarConfig</code> 持久化（validate → snake_case 存储，None=清除）→ 建会话快照 → 结算/装配消费。真实冒烟 2.82s 产出「四季十二辰历」。</div>
+
+<h2>二、质量裁决与修复</h2>
+<ul>
+  <li><b>C1 · scene_id 接线</b>（<code>ad822b9</code>）：domain 读路径开放库内归属，装配/编年史/探索器从「位置推断」改「id 精确对应」——结算欠账偏移不再累积，重生成收敛为空段 + NULL 替换条。</li>
+  <li><b>C2 · 预填移除</b>（<code>1a50a4d</code>）：边界快照只属于被收束的场景——陈旧 recap/summary 桥场错位根除；backfill COALESCE 保留；结算 prompt 输入不再读上一场残留。</li>
+  <li><b>C3 · 前端加固</b>（<code>d6251a9</code>+<code>a4decc7</code>）：ActivityStep.at 死字段移除（YAGNI，全仓 grep 证实零消费）；drive() 改 switch + <code>never</code> 穷尽断言，未来事件变体失配前移编译期。</li>
+  <li><b>flake 根因修复</b>（<code>ba9710c</code>）：ChatView.history 偶发抖动——200 轮探针实锤（第 45/107 轮捕获竞态）：findByText 只同步 commit 期 DOM，引擎直插在被动 effect 里晚于其冲刷；waitFor 收口，断言意图零弱化。</li>
+  <li><b>C4–C7 候选全清零</b>：search_history 场号标签两档取法、预填裁决注释收敛、越年节日表单拦截（与 Rust 阈值逐条同构）、invalid 完成钮禁用（三出口无困死实测）。</li>
+</ul>
+
+<h2>三、真实回路回归（Task-20 · openrouter/free）</h2>
+<p class="dim">上次真实冒烟后合入了 scene_id 切分、预填移除、历法起草与持久化——本次对当前 master 全链重验。</p>
+<div class="chain"><span class="badge">PASS</span><span><b>对话生成</b> — 3 轮真实流式；锚行 seed（霜月·晨露日·夜）；persona 体现；无 error 事件</span></div>
+<div class="chain"><span class="badge">PASS</span><span><b>结算链</b> — 新行 summary/recap 恒 None（C2 裁决实证）；盖章区间 (0,4]→场0、(4,6]→场1、(6,8]→场2 与 AttachRange 逐一吻合；欠账段下次结算一并盖章（自愈按设计工作）</span></div>
+<div class="chain"><span class="badge">PASS</span><span><b>装配链</b> — 五段实测：persona / 当前时间（历法换算）/【往事编年史】（含桥场「└ 回顾」加厚）/【当前状态】（情绪：警觉 · 持物：铜钥匙）</span></div>
+<div class="chain"><span class="badge">PASS</span><span><b>记忆探索</b> — 事件序列 ResearchStart → ToolCall → ToolResult → DossierReady；多轮检索后回复命中「城南老槐树下，你亲手埋的」</span></div>
+<div class="chain"><span class="badge">PASS</span><span><b>AI 起草历法</b> — 「四季十二辰历」12 月×30 日、十二支日名、节日 {46:开山祭, 226:拜月夜}，validate 通过</span></div>
+<div class="chain"><span class="badge">PASS</span><span><b>历法持久化</b> — update → get 读回逐字节一致 → parse 往返无损 → create_session 快照同证；锚行 date_label「正月·子日·夜」干支派生</span></div>
+<div class="note warn">免费档日配额 50 次请求在多轮回归后耗尽（429：free-models-per-day；充值 $10 信用可升 1000 次/天；UTC 0 点重置 = 本地 08:00）。第 5 轮重复运行为唯一未竟，错误路径行为本身验证正确（无半条、不落空行、探索器静默降级）。</div>
+
+<h2>四、任务台账</h2>
+<table>
+<tr><th>任务</th><th>内容</th><th>提交</th><th>门禁</th></tr>
+<tr><td>Task-08</td><td>C1 scene_id 接线（装配/编年史/探索器 id 精确对应）</td><td><code>ad822b9</code></td><td class="ok">cargo 238 · check 370 · 审查 APPROVE</td></tr>
+<tr><td>Task-09</td><td>C2 结算预填移除裁决 + 2 回归测试</td><td><code>1a50a4d</code></td><td class="ok">cargo 240 · check 370</td></tr>
+<tr><td>Task-10</td><td>C3 前端加固（at 死字段 + drive never 断言）</td><td><code>a4decc7</code></td><td class="ok">check 370 · tsc 0</td></tr>
+<tr><td>Task-11</td><td>亮色对比度达标（自适应注入 + 10 守卫测试）</td><td><code>d112732</code></td><td class="ok">check 380 · tsc 0</td></tr>
+<tr><td>Task-12</td><td>list_scenes / list_character_states 读命令 + wire DTO + mock</td><td><code>24a9778</code>+<code>a3e1af7</code></td><td class="ok">cargo 244 · check 383</td></tr>
+<tr><td>Task-14</td><td>C4 场号标签收口 + C5 注释同步</td><td><code>10f943e</code></td><td class="ok">cargo 244 · check 383</td></tr>
+<tr><td>Task-13</td><td>叙事账本面板 UI（按 12 契约先行，合并零偏差）</td><td><code>bc06f72</code>+<code>7753eca</code></td><td class="ok">check 390 · tsc 0</td></tr>
+<tr><td>Task-16</td><td>hr.scene 抖动根因修复（200 轮探针实证）</td><td><code>ba9710c</code></td><td class="ok">check 390</td></tr>
+<tr><td>Task-15</td><td>AI 起草历法后端（真实冒烟 2.82s；快修 3 处）</td><td><code>00f39cb</code>…<code>759aa28</code></td><td class="ok">cargo 257 · check 394 · tsc 0</td></tr>
+<tr><td>Task-17</td><td>历法编辑区块 + AI 起草对话框（预设下沉 components）</td><td><code>ddbc49c</code></td><td class="ok">check 434 · tsc 0</td></tr>
+<tr><td>Task-18</td><td>update_character 历法持久化接线（端到端永久测试；快修 mock 键形）</td><td><code>d3d29e1</code>…<code>daaffee</code></td><td class="ok">cargo 261 · check 438 · tsc 0</td></tr>
+<tr><td>Task-19</td><td>balanced 卫生批（C6/C7/注释收敛/警告清零）</td><td><code>71c74ca</code>+<code>7b89f21</code></td><td class="ok">cargo 261 零警告 · check 441</td></tr>
+<tr><td>Task-20</td><td>真实回路六链回归（纯验证，产物不提交）</td><td class="dim">—</td><td class="ok">六链 PASS</td></tr>
+</table>
+<p class="dim">提交链全文：</p>
+<div class="commit-list">
+<div><span class="h">d6251a9</span> refactor(chat): 移除 ActivityStep.at 死字段</div>
+<div><span class="h">a4decc7</span> refactor(chat): drive() never 穷尽断言</div>
+<div><span class="h">ad822b9</span> feat(settlement): scene_id 开进读路径</div>
+<div><span class="h">1a50a4d</span> fix(director): 移除场景行裁决预填</div>
+<div><span class="h">d112732</span> style(engine): 亮色对比度达标</div>
+<div><span class="h">24a9778</span> feat(ipc): 两只读命令</div>
+<div><span class="h">a3e1af7</span> feat(api): 双模式封装 + mock 对齐</div>
+<div><span class="h">9a26941</span> fix(explorer): 场号标签两档取法</div>
+<div><span class="h">10f943e</span> docs(domain): 预填裁决注释同步</div>
+<div><span class="h">bc06f72</span> feat(chat): 叙事账本面板</div>
+<div><span class="h">7753eca</span> refactor(chat): 账本类型对齐 bindings</div>
+<div><span class="h">ba9710c</span> test(chat): hr.scene 抖动根因修复</div>
+<div><span class="h">00f39cb</span> feat(calendar-draft): AI 起草后端</div>
+<div><span class="h">9e8a02c</span> feat(api): draftCalendar 封装</div>
+<div><span class="h">759aa28</span> fix(calendar-draft): 起草快修三处</div>
+<div><span class="h">ddbc49c</span> feat(characters): 历法编辑 + AI 起草接入</div>
+<div><span class="h">d3d29e1</span> feat(ipc/characters): 历法持久化接线</div>
+<div><span class="h">2050c99</span> test(api): mock 同构历法契约</div>
+<div><span class="h">daaffee</span> fix(api-mock): 落库键形折叠 snake_case</div>
+<div><span class="h">71c74ca</span> fix(characters): 越年拦截 + 完成态修正</div>
+<div><span class="h">7b89f21</span> chore: 注释收敛与警告清理</div>
+<div><span class="h">c43f126</span> docs: 窗口批次收官记录</div>
+</div>
+
+<h2>五、遗留与待拍板</h2>
+<div class="note info"><b>待你拍板（不擅自做）：</b>
+<ul>
+<li><code>HistoryMessageBody</code> 改 <code>useLayoutEffect</code>——消历史行首帧空白，生产行为变更（低风险，拍板即做）</li>
+<li><code>daysPerMonth</code> 前端上界——AI 路径钳 1..=999，手填/持久化路径只查 &gt;0，语义待统一</li>
+<li><code>eprintln → log</code> 插件化（早期遗留，备忘标「待拍板」）</li>
+<li>FR-010 场景线三入口（手动分场等，需产品决策）</li>
+<li>OpenRouter 免费_key 仍现役于 <code>~/.chronoveil/config.json</code>（备份 <code>config.json.bak-iterloop</code>）</li>
+</ul></div>
+<div class="note"><b>路线图候选（有案可查、未开工）：</b>多角色群像（下一个大战役，建议先出设计备忘）、场景窗口可选（你的构想，小切片）、结算过程透明化（活动条延伸，与账本配套）、账本面板加分项（present 在场角色 / timeNote / 开合动效）、会话导出备份、语音（voice_config 空置中）。</div>
+
+<h2>六、流程观察</h2>
+<ul>
+  <li>并发 6 下 13 任务<b>零冲突合并</b>：冲突域预判 + 「契约冻结、先行开发」模式两次奏效（Task-13 按 Task-12 冻结契约先写，合并零偏差重写给付）。</li>
+  <li>本轮 verifier 共挡下 2 个必挂缺陷：一处 strict tsc 错误（<code>check</code> 不含 tsc 的盲区，已纳入惯例补跑）、一处 mock 键形失配（camelCase 写 / snake_case 读）。</li>
+  <li>bindings.ts CRLF 幻影处置（零内容 diff → checkout 还原）已成例行，全窗口零误提交。</li>
+</ul>
+
+<footer>ChronoVeil 自主迭代报告 · 生成于 2026-09-12 · 运行账本 auto-iter/runs/20260911T134930Z-292a175d/ · 下窗口 /iter-resume 接续</footer>
+
+</body>
+</html>

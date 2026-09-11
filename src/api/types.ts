@@ -22,8 +22,10 @@ export type {
   CharacterStateDto,
   /** 人物状态 scope（FR-012：state = 随戏状态，relation = 缓演关系）。 */
   CharacterStateScope,
-  /** 新建 / 更新角色卡入参（含 avatar；FR-006）。 */
+  /** 新建角色卡入参（含 avatar；FR-006）。 */
   CharacterInput,
+  /** 更新角色卡入参（CharacterInput + 历法整卡覆盖，None/缺键 = 清除；FR-006 / FR-013）。 */
+  UpdateCharacterInput,
   /** 会话日历 wire DTO（FR-014 开局向导；camelCase 仅 wire，存储 JSON 由 Rust 产出）。 */
   CalendarConfigDto,
   /** 开局包入参（FR-014；null = 降级路径）。 */

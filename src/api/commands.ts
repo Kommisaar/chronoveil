@@ -25,6 +25,7 @@ import type {
   SceneDto,
   SessionOpeningInput,
   SessionSummary,
+  UpdateCharacterInput,
 } from './types';
 
 async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
@@ -127,15 +128,24 @@ export async function createCharacter(
   return isTauri ? unwrap(commands.createCharacter(input)) : mock.createCharacter(input);
 }
 
+/**
+ * 更新角色卡（FR-006 / FR-013 整卡覆盖）。入参在 CharacterInput 基础上接受可选
+ * `calendarConfig`（历法编辑，Task-17 buildInput 契约）；此处把缺键归一为 null
+ * （= 清除历法，与 Rust 侧 serde Option 缺省同语义），兼容尚未携带该键的调用方。
+ */
 export async function updateCharacter(
   id: number,
-  input: CharacterInput,
+  input: CharacterInput & { calendarConfig?: UpdateCharacterInput['calendarConfig'] },
 ): Promise<void> {
+  const payload: UpdateCharacterInput = {
+    ...input,
+    calendarConfig: input.calendarConfig ?? null,
+  };
   if (isTauri) {
-    await unwrap(commands.updateCharacter(id, input));
+    await unwrap(commands.updateCharacter(id, payload));
     return;
   }
-  return mock.updateCharacter(id, input);
+  return mock.updateCharacter(id, payload);
 }
 
 export async function deleteCharacter(id: number): Promise<void> {

@@ -20,7 +20,7 @@
  * 互不污染；时间经 fake timers 冻结，使 createdAt / updatedAt 断言确定。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterInput, ConfigDto, SessionOpeningInput } from '../types';
+import type { CalendarConfigDto, ConfigDto, SessionOpeningInput, UpdateCharacterInput } from '../types';
 
 const BASE = new Date('2026-01-01T12:00:00Z').getTime();
 
@@ -57,7 +57,13 @@ async function apiErrorOf(promise: Promise<unknown>): Promise<Record<string, unk
   throw new Error('预期 mock 命令抛 ApiError，但成功返回');
 }
 
-function characterInput(overrides: Partial<CharacterInput> = {}): CharacterInput {
+/**
+ * 角色卡入参样例（updateCharacter 负载形态 UpdateCharacterInput，含历法槽位；
+ * 结构兼容 createCharacter 的 CharacterInput——多出的 calendarConfig 由 create 忽略）。
+ */
+function characterInput(
+  overrides: Partial<UpdateCharacterInput> = {},
+): UpdateCharacterInput {
   return {
     name: '测试角色',
     avatar: 'data:image/png;base64,AAA',
@@ -68,6 +74,7 @@ function characterInput(overrides: Partial<CharacterInput> = {}): CharacterInput
     modelConfig: '{"providerId":"p1","model":"m1"}',
     accentColor: '#5e2347',
     voiceConfig: null, // CON-003 TTS 预留缝，前端恒传 null
+    calendarConfig: null, // FR-013 历法槽位；null = 无历法（整卡覆盖 = 清除）
     ...overrides,
   };
 }
@@ -520,6 +527,28 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
       entity: 'character',
       id: 999,
     });
+  });
+
+  it('updateCharacter 携带历法整卡覆盖（FR-013）：读回带回（festivals 数字字符串键）；null = 清除', async () => {
+    const { backend } = await loadMock();
+    const calendar: CalendarConfigDto = {
+      name: '星槎历',
+      months: ['潮生月', '风信月'],
+      daysPerMonth: 12,
+      dayNames: ['潮日', '汐日', '星日'],
+      festivals: { 2: '归潮祭' },
+    };
+    await backend.updateCharacter(2, characterInput({ calendarConfig: calendar }));
+    const updated = (await backend.listCharacters()).find((c) => c.id === 2);
+    // 与 Rust CharacterSummary wire 契约同构：calendarConfig 为存储 JSON 字符串透传。
+    expect(typeof updated?.calendarConfig).toBe('string');
+    expect(JSON.parse(updated?.calendarConfig ?? '')).toEqual(calendar);
+
+    // calendarConfig 传 null / 缺键 → 清除（整卡覆盖语义，对齐 Rust update_character_impl）。
+    await backend.updateCharacter(2, characterInput({ name: '林深（再改）' }));
+    const cleared = (await backend.listCharacters()).find((c) => c.id === 2);
+    expect(cleared?.name).toBe('林深（再改）');
+    expect(cleared?.calendarConfig).toBeNull();
   });
 
   it('deleteCharacter 从列表移除且不级联会话（OQ-002）；重复删除报 NotFound', async () => {

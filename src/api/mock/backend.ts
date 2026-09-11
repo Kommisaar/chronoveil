@@ -18,6 +18,7 @@ import type {
   SceneDto,
   SessionOpeningInput,
   SessionSummary,
+  UpdateCharacterInput,
 } from '../types';
 import { ApiError } from '../errors';
 import { characters, messagesBySession, sessions } from './data';
@@ -291,7 +292,8 @@ export async function createCharacter(
     renderStyle: input.renderStyle,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
-    // 角色卡日历 JSON 不随 create 输入（角色卡日历编辑属另一切片），新建恒无。
+    // 建卡不带历法（对齐 Rust CharacterInput）：FR-014 向导显式历法经 createSession
+    // 回写角色卡，历法编辑走 updateCharacter（FR-013）。新建恒无。
     calendarConfig: null,
     updatedAt: Date.now(),
     sessionCount: 0,
@@ -302,7 +304,7 @@ export async function createCharacter(
 
 export async function updateCharacter(
   id: number,
-  input: CharacterInput,
+  input: UpdateCharacterInput,
 ): Promise<void> {
   const character = characters.find((c) => c.id === id);
   if (!character) throw notFound('character', id);
@@ -314,6 +316,11 @@ export async function updateCharacter(
   character.renderStyle = input.renderStyle;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;
+  // 历法整卡覆盖（FR-013，对齐 Rust update_character_impl）：DTO 序列化为存储
+  // JSON 字符串（CharacterSummary.calendarConfig 的 wire 契约是字符串透传）；
+  // null / 缺键 = 清除历法（回退内置默认历）。
+  const calendar = input.calendarConfig ?? null;
+  character.calendarConfig = calendar === null ? null : JSON.stringify(calendar);
   character.updatedAt = Date.now();
 }
 

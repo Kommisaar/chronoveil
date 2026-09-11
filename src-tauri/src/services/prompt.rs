@@ -1,9 +1,16 @@
-//! Prompt 装配（TASK-006 / FR-001 / FR-003 / ADR-004）：纯函数，可单测，不做 IO。
+//! Prompt 装配（TASK-006 / FR-001 / FR-003 / FR-012 / ADR-004）：纯函数，可单测，不做 IO。
 //!
 //! ADR-004 场景对齐装配（§7.8 近景/远景，替换 ADR-002 条数滑窗）：
-//! - system = 人设卡 persona（BR-001「在场完整人设」的 v1 单角色形态）+ 远景编年史：
-//!   更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label / 一句话摘要中
-//!   可用的字段），拼在 persona 之后；persona 为空时 system 只含编年史；
+//! - system = 常驻核心四段（各段空态自然省略；全空时不产生 system 回合）：
+//!   1. 人设卡 persona（BR-001「在场完整人设」的 v1 单角色形态）；
+//!   2. 当前虚时行「当前时间：…」（BR-003 记账层的读者侧投影）：最新场景行的
+//!      记账位 + 会话日历快照（FR-013），让角色知道「现在是什么时间」；
+//!   3. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
+//!      一句话摘要中可用的字段），拼在 persona 之后；persona 为空时 system 只含
+//!      其余三段；
+//!   4. 人物状态快照（FR-012）：character_state 按 scope 分「当前状态」/「关系」
+//!      两组渲染，让角色知道自己当前的状态；expiry 是给结算的清算线索，不进
+//!      叙事快照（给模型的永远是「现在成立的事实」）；
 //! - 近景 = 最近 N 个已结算场景的整场逐字消息 + 进行中场景全量（窗口数学见
 //!   [`crate::domain::context`]），只取原始正文——reasoning 不进上下文：它是给
 //!   用户看的思考，不是对话内容。
@@ -13,19 +20,36 @@
 //! （[`super::director::contains_scene_line`]）按场景线消息切段，触发行归收束场，
 //! 最后一道场景线之后 = 进行中场（scene_id 尚为 NULL）。已知偏差（接受并记录）：
 //! - 结算欠账（§7-2，场景线已出现但结算未落）：切分仍按场景线进行，近景多带一场
-//!   而不丢叙事；远景以场景行为准，无行的场不产生编年史行；
+//!   而不丢叙事；远景以场景行为准，无行的场不产生编年史行——偏移随欠账数累积，
+//!   上限 = 欠账场数行级缺失（每欠一场至多让远景少一行，已落行的信息不丢）；
 //! - 重新生成撞已结算边界（§7-3）：旧行不回滚，行数与场景线数可能短暂错位，
-//!   至多影响单行编年史的归属，下次结算自愈。
+//!   至多影响单行编年史的归属，随下次成功结算近似自愈。
 
 use crate::domain::context::{self, SceneSpans};
-use crate::domain::models::{Character, Message, MessageRole, Scene};
+use crate::domain::fiction_time::{self, CalendarConfig};
+use crate::domain::models::{
+    Character, CharacterState, CharacterStateScope, Message, MessageRole, Scene,
+};
 use crate::infra::llm::{ChatMessage, ChatRole};
 
-/// 装配一次聊天的完整 messages：system(persona + 远景编年史) + 近景上下文。
-/// persona 为空白时跳过 persona（角色卡允许空人设）；远景有行时 system 只含编年史，
-/// 仍不产生空 system 回合。`scenes` 为空（场景特性之前的旧数据会话）时无远景，
-/// 全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
-pub fn assemble(character: &Character, scenes: &[Scene], history: &[Message]) -> Vec<ChatMessage> {
+/// 一次装配的只读输入包：Task-01 后 system 注入渐增（persona / 虚时 / 编年史 /
+/// 状态），收拢成 struct 免得参数列继续变长。`calendar` 为会话快照
+/// （session.calendar_config 经 [`fiction_time::parse`] 解析后的形态）——解析在
+/// 调用方（services/generation.rs）完成，装配本体保持零 IO、纯函数。
+pub struct AssembleInputs<'a> {
+    pub character: &'a Character,
+    pub scenes: &'a [Scene],
+    pub history: &'a [Message],
+    pub calendar: &'a CalendarConfig,
+    pub states: &'a [CharacterState],
+}
+
+/// 装配一次聊天的完整 messages：system(persona + 当前虚时 + 远景编年史 + 人物状态
+/// 快照) + 近景上下文。persona 为空白时跳过 persona（角色卡允许空人设）；四段全空
+/// 时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前的旧数据会话）
+/// 时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
+pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
+    let AssembleInputs { character, scenes, history, calendar, states } = input;
     // 无场景行 = 旧数据：不做场景切分，整段历史视为进行中场走预算兜底。
     let spans = if scenes.is_empty() {
         SceneSpans {
@@ -42,20 +66,23 @@ pub fn assemble(character: &Character, scenes: &[Scene], history: &[Message]) ->
     );
 
     let mut out = Vec::new();
-    let chronicle = chronicle_block(scenes, near.kept_settled);
+    // system 常驻核心四段（顺序固定）：persona → 当前虚时行 → 远景编年史 →
+    // 人物状态快照；各段空态自然省略，段间空行分隔。
+    let mut sections: Vec<String> = Vec::new();
     let persona = character.persona.trim();
-    if !persona.is_empty() || !chronicle.is_empty() {
-        let mut system = String::new();
-        if !persona.is_empty() {
-            system.push_str(persona);
-        }
-        if !chronicle.is_empty() {
-            if !system.is_empty() {
-                system.push_str("\n\n");
-            }
-            system.push_str(&chronicle);
-        }
-        out.push(ChatMessage::new(ChatRole::System, system));
+    if !persona.is_empty() {
+        sections.push(persona.to_string());
+    }
+    if let Some(time) = current_time_line(calendar, scenes) {
+        sections.push(time);
+    }
+    let chronicle = chronicle_block(scenes, near.kept_settled);
+    if !chronicle.is_empty() {
+        sections.push(chronicle);
+    }
+    sections.extend(state_snapshot_sections(states));
+    if !sections.is_empty() {
+        out.push(ChatMessage::new(ChatRole::System, sections.join("\n\n")));
     }
     for message in near.messages {
         let role = match message.role {
@@ -112,10 +139,76 @@ fn chronicle_block(scenes: &[Scene], kept_settled: usize) -> String {
     block
 }
 
+/// 当前虚时行（BR-003 记账层的读者侧投影）：`当前时间：{label}`。
+///
+/// 数据 = 最新场景行（末行恒为进行中场，其记账位承接上一场结算——结算只建行不
+/// 回填旧行，进行中场行在 FR-014 已 seed、此后被结算逐次推进）+ 会话日历快照。
+/// 渲染优先级：date_label 缓存 → [`fiction_time::date_label`] 现算 → 整行省略。
+/// 选**缓存优先**的理由：结算落库时缓存与 fic_day 同源派生（director.rs 用同一
+/// 会话日历换算，含节日括注等结果），直接复用零重算且语义一致；缓存缺失（锚行
+/// 未回写 / 旧数据）时用会话快照日历现算，[`fiction_time::date_label`] 自带
+/// 无皮肤回退「第N日·时段」，两路形态归一。无最新场景或无记账位（fic_day 为空，
+/// BR-003 记账层是唯一事实源）时整行省略，不猜测「第 1 天」。
+fn current_time_line(calendar: &CalendarConfig, scenes: &[Scene]) -> Option<String> {
+    let latest = scenes.last()?;
+    let day = latest.fic_day?;
+    let part = latest.fic_part.as_deref().unwrap_or("");
+    let label = match latest.date_label.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(cached) => cached.to_string(),
+        None => fiction_time::date_label(calendar, day, part),
+    };
+    Some(format!("当前时间：{label}"))
+}
+
+/// 人物状态快照段（FR-012）：按 scope 分「当前状态」（state）/「关系」（relation）
+/// 两组，每组标题 + 每条一行 `- key：value`（中文冒号，与编年史的「·」分隔风格同系）。
+/// 空组省略标题，全空省略整段（返回空 Vec）；expiry 不渲染——那是结算的清算线索，
+/// 叙事快照只给「现在成立的事实」。组内顺序保持库序（id ASC，即状态建立的先后）。
+fn state_snapshot_sections(states: &[CharacterState]) -> Vec<String> {
+    let groups = [
+        (CharacterStateScope::State, "当前状态"),
+        (CharacterStateScope::Relation, "关系"),
+    ];
+    groups
+        .iter()
+        .filter_map(|(scope, title)| {
+            let rows: Vec<&CharacterState> =
+                states.iter().filter(|state| state.scope == *scope).collect();
+            if rows.is_empty() {
+                return None;
+            }
+            let mut block = format!("【{title}】");
+            for row in rows {
+                block.push_str(&format!("\n- {}：{}", row.key, row.value));
+            }
+            Some(block)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::models::NewCharacter;
+
+    /// 默认历（无命名皮肤）单例：既有用例的「无日历注入」对照基线。
+    static DEFAULT_CALENDAR: std::sync::LazyLock<CalendarConfig> =
+        std::sync::LazyLock::new(CalendarConfig::default);
+
+    /// Task-01 三参形态的等价包装（默认历 + 无状态）：供迁移用例与「无注入」对照。
+    fn assemble_base(
+        character: &Character,
+        scenes: &[Scene],
+        history: &[Message],
+    ) -> Vec<ChatMessage> {
+        assemble(&AssembleInputs {
+            character,
+            scenes,
+            history,
+            calendar: &DEFAULT_CALENDAR,
+            states: &[],
+        })
+    }
 
     fn character(persona: &str) -> Character {
         let new = NewCharacter {
@@ -190,6 +283,22 @@ mod tests {
         }
     }
 
+    /// 人物状态行（FR-012）：expiry 可选（快照渲染不消费，用于断言「不渲染」）。
+    fn state(scope: CharacterStateScope, key: &str, value: &str, expiry: Option<&str>) -> CharacterState {
+        CharacterState {
+            id: 1,
+            character_id: 1,
+            session_id: 1,
+            scope,
+            key: key.into(),
+            value: value.into(),
+            expiry: expiry.map(str::to_string),
+            source_scene: None,
+            updated_at: 0,
+            deleted_at: None,
+        }
+    }
+
     /// 标准多场历史：4 个已收束场（触发行带 ---）+ 进行中场；reasoning 挂在
     /// 进行中场上验证排除。
     fn multi_scene_history() -> Vec<Message> {
@@ -234,7 +343,7 @@ mod tests {
             message(1, MessageRole::User, "在吗？"),
             message(2, MessageRole::Assistant, "在。"),
         ];
-        let messages = assemble(&c, &[], &history);
+        let messages = assemble_base(&c, &[], &history);
 
         assert_eq!(messages.len(), 3, "system + 2 条上下文");
         assert_eq!(messages[0].role, ChatRole::System);
@@ -245,11 +354,12 @@ mod tests {
 
     /// ADR-004 多场近景切分：最近 2 个已结算场**整场逐字** + 进行中场全量，顺序不变；
     /// 更早的场一（m1/m2）不进近景、由编年史行对冲；reasoning 不进上下文；
-    /// 远景每场恰好一行。
+    /// 远景每场恰好一行；虚时行取最新场景行（进行中场）的记账位（默认历无注入时
+    /// 亦由缓存渲染，Task-02 后 system 含「当前时间」）。
     #[test]
     fn multi_scene_near_view_verbatim_and_chronicle_one_line_each() {
         let c = character("人设");
-        let messages = assemble(&c, &multi_scene_rows(), &multi_scene_history());
+        let messages = assemble_base(&c, &multi_scene_rows(), &multi_scene_history());
 
         assert_eq!(
             messages.len(),
@@ -285,14 +395,15 @@ mod tests {
             "超出近景场数的旧场不进近景"
         );
 
-        // system = persona + 编年史；远景 = 锚行 + 场二行（更近的场与进行中行不入），
-        // 每场恰好一行（skip(3) 跳过 persona 行、空行与编年史标题行）。
+        // system = persona + 虚时行 + 编年史；远景 = 锚行 + 场二行（更近的场与进行中
+        // 行不入），每场恰好一行（skip(5) 跳过 persona、虚时与两处段间空行、编年史
+        // 标题行）。
         let system = &messages[0].content;
         assert!(
-            system.starts_with("人设\n\n【往事编年史】"),
-            "persona 之后拼编年史"
+            system.starts_with("人设\n\n当前时间：第4日·清晨\n\n【往事编年史】"),
+            "persona → 虚时行（最新场景行 date_label 缓存）→ 编年史，实际：{system}"
         );
-        let lines: Vec<&str> = system.lines().skip(3).collect();
+        let lines: Vec<&str> = system.lines().skip(5).collect();
         assert_eq!(
             lines.len(),
             2,
@@ -325,7 +436,7 @@ mod tests {
         let history: Vec<Message> = (0..30)
             .map(|i| message(i, MessageRole::User, &format!("行{i}{}", "字".repeat(996))))
             .collect();
-        let messages = assemble(&c, &[], &history);
+        let messages = assemble_base(&c, &[], &history);
         assert_eq!(
             messages.len(),
             1 + 24,
@@ -368,7 +479,7 @@ mod tests {
             scene(3, "（进行中）"),
         ];
 
-        let messages = assemble(&c, &scenes, &history);
+        let messages = assemble_base(&c, &scenes, &history);
         let chat_contents: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
         assert_eq!(
             chat_contents.len(),
@@ -395,7 +506,7 @@ mod tests {
             !system.contains("场C摘要"),
             "仍在近景的场不进编年史（去重）"
         );
-        let lines: Vec<&str> = system.lines().skip(3).collect();
+        let lines: Vec<&str> = system.lines().skip(5).collect();
         assert_eq!(lines.len(), 2, "远景行数随整场淘汰增长（1 → 2）");
     }
 
@@ -416,7 +527,7 @@ mod tests {
         }
         let scenes = vec![anchor_scene("场一摘要"), scene(1, "（进行中）")];
 
-        let messages = assemble(&c, &scenes, &history);
+        let messages = assemble_base(&c, &scenes, &history);
         let chat: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
         assert_eq!(
             chat.len(),
@@ -446,7 +557,7 @@ mod tests {
         ];
 
         // 对照：剔除前 = 已结算场（问1 + 答1）+ 进行中场（问2）。
-        let before = assemble(&c, &scenes, &full);
+        let before = assemble_base(&c, &scenes, &full);
         assert_eq!(before.len(), 4);
         assert_eq!(before[2].content, "答1\n\n---\n\n新场");
 
@@ -456,36 +567,220 @@ mod tests {
             message(1, MessageRole::User, "问1"),
             message(3, MessageRole::User, "问2"),
         ];
-        let messages = assemble(&c, &scenes, &filtered);
+        let messages = assemble_base(&c, &scenes, &filtered);
         assert_eq!(messages.len(), 3, "system + 2 条（无幻影边界拆分）");
         assert_eq!(messages[1].content, "问1");
         assert_eq!(messages[2].role, ChatRole::User);
         assert_eq!(messages[2].content, "问2");
     }
 
-    /// 空 persona + 有远景：system 只含编年史（不产生空消息、不带 persona 空白）。
+    /// 空 persona + 有注入（Task-02 验收）：system = 虚时行 + 编年史 + 状态快照的
+    /// 组合——不产生空消息、不带 persona 空白；「全空不产生空 system」的 v1 不变量
+    /// 在新注入下保持（见 [`skips_blank_persona_without_scenes`]）。
     #[test]
-    fn blank_persona_with_far_makes_system_chronicle_only() {
+    fn blank_persona_system_combines_time_chronicle_and_states() {
         let c = character("   ");
-        let messages = assemble(&c, &multi_scene_rows(), &multi_scene_history());
+        let states = vec![
+            state(CharacterStateScope::State, "情绪", "释然", Some("scene_end")),
+            state(CharacterStateScope::Relation, "对旅人", "警惕", None),
+        ];
+        let calendar = CalendarConfig::default();
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &multi_scene_rows(),
+            history: &multi_scene_history(),
+            calendar: &calendar,
+            states: &states,
+        });
 
         assert_eq!(messages[0].role, ChatRole::System);
+        let system = &messages[0].content;
         assert!(
-            messages[0].content.starts_with("【往事编年史】"),
-            "system 只含编年史，无 persona 残留：{}",
-            messages[0].content
+            system.starts_with("当前时间：第4日·清晨\n\n【往事编年史】"),
+            "persona 空白不残留，虚时行直接开头：{system}"
         );
-        assert!(messages[0].content.contains("场一摘要"));
+        // 三段顺序（Task-02 装配序）：虚时 → 编年史 → 状态，位置单调递增。
+        let chronicle_at = system.find("【往事编年史】").unwrap();
+        let state_at = system.find("【当前状态】").unwrap();
+        let relation_at = system.find("【关系】").unwrap();
+        assert!(
+            chronicle_at < state_at && state_at < relation_at,
+            "段落顺序：虚时 → 编年史 → 状态，实际：{system}"
+        );
+        assert!(system.contains("场一摘要"), "编年史仍在");
+        assert!(
+            system.contains("\n- 情绪：释然") && system.contains("\n- 对旅人：警惕"),
+            "状态行形态 `- key：value`：{system}"
+        );
+        assert!(!system.contains("scene_end"), "expiry 不进叙事快照");
         assert_eq!(messages.len(), 7, "近景不受 persona 空白影响");
     }
 
-    /// 空 persona 且无远景：不产生 system 回合（沿用 v1 不变量）。
+    /// 空 persona 且无任何注入（无场景 / 无状态）：不产生 system 回合（沿用 v1 不变量）。
     #[test]
     fn skips_blank_persona_without_scenes() {
         let c = character("  ");
         let history = vec![message(1, MessageRole::User, "你好")];
-        let messages = assemble(&c, &[], &history);
+        let messages = assemble_base(&c, &[], &history);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, ChatRole::User);
+    }
+
+    // ---- Task-02：当前虚时行（三态）----
+
+    /// 虚时行第一态：最新场景行带 date_label 缓存 → 直接用缓存渲染，即使会话日历
+    /// 与缓存来源不同（缓存与 fic_day 同源派生，复用零重算）。
+    #[test]
+    fn time_line_prefers_cached_date_label() {
+        let c = character("人设");
+        let mut rows = multi_scene_rows();
+        let last = rows.last_mut().unwrap();
+        last.date_label = Some("白蜡月·晨露日·夜（灯节）".into());
+        // 会话日历故意为空皮肤：若走现算会得到「第4日·清晨」，断言必须命中缓存。
+        let calendar = CalendarConfig::default();
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &rows,
+            history: &multi_scene_history(),
+            calendar: &calendar,
+            states: &[],
+        });
+
+        let system = &messages[0].content;
+        assert!(
+            system.contains("\n\n当前时间：白蜡月·晨露日·夜（灯节）"),
+            "date_label 缓存优先于现算：{system}"
+        );
+        assert!(!system.contains("第4日"), "未走现算路径：{system}");
+    }
+
+    /// 虚时行第二态：缓存缺失 → 用会话快照日历现算——皮肤历出命名形式
+    /// （fiction_time::date_label 的双射换算，含节日括注等结果）。
+    #[test]
+    fn time_line_computes_from_calendar_when_cache_missing() {
+        let c = character("人设");
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        // 锚行（FR-014）：fic_day=1 / fic_part=夜 / date_label=None → 现算路径。
+        let scenes = vec![anchor_scene("")];
+        let calendar = crate::domain::fiction_time::presets::fantasy();
+
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &scenes,
+            history: &history,
+            calendar: &calendar,
+            states: &[],
+        });
+        assert_eq!(
+            messages[0].content,
+            "人设\n\n当前时间：霜月·晨露日·夜",
+            "缓存缺失时按会话快照日历现算命名形式：{}",
+            messages[0].content
+        );
+    }
+
+    /// 虚时行第二态的无皮肤分支：缓存缺失 + 默认历（无命名皮肤）→ 回退数字形式
+    /// 「第N日·时段」（date_label 自带回退，与缓存路径形态归一）。
+    #[test]
+    fn time_line_falls_back_to_numeric_without_skin_or_cache() {
+        let c = character("人设");
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let scenes = vec![anchor_scene("")];
+
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &scenes,
+            history: &history,
+            calendar: &DEFAULT_CALENDAR,
+            states: &[],
+        });
+        assert_eq!(
+            messages[0].content,
+            "人设\n\n当前时间：第1日·夜",
+            "无皮肤回退「第N日·时段」：{}",
+            messages[0].content
+        );
+    }
+
+    /// 虚时行第三态：无最新场景（旧数据会话）或最新场景无记账位（fic_day 空）→
+    /// 整行省略，不猜测时间。
+    #[test]
+    fn time_line_omitted_without_scene_or_ledger() {
+        let c = character("人设");
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let calendar = crate::domain::fiction_time::presets::fantasy();
+
+        // 无场景（场景特性之前的旧数据会话）：无虚时行。
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &[],
+            history: &history,
+            calendar: &calendar,
+            states: &[],
+        });
+        assert_eq!(
+            messages[0].content, "人设",
+            "无最新场景整行省略：{}",
+            messages[0].content
+        );
+
+        // 最新场景无记账位（fic_day=None，date_label 同源亦 None）：同样省略。
+        let mut rows = multi_scene_rows();
+        for row in &mut rows {
+            row.fic_day = None;
+            row.date_label = None;
+        }
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &rows,
+            history: &multi_scene_history(),
+            calendar: &calendar,
+            states: &[],
+        });
+        assert!(
+            !messages[0].content.contains("当前时间"),
+            "无记账位（BR-003 唯一事实源缺失）不猜测时间：{}",
+            messages[0].content
+        );
+    }
+
+    // ---- Task-02：人物状态快照段 ----
+
+    /// 状态快照空组省略：只有 relation 时只出【关系】组（空 state 组不渲染标题）；
+    /// 全空时整段省略；组内顺序保持库序（id ASC）。
+    #[test]
+    fn state_snapshot_omits_empty_group_or_whole_section() {
+        let c = character("人设");
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let calendar = CalendarConfig::default();
+
+        // 只有 relation：只渲染【关系】，不出现空【当前状态】标题。
+        let states = vec![
+            state(CharacterStateScope::Relation, "对旅人", "好奇", None),
+            state(CharacterStateScope::Relation, "与守夜人的约定", "保守秘密", Some("event:告别")),
+        ];
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &[],
+            history: &history,
+            calendar: &calendar,
+            states: &states,
+        });
+        assert_eq!(
+            messages[0].content,
+            "人设\n\n【关系】\n- 对旅人：好奇\n- 与守夜人的约定：保守秘密",
+            "空 state 组省略标题，组内保持库序，expiry 不渲染：{}",
+            messages[0].content
+        );
+
+        // 全空：整段省略。
+        let messages = assemble(&AssembleInputs {
+            character: &c,
+            scenes: &[],
+            history: &history,
+            calendar: &calendar,
+            states: &[],
+        });
+        assert_eq!(messages[0].content, "人设", "状态全空整段省略");
     }
 }

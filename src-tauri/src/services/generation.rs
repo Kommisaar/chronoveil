@@ -369,6 +369,11 @@ async fn generate_once(
     // ADR-004 场景对齐装配的输入半：场景行供远景编年史 + 近景切分参照（无行为空，
     // 旧数据会话自动退化为纯字符预算窗口）。
     let scenes = deps.storage.list_scenes(session_id)?;
+    // Task-02 常驻核心注入的读取半：人物状态（FR-012）+ 会话日历快照（FR-013，
+    // 建会话时从角色卡复制）。日历解析在此完成，装配本体保持纯函数——坏 JSON 由
+    // parse 降级默认历（皮肤坏了退默认不阻塞主对话，与结算同语义）。
+    let states = deps.storage.list_character_states(session_id)?;
+    let calendar = crate::domain::fiction_time::parse(session.calendar_config.as_deref());
     // OQ-006 / FR-008「以相同上文重新发起生成」+ SEQ-001「重发 = 整条重来」：
     // 重新生成（含断流重试的整条替换语义）时，被替换的最后一条 assistant（旧整条
     // 或中断半条）不得进 prompt 上下文——按 id 剔除后再装配，使请求以 user 条结尾，
@@ -383,7 +388,13 @@ async fn generate_once(
     } else {
         history
     };
-    let messages = super::prompt::assemble(&character, &scenes, &history);
+    let messages = super::prompt::assemble(&super::prompt::AssembleInputs {
+        character: &character,
+        scenes: &scenes,
+        history: &history,
+        calendar: &calendar,
+        states: &states,
+    });
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
     let ids = MessageIds { session_id, message_id };
@@ -1067,6 +1078,71 @@ mod tests {
             "被替换的中断半条不得进上下文，实际请求：{messages:?}"
         );
         assert_eq!(messages.len(), 2, "system + user");
+    }
+
+    /// Task-02 常驻核心注入（FR-012 / BR-003）：重新生成的 system 仍含当前虚时行
+    /// （锚行缓存「第1日·夜」）与人物状态快照；regenerate 剔除被替换条**不影响**
+    /// 这两段注入（剔除只动 history，虚时取场景行、状态独立读取）。
+    #[tokio::test]
+    async fn regenerate_request_keeps_time_and_states_injection() {
+        let (raw, _dir) = temp_storage("gen_regen_inject");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        // 预置人物状态（FR-012）：导演结算之外手工 upsert，等价结算落库形态。
+        storage
+            .upsert_character_state(&crate::domain::models::NewCharacterState {
+                character_id: 1,
+                session_id,
+                scope: crate::domain::models::CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "释然".into(),
+                expiry: Some("scene_end".into()),
+                source_scene: None,
+            })
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::User, "讲个故事"))
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(session_id, MessageRole::Assistant, "旧版本回复"))
+            .unwrap();
+
+        let captured: CapturedRequests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = capture_server(captured.clone(), |stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("新版本"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log_for(&storage, session_id), &server.url());
+
+        PendingGeneration { deps, registry, ticket, regenerate: true }.run().await;
+
+        let messages = request_messages(&captured);
+        assert_eq!(messages.last().unwrap().0, "user", "剔除路径仍以 user 结尾");
+        assert!(
+            !messages.iter().any(|(_, content)| content == "旧版本回复"),
+            "被替换旧条仍被剔除：{messages:?}"
+        );
+        let system = &messages[0];
+        assert_eq!(system.0, "system");
+        assert!(
+            system.1.contains("当前时间：第1日·夜"),
+            "system 含当前虚时行（锚行缓存，默认历）：{}",
+            system.1
+        );
+        assert!(
+            system.1.contains("【当前状态】\n- 情绪：释然"),
+            "system 含人物状态快照：{}",
+            system.1
+        );
+        assert!(
+            !system.1.contains("scene_end"),
+            "expiry 不进叙事快照：{}",
+            system.1
+        );
     }
 
     /// 对照：普通发送路径（regenerate=false）上下文仍完整携带既有 assistant 历史

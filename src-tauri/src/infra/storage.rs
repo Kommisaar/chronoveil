@@ -219,9 +219,6 @@ impl StoragePort for Storage {
         self.with_conn(|conn| scenes::insert(conn, new))
     }
 
-    // FR-011 场景史回看（IPC / 前端）预留：Task-11 切片为零 IPC/前端改动形态，
-    // 接线前无生产调用方（仅测试消费）。
-    #[allow(dead_code)]
     fn list_scenes(&self, session_id: i64) -> Result<Vec<Scene>, StorageError> {
         self.with_conn(|conn| scenes::list_by_session(conn, session_id))
     }

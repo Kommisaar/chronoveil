@@ -887,7 +887,7 @@ mod tests {
             .map(|i| {
                 let role =
                     if i % 2 == 0 { crate::domain::models::MessageRole::User } else { crate::domain::models::MessageRole::Assistant };
-                Message { id: i + 1, session_id: 1, role, content: format!("m{i}"), reasoning: None, think_ms: None, tokens: None, created_at: i, interrupt_flag: None, deleted_at: None }
+                Message { id: i + 1, session_id: 1, role, content: format!("m{i}"), reasoning: None, think_ms: None, tokens: None, created_at: i, interrupt_flag: None, scene_id: None, deleted_at: None }
             })
             .collect();
         let window = narrative_window(&history, 6_000);
@@ -908,6 +908,7 @@ mod tests {
                 tokens: None,
                 created_at: i,
                 interrupt_flag: None,
+                scene_id: None,
                 deleted_at: None,
             })
             .collect();
@@ -927,6 +928,7 @@ mod tests {
             tokens: None,
             created_at: id,
             interrupt_flag: None,
+            scene_id: None,
             deleted_at: None,
         };
         let history = vec![

@@ -20,16 +20,21 @@
 //!   用户看的思考，不是对话内容。
 //!
 //! 场景边界与结算归属同源：结算把「上一道场景线所在消息（不含）到触发行（含）」
-//! 整段挂到上一场景行（ports::AttachRange），因此这里用同一判定
-//! （[`super::director::contains_scene_line`]）按场景线消息切段，触发行归收束场，
-//! 最后一道场景线之后 = 进行中场（scene_id 尚为 NULL）。已知偏差（接受并记录）：
-//! - 结算欠账（§7-2，场景线已出现但结算未落）：切分仍按场景线进行，近景多带一场
-//!   而不丢叙事；远景以场景行为准，无行的场不产生编年史行——偏移随欠账数累积，
-//!   上限 = 欠账场数行级缺失（每欠一场至多让远景少一行，已落行的信息不丢）；
-//! - 重新生成撞已结算边界（§7-3）：旧行不回滚，行数与场景线数可能短暂错位，
-//!   至多影响单行编年史的归属，随下次成功结算近似自愈。
+//! 整段挂到上一场景行（ports::AttachRange），因此切分**优先按库内 scene_id 归属
+//! 分组**（盖章段的行 / 段 id 精确对应）；scene_id 为 NULL 的游程沿用内容场景线
+//! 判定（[`super::director::contains_scene_line`]）兜底切分，触发行归收束场，
+//! 最后一道场景线之后 / 最新盖章段之后 = 进行中场。旧版两类已登记偏差在新语义下
+//! 消除 / 收窄：
+//! - 结算欠账（§7-2，场景线已出现但结算未落）：欠账消息恒 NULL，只在 NULL 游程内
+//!   被内容切分承接——近景多带一场而不丢叙事，语义不变；欠账段无场景行、不占
+//!   编年史行，已落行的行 / 段对应恒精确，远景偏移**不再随欠账数累积**。残余
+//!   （仍接受）：欠账段滑出近景即丢——无行可接，没有编年史行对冲；
+//! - 重新生成撞已结算边界（§7-3，旧行不回滚）：旧行软删、替换条以 NULL 插入尾部，
+//!   盖章分组不受内容增删影响；被清空的场收敛为「空段」——行还在但消息没了，
+//!   编年史行照常输出（id 精确对应），行数与场景线数不再错位，随下次成功结算
+//!   近似自愈。
 
-use crate::domain::context::{self, SceneSpans};
+use crate::domain::context::{self, SceneSpan, SceneSpans};
 use crate::domain::fiction_time::{self, CalendarConfig};
 use crate::domain::models::{
     Character, CharacterState, CharacterStateScope, Message, MessageRole, Scene,
@@ -84,7 +89,7 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     if let Some(time) = current_time_line(calendar, scenes) {
         sections.push(time);
     }
-    let chronicle = chronicle_block(scenes, near.kept_settled);
+    let chronicle = chronicle_block(scenes, &near.kept);
     if !chronicle.is_empty() {
         sections.push(chronicle);
     }
@@ -107,33 +112,82 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     out
 }
 
-/// 按场景线把历史切成场景分段（模块注释：与结算归属同一切界）。
-/// 末条含场景线的连续段 = 已收束场（含触发行本身），其后直到下一道场景线；
-/// 最后一道场景线之后（或全程无场景线时）为进行中场。
+/// 把历史切成场景分段（模块注释：库内归属优先，与结算同一归属语义）。
+///
+/// 逐游程扫描：scene_id 有值的连续消息为一个**盖章段**（结算 AttachRange 写入的
+/// 半开区间「(边界, 触发行]」，id 升序下归属必然连续成段，段序 = 首现顺序 = 场景
+/// idx 序）；NULL 游程保留现行**内容场景线切分**兜底——进行中场 / 结算欠账 /
+/// 重新生成替换条都在 NULL 内，切分仍按场景线进行（近景多带一场而不丢叙事），
+/// 切出的欠账段无场景行、不占编年史行。末尾 NULL 游程的最后一段 = 进行中场；
+/// 夹在盖章段之间的 NULL 游程按不变量必以其边界场景线收尾（下一段盖章段的
+/// attach 起点），防御性兜底见函数体内注释。
 /// Task-05 起探索器 read_scene 复用本切分（pub(super)，同一场景线知识不出 services）。
 pub(super) fn split_into_scene_spans(history: &[Message]) -> SceneSpans<'_> {
     let mut closed = Vec::new();
-    let mut start = 0;
-    for (index, message) in history.iter().enumerate() {
-        if super::director::contains_scene_line(&message.content) {
-            closed.push(&history[start..=index]);
-            start = index + 1;
+    let mut ongoing = &history[history.len()..]; // 历史以盖章段收尾时进行中场为空
+    let mut index = 0;
+    while index < history.len() {
+        let anchor = history[index].scene_id;
+        if let Some(scene_id) = anchor {
+            // 盖章游程：同 scene_id 连续延伸，整段一次成器（库内归属即切界，
+            // 不再看内容——正是本切分消除欠账 / 重生成错位的地方）。
+            let mut end = index + 1;
+            while end < history.len() && history[end].scene_id == anchor {
+                end += 1;
+            }
+            closed.push(SceneSpan { messages: &history[index..end], scene_id: Some(scene_id) });
+            index = end;
+        } else {
+            // NULL 游程：现行内容场景线切分原样兜底。
+            let mut seg_start = index;
+            let mut cursor = index;
+            while cursor < history.len() && history[cursor].scene_id.is_none() {
+                if super::director::contains_scene_line(&history[cursor].content) {
+                    closed.push(SceneSpan {
+                        messages: &history[seg_start..=cursor],
+                        scene_id: None,
+                    });
+                    seg_start = cursor + 1;
+                }
+                cursor += 1;
+            }
+            if seg_start < cursor {
+                if cursor == history.len() {
+                    // 末尾 NULL 游程的余段 = 进行中场。
+                    ongoing = &history[seg_start..];
+                } else {
+                    // 夹在盖章段之间的 NULL 余段：按结算归属不变量不可达（该游程
+                    // 必以其边界场景线收尾）——防御性收编为无锚已收束段，保叙事
+                    // 不丢、不污染任何盖章段的精确对应。
+                    closed.push(SceneSpan { messages: &history[seg_start..cursor], scene_id: None });
+                }
+            }
+            index = cursor;
         }
     }
-    SceneSpans {
-        closed,
-        ongoing: &history[start..],
-    }
+    SceneSpans { closed, ongoing }
 }
 
 /// 远景编年史（§7.8「之前每场一行摘要」；Task-03 两档）：收录比近景更早的场景行，
 /// 每场恰好一行；**桥场**（窗口外最近的一场 = far 末行）有 recap 时追加一行缩进
 /// 回顾（两三句加厚形态），无 recap 回退单行，更早的场恒单行。
-/// 场景行数 = 进行中 header 行（结算只建行不挂消息，最后 1 行恒为进行中场）+
-/// `kept_settled` 行（整场在近景）+ 远景行数。列缺失（锚行未回写 / 欠账）跳过该
-/// 字段，不输出「（未记录）」占位——编年史要的是一行一个脚印，不是快照。
-fn chronicle_block(scenes: &[Scene], kept_settled: usize) -> String {
-    let far = &scenes[..scenes.len().saturating_sub(1 + kept_settled)];
+/// 行 / 段**id 精确对应**（替代旧版位置推断）：远景 = 场景行 −（近景保留段锚定
+/// 的行 ∪ 末尾进行中 header 行）。空段（重生成后行还在但消息没了）不占近景 →
+/// 自动落远景出编年史行；被预算淘汰的段不占锚 → 其行落远景；欠账段锚为 None →
+/// 不排除任何行，滑出近景即丢（无行可接，模块注释已记）。列缺失（锚行未回写 /
+/// 欠账）跳过该字段，不输出「（未记录）」占位——编年史要的是一行一个脚印，不是
+/// 快照。
+fn chronicle_block(scenes: &[Scene], kept: &[SceneSpan<'_>]) -> String {
+    let far: Vec<&Scene> = scenes
+        .iter()
+        .enumerate()
+        .filter(|(position, scene)| {
+            // 末行恒为进行中 header（结算只建行不挂消息），不入编年史。
+            position + 1 != scenes.len()
+                && !kept.iter().any(|span| span.scene_id == Some(scene.id))
+        })
+        .map(|(_, scene)| scene)
+        .collect();
     if far.is_empty() {
         return String::new();
     }
@@ -269,8 +323,15 @@ mod tests {
             tokens: None,
             created_at: id,
             interrupt_flag: None,
+            scene_id: None,
             deleted_at: None,
         }
+    }
+
+    /// 盖章消息：给 [`message`] 的形态补上库内归属（结算 AttachRange 回填后的读路径形态）。
+    fn stamped(mut message: Message, scene_id: i64) -> Message {
+        message.scene_id = Some(scene_id);
+        message
     }
 
     /// 场景行：idx 单调递增，各可空字段给全（锚行用 [`anchor_scene`] 造缺省形态）；
@@ -326,8 +387,9 @@ mod tests {
         }
     }
 
-    /// 标准多场历史：4 个已收束场（触发行带 ---）+ 进行中场；reasoning 挂在
-    /// 进行中场上验证排除。
+    /// 标准多场历史（结算后盖章形态）：4 个已收束场（scene_id 挂对应场景行，
+    /// 行 id = multi_scene_rows 的 id：锚行 1、场二 2、场三 3、场四 4；触发行带 ---）
+    /// + 进行中场；reasoning 挂在进行中场上验证排除。
     fn multi_scene_history() -> Vec<Message> {
         vec![
             message(1, MessageRole::User, "场一问"),
@@ -343,6 +405,15 @@ mod tests {
         ]
         .into_iter()
         .map(|mut m| {
+            // 结算归属：m1-2 挂锚行(1)、m3-4 挂场二行(2)、m5-6 挂场三行(3)、
+            // m7-8 挂场四行(4)；m9 起进行中场（NULL）。
+            m.scene_id = match m.id {
+                1 | 2 => Some(1),
+                3 | 4 => Some(2),
+                5 | 6 => Some(3),
+                7 | 8 => Some(4),
+                _ => None,
+            };
             if m.id >= 9 {
                 m.reasoning = Some("不该进上下文的思考".into());
             }
@@ -494,8 +565,13 @@ mod tests {
             message(6, MessageRole::Assistant, &"丙".repeat(6_400)), // 场 C（保留）
             message(7, MessageRole::User, "进行中"),
         ];
-        // 触发场景线：把每场末条尾部接上 ---（内容超长无妨，判定按整行）。
+        // 触发场景线 + 结算盖章：行 id = 1（锚行）/ 2 / 3（scene idx 0/1/2），
+        // m1-2 挂锚行、m3-4 挂场 B 行、m5-6 挂场 C 行，m7 进行中（NULL）。
         let mut history = history;
+        for (index, scene_id) in [(0usize, 1i64), (2, 2), (4, 3)] {
+            history[index].scene_id = Some(scene_id);
+            history[index + 1].scene_id = Some(scene_id);
+        }
         for id in [2, 4, 6] {
             history[id as usize - 1].content.push_str("\n\n---\n\n新场");
         }
@@ -940,5 +1016,205 @@ mod tests {
                 "省略后四段形态不变：{system}"
             );
         }
+    }
+
+    // ---- Task-08：scene_id 锚定切分 + 编年史 id 精确对应 ----
+
+    /// 盖章分组（库内归属优先）：同 scene_id 连续消息一次成段，段序 = 首现顺序
+    /// （与场景 idx 同序）；盖章段内容不再参与切界——段首消息纵含场景线也不拆段；
+    /// NULL 尾无场景线 → 进行中场。
+    #[test]
+    fn split_groups_stamped_messages_by_scene_id() {
+        let history = vec![
+            stamped(message(1, MessageRole::User, "场一问"), 1),
+            // 盖章段内首条带场景线：内容判定会让位给库内归属，不拆段
+            stamped(message(2, MessageRole::Assistant, "---\n\n场二开场"), 1),
+            stamped(message(3, MessageRole::User, "场二问"), 2),
+            stamped(message(4, MessageRole::Assistant, "场二答"), 2),
+            message(5, MessageRole::User, "进行中问"),
+        ];
+
+        let spans = split_into_scene_spans(&history);
+
+        assert_eq!(spans.closed.len(), 2, "两个盖章段");
+        assert_eq!(spans.closed[0].messages.len(), 2, "场一段 = m1+m2（场景线不拆段）");
+        assert_eq!(spans.closed[0].scene_id, Some(1), "首段锚定行 1");
+        assert_eq!(spans.closed[1].messages.len(), 2, "场二段 = m3+m4");
+        assert_eq!(spans.closed[1].scene_id, Some(2), "次段锚定行 2（首现顺序）");
+        assert_eq!(spans.ongoing.len(), 1, "NULL 尾 = 进行中场");
+        assert_eq!(spans.ongoing[0].id, 5);
+    }
+
+    /// NULL 尾内容兜底（欠账语义不变）：全 NULL 历史按场景线切段、锚全 None，
+    /// 最后一道线之后 = 进行中场——与旧版内容切分逐字同界。
+    #[test]
+    fn split_null_history_falls_back_to_scene_lines() {
+        let history = vec![
+            message(1, MessageRole::User, "场一问"),
+            message(2, MessageRole::Assistant, "场一答\n\n---\n\n场二开场"),
+            message(3, MessageRole::User, "场二问"),
+            message(4, MessageRole::Assistant, "场二答\n\n---\n\n场三开场"),
+            message(5, MessageRole::User, "进行中问"),
+        ];
+
+        let spans = split_into_scene_spans(&history);
+
+        assert_eq!(spans.closed.len(), 2, "按场景线切两段（旧版行为原样兜底）");
+        assert!(spans.closed.iter().all(|span| span.scene_id.is_none()), "锚全 None（欠账段）");
+        assert_eq!(spans.closed[0].messages.len(), 2, "触发行归收束场（含 --- 原文）");
+        assert_eq!(spans.closed[1].messages.len(), 2);
+        assert_eq!(spans.ongoing.len(), 1);
+    }
+
+    /// 混合形态：盖章段 + 中部欠账段（NULL、以场景线收尾）+ 盖章段 + 尾部欠账切分
+    /// ——欠账段夹在盖章段之间且锚为 None；防御性分支（中部 NULL 余段未以场景线
+    /// 收尾，按归属不变量不可达）收编为无锚段，消息不丢。
+    #[test]
+    fn split_mixed_stamped_debt_and_defensive_remainder() {
+        let history = vec![
+            stamped(message(1, MessageRole::User, "场一问"), 1),
+            stamped(message(2, MessageRole::Assistant, "场一答\n\n---\n\n场二开场"), 1),
+            // 欠账：场景线已出现但结算未落（NULL，以场景线收尾）
+            message(3, MessageRole::User, "欠账问"),
+            message(4, MessageRole::Assistant, "欠账答\n\n---\n\n新场"),
+            stamped(message(5, MessageRole::User, "真场问"), 2),
+            stamped(message(6, MessageRole::Assistant, "真场答"), 2),
+            // 尾部欠账切分 + 进行中场
+            message(7, MessageRole::User, "尾欠账"),
+            message(8, MessageRole::Assistant, "尾欠账答\n\n---\n\n再新场"),
+            message(9, MessageRole::User, "进行中问"),
+        ];
+
+        let spans = split_into_scene_spans(&history);
+
+        let shape: Vec<(usize, Option<i64>)> = spans
+            .closed
+            .iter()
+            .map(|span| (span.messages.len(), span.scene_id))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![(2, Some(1)), (2, None), (2, Some(2)), (2, None)],
+            "盖章段 / 中部欠账段 / 盖章段 / 尾部欠账段，顺序与首现一致"
+        );
+        assert_eq!(spans.ongoing.len(), 1, "最后一道场景线之后 = 进行中场");
+        assert_eq!(spans.ongoing[0].id, 9);
+
+        // 防御性分支：NULL 余段未以场景线收尾即被下一盖章段接续（生产不可达，
+        // 人为构造验证不丢消息、不并入盖章段）。
+        let odd = vec![
+            message(1, MessageRole::User, "无场景线余段"),
+            stamped(message(2, MessageRole::Assistant, "盖章条"), 7),
+            message(3, MessageRole::User, "进行中"),
+        ];
+        let spans = split_into_scene_spans(&odd);
+        let shape: Vec<(usize, Option<i64>)> = spans
+            .closed
+            .iter()
+            .map(|span| (span.messages.len(), span.scene_id))
+            .collect();
+        assert_eq!(shape, vec![(1, None), (1, Some(7))], "余段收编为无锚段，盖章段原样");
+        assert_eq!(spans.ongoing.len(), 1);
+    }
+
+    /// 编年史 id 精确对应（欠账段不占行 + 淘汰段落入远景）：欠账段进近景但不
+    /// 隐藏任何行，被淘汰盖章段的行落远景。旧版位置推断在此形态下会把「近景
+    /// 保留 2 段」当作覆盖前 2 行 → 远景为空，锚行信息丢失；id 对应下锚行照常出行。
+    #[test]
+    fn chronicle_maps_rows_by_kept_anchors_with_debt() {
+        let c = character("人设");
+        let scenes = vec![
+            anchor_scene("场零摘要"),
+            scene(1, "场二摘要"),
+            scene(2, "（进行中）"), // 末行 = 进行中 header
+        ];
+        let history = vec![
+            stamped(message(1, MessageRole::User, "场零问"), 1),
+            stamped(message(2, MessageRole::Assistant, "场零答\n\n---\n\n新场"), 1),
+            // 欠账段（NULL、场景线在 m4）：进近景、不占任何行
+            message(3, MessageRole::User, "欠账问"),
+            message(4, MessageRole::Assistant, "欠账答\n\n---\n\n再新场"),
+            stamped(message(5, MessageRole::User, "场二问"), 2),
+            stamped(message(6, MessageRole::Assistant, "场二答"), 2),
+            message(7, MessageRole::User, "进行中问"),
+        ];
+
+        let messages = assemble_base(&c, &scenes, &history);
+
+        // 近景 = 欠账段 + 场二段 + 进行中（窗口 2 取最新两段；场零段被默认窗口淘汰）。
+        assert_eq!(messages.len(), 6, "system + 近景 5 条");
+        assert!(
+            messages[1..].iter().any(|m| m.content.contains("欠账问")),
+            "欠账段留在近景（多带一场不丢叙事）"
+        );
+        // 远景 = 场景行 −（锚定行 2 ∪ 末行 3）= 仅锚行：欠账段不占行、被淘汰的
+        // 场零段落远景出行。
+        let system = &messages[0].content;
+        assert!(system.contains("场零摘要"), "被淘汰盖章段的行落远景：{system}");
+        assert!(!system.contains("场二摘要"), "仍在近景的段不重复出行：{system}");
+        let rows = system.lines().filter(|l| l.starts_with("场")).count();
+        assert_eq!(rows, 1, "远景恰好一行（欠账段不占行）：{system}");
+    }
+
+    /// 空段仍出行（重新生成撞已结算边界的新语义）：行还在但消息没了（段的唯一
+    /// 消息被重生成软删），编年史行照常输出；近景中的段不重复出行。旧版位置
+    /// 推断在此形态会把已在近景的锚行挤进远景、漏掉空段行。
+    #[test]
+    fn chronicle_emits_line_for_empty_regenerated_scene() {
+        let c = character("人设");
+        let scenes = vec![
+            anchor_scene("场零摘要"),
+            scene(1, "被清空的场"),
+            scene(2, "（进行中）"),
+        ];
+        // 场二行（id 2）的消息已被重生成清空 → 空段；在场消息只有锚行段 + 进行中。
+        let history = vec![
+            stamped(message(1, MessageRole::User, "场零问"), 1),
+            stamped(message(2, MessageRole::Assistant, "场零答\n\n---\n\n新场"), 1),
+            message(3, MessageRole::User, "进行中问"),
+        ];
+
+        let messages = assemble_base(&c, &scenes, &history);
+
+        let system = &messages[0].content;
+        assert!(system.contains("被清空的场"), "空段（行在消息无）仍出编年史行：{system}");
+        assert!(!system.contains("场零摘要"), "近景中的段不进编年史：{system}");
+        let rows = system.lines().filter(|l| l.starts_with("场")).count();
+        assert_eq!(rows, 1, "远景恰好一行：{system}");
+    }
+
+    /// 欠账段滑出近景即丢（仍接受的残余）：预算淘汰欠账段后无行可接——既不在
+    /// 近景（丢叙事有预算理由）也无编年史行对冲（无场景行，模块注释已记）。
+    #[test]
+    fn evicted_debt_span_leaves_no_chronicle_row() {
+        let c = character("人设");
+        let scenes = vec![
+            anchor_scene("场零摘要"),
+            scene(1, "场二摘要"),
+            scene(2, "（进行中）"),
+        ];
+        let history = vec![
+            stamped(message(1, MessageRole::User, "场零问"), 1),
+            stamped(message(2, MessageRole::Assistant, "场零答\n\n---\n\n新场"), 1),
+            // 超大欠账段（约 26k 字）：入选即超预算 → 整段淘汰
+            message(3, MessageRole::User, &format!("欠账{}", "巨".repeat(13_000))),
+            message(4, MessageRole::Assistant, &format!("{}\n\n---\n\n新场", "巨".repeat(13_000))),
+            stamped(message(5, MessageRole::User, "场二问"), 2),
+            stamped(message(6, MessageRole::Assistant, "场二答"), 2),
+            message(7, MessageRole::User, "进行中问"),
+        ];
+
+        let messages = assemble_base(&c, &scenes, &history);
+
+        // 近景 = 场二段 + 进行中（欠账段整场出局，无「巨」残留）。
+        let near: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(near.len(), 3, "近景 = 场二段（2 条）+ 进行中（1 条）");
+        assert!(near.iter().all(|s| !s.contains('巨')), "超大欠账段整场淘汰");
+        // 远景 = 仅锚行：欠账段淘汰后无行可接，不产生编年史行。
+        let system = &messages[0].content;
+        assert!(system.contains("场零摘要"), "锚行照常出行：{system}");
+        assert!(!system.contains("场二摘要"), "近景段不进编年史：{system}");
+        let rows = system.lines().filter(|l| l.starts_with("场")).count();
+        assert_eq!(rows, 1, "欠账段滑出近景即丢，无行可接：{system}");
     }
 }

@@ -454,18 +454,15 @@ mod tests {
     use crate::domain::models::{CharacterStateScope, NewCharacterState};
     use crate::domain::ports::AttachRange;
 
-    /// 在世消息的 scene_id 列快照（按 id 升序）：messages.scene_id 的读路径未开进
-    /// 领域结构体（wire 面零变更），测试经只读连接直接断言。
-    fn attached_scene_ids(dir: &Path, session_id: i64) -> Vec<Option<i64>> {
-        let conn = Connection::open(dir.join("test.db")).unwrap();
-        let mut stmt = conn
-            .prepare(
-                "SELECT scene_id FROM messages \
-                 WHERE session_id = ?1 AND deleted_at IS NULL ORDER BY id ASC",
-            )
-            .unwrap();
-        let rows = stmt.query_map(rusqlite::params![session_id], |r| r.get(0)).unwrap();
-        rows.map(|r| r.unwrap()).collect()
+    /// 在世消息的 scene_id 列快照（按 id 升序）：scene_id 已开进 Message 读路径，
+    /// 直接经端口（list_messages，id ASC）读取断言，不再另开只读连接。
+    fn attached_scene_ids(storage: &Storage, session_id: i64) -> Vec<Option<i64>> {
+        storage
+            .list_messages(session_id)
+            .unwrap()
+            .into_iter()
+            .map(|message| message.scene_id)
+            .collect()
     }
 
     /// 夹具：角色 + 会话 + 两条消息（user、assistant 各一），返回各 id。
@@ -575,7 +572,7 @@ mod tests {
             "新行只预填 verdict 给出的 recap（本例 None），list_scenes 往返读出"
         );
         assert_eq!(
-            attached_scene_ids(&dir, session_id),
+            attached_scene_ids(&storage, session_id),
             vec![Some(previous.id), Some(previous.id)],
             "收束段消息挂到上一行"
         );
@@ -611,7 +608,7 @@ mod tests {
         assert_eq!(scene.idx, 1, "开场锚行（idx 0）之上自增");
         assert_eq!(storage.list_scenes(session_id).unwrap().len(), 2);
         assert!(
-            attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),
+            attached_scene_ids(&storage, session_id).iter().all(|id| id.is_none()),
             "无上一行不产生消息归属（留待后续结算自愈，§7-2）"
         );
         drop(storage);
@@ -665,7 +662,7 @@ mod tests {
             "recap 回写未发生（回滚覆盖 Task-03 同路径支路）"
         );
         assert!(
-            attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),
+            attached_scene_ids(&storage, session_id).iter().all(|id| id.is_none()),
             "消息归属未发生"
         );
         assert!(storage.list_character_states(session_id).unwrap().is_empty(), "upsert 未发生");

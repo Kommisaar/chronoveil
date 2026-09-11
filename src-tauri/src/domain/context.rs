@@ -2,12 +2,13 @@
 //!
 //! 近景 = 最近 N 个已结算场景的整场逐字消息 + 进行中场景全量；远景（编年史）由
 //! 装配层用场景行压缩（services/prompt.rs）。本模块只做窗口数学：输入是**已按
-//! 场景边界切好的分段**（切分依赖场景线判定，属 services 层知识，见
-//! services::director::contains_scene_line），不触 StoragePort / IO。
+//! 场景边界切好的分段**（盖章段按库内 scene_id 归属分组、NULL 段按内容场景线
+//! 兜底切分，切分属 services 层知识，见 services::director::contains_scene_line），
+//! 不触 StoragePort / IO。
 //!
 //! 字符预算兜底：无 tokenizer，用字符数近似（中文一字 ≈ 一 token 量级，量级正确
 //! 即可，常量可调）。近景超预算时先按**整场**淘汰最旧的已结算场（淘汰的场由
-//! 调用方按 `kept_settled` 推算，自动落入远景编年史）；仅当进行中场景**自身**
+//! 调用方按保留段锚定 id 推算，自动落入远景编年史）；仅当进行中场景**自身**
 //! 超预算才对它做头截断（丢最旧消息，保底保留最新一条，不产生空上下文）。
 
 use crate::domain::models::Message;
@@ -20,13 +21,24 @@ pub const SETTLED_SCENES_IN_NEAR: usize = 2;
 /// 正确也不为本地个人应用引 tokenizer 依赖；超限由整场淘汰 / 头截断兜底。可调。
 pub const NEAR_VIEW_CHAR_BUDGET: usize = 24_000;
 
+/// 单个已收束场景段：连续消息切片 + 锚定的场景行 id。
+#[derive(Debug, Clone, Copy)]
+pub struct SceneSpan<'a> {
+    /// 段内消息（保持对话顺序；盖章段末条是触发该场结算的场景线消息）。
+    pub messages: &'a [Message],
+    /// 锚定的场景行 id（scenes.id）：盖章段 = 库内归属，行 / 段 id 精确对应；
+    /// None = 内容兜底切出的欠账段（场景线已出现但结算未落库，无行可锚，
+    /// 不占编年史行，滑出近景即丢）。
+    pub scene_id: Option<i64>,
+}
+
 /// 场景分段：调用方按场景边界在原历史上切好的连续片段（保持对话顺序）。
 pub struct SceneSpans<'a> {
-    /// 已收束场景，从旧到新；每段末条是触发该场结算的场景线消息（与结算归属
-    /// 半开区间「(上一道场景线, 触发行]」一致，触发行归收束场）。
-    pub closed: Vec<&'a [Message]>,
-    /// 进行中场景：最近一道场景线之后的全量消息（结算只回填到触发行，之后的
-    /// 消息 scene_id 仍为 NULL，逻辑上属于最新场景行）。
+    /// 已收束场景，从旧到新；盖章段（scene_id 有值）按首现顺序排列，与场景行
+    /// idx 同序；欠账段（None）夹在其间对应的位置上。
+    pub closed: Vec<SceneSpan<'a>>,
+    /// 进行中场景：最近一道场景线之后 / 最新盖章段之后的全量消息（结算只回填到
+    /// 触发行，之后的消息 scene_id 仍为 NULL，逻辑上属于最新场景行）。
     pub ongoing: &'a [Message],
 }
 
@@ -34,10 +46,11 @@ pub struct SceneSpans<'a> {
 pub struct NearView<'a> {
     /// 入选消息（已结算场整场 + 进行中场，保持对话顺序、逐字原文）。
     pub messages: Vec<&'a Message>,
-    /// 近景实际保留的已结算场数（可能因预算淘汰少于请求值）。编年史据此收录
-    /// 更早的场：远景行数 = 场景行总数 − 进行中 header 行(1) − kept_settled——
-    /// 被淘汰的场因此自动落入远景，不出现「既不逐字也无摘要」的盲区。
-    pub kept_settled: usize,
+    /// 近景实际保留的已收束段（从旧到新，可能因预算淘汰少于请求值）。编年史据
+    /// 此做 id 精确对应：远景行 = 场景行 −（保留段锚定的行 ∪ 末尾进行中行）——
+    /// 被淘汰的段不占锚，其行自动落入远景；欠账段（None 锚）不排除任何行，
+    /// 滑出近景即丢（无行可接，现行接受条款）。
+    pub kept: Vec<SceneSpan<'a>>,
 }
 
 /// ADR-004 近景窗口：最近 `settled_scenes` 个已结算场**整场** + 进行中场全量。
@@ -48,20 +61,25 @@ pub fn near_view<'a>(
     settled_scenes: usize,
     char_budget: usize,
 ) -> NearView<'a> {
-    let span_chars = |span: &[Message]| {
-        span.iter()
+    let span_chars = |span: &SceneSpan<'_>| {
+        span.messages
+            .iter()
             .map(|m| m.content.chars().count())
             .sum::<usize>()
     };
     let take = settled_scenes.min(spans.closed.len());
-    let kept: &[&[Message]] = &spans.closed[spans.closed.len() - take..];
-    let ongoing_chars = span_chars(spans.ongoing);
-    let mut total = kept.iter().map(|span| span_chars(span)).sum::<usize>() + ongoing_chars;
+    let kept: &[SceneSpan<'a>] = &spans.closed[spans.closed.len() - take..];
+    let ongoing_chars = spans
+        .ongoing
+        .iter()
+        .map(|m| m.content.chars().count())
+        .sum::<usize>();
+    let mut total = kept.iter().map(span_chars).sum::<usize>() + ongoing_chars;
 
     // 整场淘汰：从最旧的**入选**已结算场起整场丢弃，直到预算内或已结算场用尽。
     let mut evicted = 0;
     while evicted < kept.len() && total > char_budget {
-        total -= span_chars(kept[evicted]);
+        total -= span_chars(&kept[evicted]);
         evicted += 1;
     }
     let kept = &kept[evicted..];
@@ -76,10 +94,10 @@ pub fn near_view<'a>(
     NearView {
         messages: kept
             .iter()
-            .flat_map(|span| span.iter())
+            .flat_map(|span| span.messages.iter())
             .chain(ongoing.iter())
             .collect(),
-        kept_settled: kept.len(),
+        kept: kept.to_vec(),
     }
 }
 
@@ -116,8 +134,21 @@ mod tests {
             tokens: None,
             created_at: id as i64,
             interrupt_flag: None,
+            scene_id: None,
             deleted_at: None,
         }
+    }
+
+    /// 无锚段构造（窗口数学不关心锚定值，只透传给调用方做 id 对应）。
+    fn span(messages: &[Message]) -> SceneSpan<'_> {
+        SceneSpan {
+            messages,
+            scene_id: None,
+        }
+    }
+
+    fn anchors(view: &NearView<'_>) -> Vec<Option<i64>> {
+        view.kept.iter().map(|span| span.scene_id).collect()
     }
 
     fn contents<'a>(view: &'a NearView<'a>) -> Vec<&'a str> {
@@ -130,7 +161,7 @@ mod tests {
     fn near_view_keeps_last_two_settled_scenes_whole() {
         let all: Vec<Message> = (0..8).map(|i| msg(i, &format!("m{i}"))).collect();
         let spans = SceneSpans {
-            closed: vec![&all[0..2], &all[2..4], &all[4..6]],
+            closed: vec![span(&all[0..2]), span(&all[2..4]), span(&all[4..6])],
             ongoing: &all[6..],
         };
 
@@ -140,7 +171,7 @@ mod tests {
             vec!["m2", "m3", "m4", "m5", "m6", "m7"],
             "最近 2 场整场 + 进行中全量，顺序不变"
         );
-        assert_eq!(view.kept_settled, 2);
+        assert_eq!(view.kept.len(), 2);
     }
 
     /// 已结算场不足请求数：有几场取几场，全部保留。
@@ -148,12 +179,12 @@ mod tests {
     fn near_view_takes_fewer_when_less_settled_available() {
         let all: Vec<Message> = (0..3).map(|i| msg(i, &format!("m{i}"))).collect();
         let spans = SceneSpans {
-            closed: vec![&all[0..2]],
+            closed: vec![span(&all[0..2])],
             ongoing: &all[2..],
         };
         let view = near_view(spans, SETTLED_SCENES_IN_NEAR, NEAR_VIEW_CHAR_BUDGET);
         assert_eq!(contents(&view), vec!["m0", "m1", "m2"]);
-        assert_eq!(view.kept_settled, 1);
+        assert_eq!(view.kept.len(), 1);
 
         // 无已结算场：纯进行中场。
         let spans = SceneSpans {
@@ -162,11 +193,11 @@ mod tests {
         };
         let view = near_view(spans, SETTLED_SCENES_IN_NEAR, NEAR_VIEW_CHAR_BUDGET);
         assert_eq!(contents(&view), vec!["m0", "m1", "m2"]);
-        assert_eq!(view.kept_settled, 0);
+        assert_eq!(view.kept.len(), 0);
     }
 
     /// 预算触发**整场**淘汰：最旧的入选场整体出局（场内消息要么全在要么全不在），
-    /// kept_settled 随之下降（编年史据此多收一行）。
+    /// 保留段随之减少（编年史据锚定 id 多收一行）。
     #[test]
     fn near_view_evicts_oldest_settled_scene_whole_under_budget() {
         let all: Vec<Message> = vec![
@@ -179,13 +210,13 @@ mod tests {
             msg(6, "进行中"),
         ];
         let spans = SceneSpans {
-            closed: vec![&all[0..2], &all[2..4], &all[4..6]],
+            closed: vec![span(&all[0..2]), span(&all[2..4]), span(&all[4..6])],
             ongoing: &all[6..],
         };
 
         // 预算 2500：B+C（4000）超限 → 淘汰 B → C（2000）+ 进行中（3）= 2003 ≤ 2500。
         let view = near_view(spans, SETTLED_SCENES_IN_NEAR, 2_500);
-        assert_eq!(view.kept_settled, 1);
+        assert_eq!(view.kept.len(), 1);
         let got = contents(&view);
         assert_eq!(got.len(), 3, "近景 = 场 C（2 条）+ 进行中（1 条）");
         assert!(
@@ -199,6 +230,37 @@ mod tests {
         );
     }
 
+    /// 保留段的锚定 id 原样透传（欠账段 None 夹在盖章段中间同样进窗口）：
+    /// 编年史据此做 id 精确对应，窗口数学本身不解释锚定值。
+    #[test]
+    fn near_view_passes_span_anchors_through() {
+        let all: Vec<Message> = (0..5).map(|i| msg(i, &format!("m{i}"))).collect();
+        let spans = SceneSpans {
+            closed: vec![
+                SceneSpan {
+                    messages: &all[0..2],
+                    scene_id: Some(11),
+                },
+                SceneSpan {
+                    messages: &all[2..4],
+                    scene_id: None,
+                },
+                SceneSpan {
+                    messages: &all[4..5],
+                    scene_id: Some(13),
+                },
+            ],
+            ongoing: &all[5..5], // 空：本用例只看 closed 侧锚定透传
+        };
+
+        let view = near_view(spans, SETTLED_SCENES_IN_NEAR, NEAR_VIEW_CHAR_BUDGET);
+        assert_eq!(
+            anchors(&view),
+            vec![None, Some(13)],
+            "最近两段（欠账段 + 盖章段）入选，锚定值原样透传"
+        );
+    }
+
     /// 进行中场自身超预算：先淘汰全部已结算场，再对进行中场头截断（丢最旧、
     /// 留最新）；截断后总字符不超过预算。
     #[test]
@@ -206,12 +268,12 @@ mod tests {
         let settled: Vec<Message> = (0..2).map(|i| msg(i, &format!("场{i}"))).collect();
         let ongoing: Vec<Message> = (0..30).map(|i| msg(100 + i, &"字".repeat(1_000))).collect();
         let spans = SceneSpans {
-            closed: vec![&settled[..]],
+            closed: vec![span(&settled[..])],
             ongoing: &ongoing[..],
         };
 
         let view = near_view(spans, SETTLED_SCENES_IN_NEAR, 24_000);
-        assert_eq!(view.kept_settled, 0, "进行中场自身超限 → 已结算场全部淘汰");
+        assert_eq!(view.kept.len(), 0, "进行中场自身超限 → 已结算场全部淘汰");
         let got = contents(&view);
         assert_eq!(got.len(), 24, "留最新 24 条（每条 1000 字）");
         assert_eq!(got[0], "字".repeat(1_000), "每条内容原样（截断按条不切字）");

@@ -2,8 +2,8 @@
 //! Scene / CharacterState（data_model「5b 增量」，TASK-011 数据层地基）。
 //! 字段与库表一一对应；时间戳统一为 Unix 毫秒（created_at / updated_at / deleted_at）。
 //!
-//! 注：messages 表 5b 起已有可空 scene_id / character_id 列（迁移 0002），
-//! 本结构体的读写接线随导演 / 结算任务开启，暂不在此展开。
+//! 注：messages 表 5b 起已有可空 scene_id / character_id 列（迁移 0002）；
+//! scene_id 已开进读路径（见 [`Message::scene_id`]），character_id 仍只在库内。
 
 use serde::{Deserialize, Serialize};
 
@@ -98,6 +98,10 @@ pub struct Message {
     pub created_at: i64,
     /// 终态落库中断标记（ADR-001：done / error / cancel；具体形态由生成服务决定，存储层透传）。
     pub interrupt_flag: Option<String>,
+    /// 库内场景归属（FR-011）：结算 AttachRange 回填的 scenes.id；NULL = 进行中场 /
+    /// 结算欠账（场景线已出现但结算未落库）/ 场景特性之前的旧数据。插入恒 NULL
+    /// （[`NewMessage`] 不带此字段），结算（commit_settlement）是唯一写入者。
+    pub scene_id: Option<i64>,
     /// 软删除墓碑（ADR-009：重新生成 / 断流重试替换）。
     pub deleted_at: Option<i64>,
 }

@@ -10,7 +10,7 @@ use crate::domain::ports::AttachRange;
 pub(crate) const ENTITY: &str = "message";
 
 const COLS: &str = "id, session_id, role, content, reasoning, think_ms, tokens, \
-                    created_at, interrupt_flag, deleted_at";
+                    created_at, interrupt_flag, scene_id, deleted_at";
 
 /// 库值 → 消息角色；未知值按列转换失败上报（数据损坏）。
 fn role_from_db(value: &str) -> rusqlite::Result<MessageRole> {
@@ -34,7 +34,9 @@ fn row_to_message(row: &Row<'_>) -> rusqlite::Result<Message> {
         tokens: row.get(6)?,
         created_at: row.get(7)?,
         interrupt_flag: row.get(8)?,
-        deleted_at: row.get(9)?,
+        // 结算 AttachRange 回填的场景归属；插入路径恒 NULL（NewMessage 不带此字段）。
+        scene_id: row.get(9)?,
+        deleted_at: row.get(10)?,
     })
 }
 
@@ -64,6 +66,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewMessage, ts: i64) -> Result<Mes
         tokens: new.tokens,
         created_at: ts,
         interrupt_flag: new.interrupt_flag.clone(),
+        scene_id: None,
         deleted_at: None,
     })
 }

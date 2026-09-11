@@ -20,9 +20,10 @@
 //! - `search_history(keyword)`：services 层对 list_messages 做**内存包含匹配**
 //!   （大小写不敏感，case-fold）——个人应用消息量级（千条级）下线性扫描可接受，
 //!   不值得为它上 FTS 索引或新端口；
-//! - `read_scene(scene)`：按场景号取该场全部消息全文，内容切分复用
-//!   [`super::prompt::split_into_scene_spans`]（与近景/结算同一场景线切界），
-//!   超长场按近景同款字符预算截断头部（复用 domain::context::truncate_head）。
+//! - `read_scene(scene)`：按场景号取该场全部消息全文，切分复用
+//!   [`super::prompt::split_into_scene_spans`]（与近景/结算同一归属语义：库内
+//!   scene_id 优先、NULL 段内容场景线兜底），超长场按近景同款字符预算截断头部
+//!   （复用 domain::context::truncate_head）。
 //!
 //! 注入面防御：卷宗正文与 search_history 引文在进入模型上下文 / system 注入前
 //! **换行压平**（\n 与 \r → 单空格），防携带换行的文本伪造段标题（与 Task-02
@@ -314,22 +315,28 @@ fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> Stri
 
 /// read_scene：按场景号（scene.idx，编年史「场N」同命名空间）取整场消息全文。
 ///
-/// 行位置 → 内容分段：closed[i] 归第 i 行（0 起对齐锚行），末行（进行中 header）
-/// 归 ongoing。已知偏差（接受并记录，同 prompt.rs 模块注释）：结算欠账时场景线
-/// 切出的 closed 段可能多于场景行数，此时部分行的定位近似——对「给模型一个合理
-/// 的原文窗口」这一工具目标无实质影响。
+/// 优先按**库内归属**命中：场景行 id → 盖章段（scene_id 精确对应，欠账 / 重生成
+/// 不再错位）。行不是任何盖章段、也非末行（进行中 header → ongoing）时回退现行
+/// 内容切分位置对齐（closed[i] 归第 i 行）——覆盖无盖章的旧数据 / 纯内容切分形态，
+/// 回退路径保留既有「场景 N 无消息记录」提示语义（空段 / 越界定位）。
 fn read_scene(scene_idx: i64, messages: &[Message], scenes: &[Scene]) -> String {
-    // 场号 → 行位置（idx 单调但墓碑行留空洞，按值查找而非下标直取）。
+    // 场号 → 行（idx 单调但墓碑行留空洞，按值查找而非下标直取）。
     let Some(position) = scenes.iter().position(|scene| scene.idx == scene_idx) else {
         let available: Vec<String> = scenes.iter().map(|scene| scene.idx.to_string()).collect();
         return format!("未找到场景 {scene_idx}；可用场景号：{}", available.join("、"));
     };
+    let row = &scenes[position];
     let spans = super::prompt::split_into_scene_spans(messages);
-    let position = position as usize;
-    let span: &[Message] = if position < spans.closed.len() {
-        spans.closed[position]
+    let span: &[Message] = if let Some(stamped) =
+        spans.closed.iter().find(|span| span.scene_id == Some(row.id))
+    {
+        stamped.messages
     } else if position + 1 == scenes.len() {
+        // 末行 = 进行中 header：NULL 尾段（含欠账切分后的余段）逻辑上属于它。
         spans.ongoing
+    } else if position < spans.closed.len() {
+        // 回退：内容切分位置对齐（无盖章形态下与旧版逐字同界）。
+        spans.closed[position].messages
     } else {
         return format!("场景 {scene_idx} 无消息记录（结算归属错位，已知偏差）");
     };
@@ -501,6 +508,41 @@ mod tests {
             .unwrap()
             .id;
         (storage, session_id)
+    }
+
+    /// 纯内存消息构造（盖章形态测试用，与库读出的 Message 同构）。
+    fn stamped_message(id: i64, role: MessageRole, content: &str, scene_id: Option<i64>) -> Message {
+        Message {
+            id,
+            session_id: 1,
+            role,
+            content: content.to_string(),
+            reasoning: None,
+            think_ms: None,
+            tokens: None,
+            created_at: id,
+            interrupt_flag: None,
+            scene_id,
+            deleted_at: None,
+        }
+    }
+
+    /// 纯内存场景行构造（指定行 id / idx，盖章锚定测试需要二者对上）。
+    fn scene_row(id: i64, idx: i64) -> Scene {
+        Scene {
+            id,
+            session_id: 1,
+            idx,
+            location: Some(format!("地点{idx}")),
+            time_note: None,
+            fic_day: Some(idx),
+            fic_part: Some("夜".into()),
+            date_label: None,
+            summary: Some(format!("场{idx}摘要")),
+            recap: None,
+            present: vec![1],
+            deleted_at: None,
+        }
     }
 
     /// 快车道：研究员首轮直接 Content（零工具调用）→ None，且只发一次请求。
@@ -838,6 +880,70 @@ mod tests {
         let missing = read_scene(7, &messages, &scenes);
         assert!(missing.contains("未找到场景 7"), "越界场号回可用清单：{missing}");
         assert!(missing.contains('0') && missing.contains('1'), "清单含可用场号：{missing}");
+    }
+
+    /// read_scene 按 scene_id 命中（库内归属优先，欠账夹缝不错位）：行 id → 盖章段
+    /// 精确取原文；中部欠账消息（NULL、场景线已出现但结算未落）不被位置对齐误归
+    /// 给邻行——旧版内容切分在此形态下会把欠账段错配给该行。
+    #[test]
+    fn read_scene_hits_stamped_span_by_scene_id() {
+        // 行布局：1=锚行(idx0)、2=已收束行(idx1)、3=进行中 header(idx2)。
+        let scenes = vec![scene_row(1, 0), scene_row(2, 1), scene_row(3, 2)];
+        let messages = vec![
+            stamped_message(1, MessageRole::User, "场零问", Some(1)),
+            stamped_message(2, MessageRole::Assistant, "场零答\n\n---\n\n新场", Some(1)),
+            // 中部欠账段（NULL，m4 带场景线）：逻辑上不属于任何行
+            stamped_message(3, MessageRole::User, "欠账问", None),
+            stamped_message(4, MessageRole::Assistant, "欠账答\n\n---\n\n再新场", None),
+            stamped_message(5, MessageRole::User, "真场问", Some(2)),
+            stamped_message(6, MessageRole::Assistant, "真场答", Some(2)),
+            stamped_message(7, MessageRole::User, "进行中问", None),
+        ];
+
+        // 场0（锚行 id 1）→ 盖章段 m1-m2 原文（触发行在内）。
+        let zero = read_scene(0, &messages, &scenes);
+        assert!(zero.starts_with("【场0】共 2 条消息"), "锚行整场：{zero}");
+        assert!(zero.contains("[user] 场零问") && zero.contains("场零答"));
+
+        // 场1（行 id 2）→ 盖章段 m5-m6；欠账消息 m3/m4 不被误归（旧版位置对齐
+        // 会取到 closed[1] = 欠账段）。
+        let first = read_scene(1, &messages, &scenes);
+        assert!(first.starts_with("【场1】共 2 条消息"), "按 id 命中盖章段：{first}");
+        assert!(first.contains("真场问") && first.contains("真场答"), "真场原文在内：{first}");
+        assert!(!first.contains("欠账"), "欠账段不误归给行 2：{first}");
+
+        // 场2（末行）→ 进行中场（NULL 尾）。
+        let ongoing = read_scene(2, &messages, &scenes);
+        assert!(ongoing.starts_with("【场2】共 1 条消息"), "末行归进行中场：{ongoing}");
+        assert!(ongoing.contains("[user] 进行中问"));
+    }
+
+    /// read_scene 回退路径（无盖章形态 → 内容位置对齐）与「无消息记录」提示语义：
+    /// 行存在但既无盖章段、又非末行、位置对齐越界 → 空段提示（重生成清空后的
+    /// 常见形态），不 panic。
+    #[test]
+    fn read_scene_falls_back_and_reports_missing_messages() {
+        let scenes = vec![scene_row(1, 0), scene_row(2, 1), scene_row(3, 2)];
+        // 全 NULL（无盖章）：场0 走内容位置对齐（closed[0] = m1-m2，与旧版同界）。
+        let messages = vec![
+            stamped_message(1, MessageRole::User, "场一问", None),
+            stamped_message(2, MessageRole::Assistant, "场一答\n\n---\n\n新场", None),
+            stamped_message(3, MessageRole::User, "进行中问", None),
+        ];
+
+        let zero = read_scene(0, &messages, &scenes);
+        assert!(zero.starts_with("【场0】共 2 条消息"), "回退内容位置对齐：{zero}");
+        assert!(zero.contains("[assistant] 场一答"), "触发行原文在内：{zero}");
+
+        // 行 2：无盖章段、非末行、closed 仅 1 段 → 既有「无消息记录」语义保留。
+        let empty = read_scene(1, &messages, &scenes);
+        assert!(
+            empty.contains("场景 1 无消息记录"),
+            "空段 / 越界定位回提示文本：{empty}"
+        );
+
+        let ongoing = read_scene(2, &messages, &scenes);
+        assert!(ongoing.contains("[user] 进行中问"), "末行归进行中场：{ongoing}");
     }
 
     /// 卷宗正文为空白（查证后模型输出空内容）→ 视为无效卷宗返回 None，不注入空段。

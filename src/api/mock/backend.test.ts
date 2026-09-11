@@ -238,6 +238,7 @@ describe('draftCalendar（FR-014 二期 AI 起草历法，语义对齐 services/
     const { backend } = await loadMock();
     const first = await backend.draftCalendar('旧都世界观');
     first.months.push('多余月');
+    if (!first.festivals) throw new Error('起草结果应含节日表');
     first.festivals[45] = '被改掉的节日';
     const second = await backend.draftCalendar('旧都世界观');
     expect(second.months).toHaveLength(12);

@@ -126,7 +126,7 @@ fn field<'a>(
 }
 
 /// 名称列表容错（months / day_names 共用）：非数组记因；非字符串与空白条目按
-/// 噪声跳过；条数 / 单项长度超限记因（条目仍截取前段继续，便于一次重试修完）。
+/// 噪声跳过；条数 / 单项长度超限记因（超限条目整条丢弃，原因留给一次重试修完）。
 fn coerce_names(
     value: Option<&serde_json::Value>,
     label: &str,
@@ -194,9 +194,11 @@ fn coerce_days_per_month(
 }
 
 /// 节日表容错：键容忍数字字符串（"45"，即模型最常见的形态），无法解析为
-/// ≥ 1 整数的键与空白 / 非字符串值按噪声跳过；条数 / 节日名长度超限记因。
+/// ≥ 1 整数的键与空白 / 非字符串值按噪声跳过；越年键（> `year_days`）静默丢弃；
+/// 条数 / 节日名长度超限记因。
 fn coerce_festivals(
     value: Option<&serde_json::Value>,
+    year_days: Option<i64>,
     reasons: &mut Vec<String>,
 ) -> BTreeMap<i64, String> {
     let Some(value) = value else { return BTreeMap::new() };
@@ -212,6 +214,13 @@ fn coerce_festivals(
         let Ok(day) = key.trim().parse::<i64>() else { continue };
         if day < 1 {
             continue;
+        }
+        // prompt 承诺的约束在解析层兜底：越年节日是永不命中的死数据，静默丢弃
+        // 不计入失败原因、不触发修正重试。
+        if let Some(year_days) = year_days {
+            if day > year_days {
+                continue;
+            }
         }
         let Some(name) = value.as_str() else { continue };
         let trimmed = name.trim();
@@ -250,7 +259,15 @@ pub fn parse_draft(value: &serde_json::Value) -> Result<CalendarConfig, String> 
         field(obj, "days_per_month", "daysPerMonth"),
         &mut reasons,
     );
-    let festivals = coerce_festivals(field(obj, "festivals", "festivals"), &mut reasons);
+    // 年总天数（越年节日判定基准）：months 非空时 = 月数 × 每月天数；months 为空
+    // 时无法界定年长，只查 ≥ 1 界。
+    let year_days = if months.is_empty() {
+        None
+    } else {
+        Some(i64::from(days_per_month) * months.len() as i64)
+    };
+    let festivals =
+        coerce_festivals(field(obj, "festivals", "festivals"), year_days, &mut reasons);
 
     if !reasons.is_empty() {
         return Err(reasons.join("；"));
@@ -385,7 +402,7 @@ mod tests {
     fn fenced_valid_calendar() -> String {
         r#"```json
 {"name":"白蜡历","months":["白蜡月","烬月"],"daysPerMonth":30,
- "dayNames":["晨露日","风息日"],"festivals":{"45":"灯节","360":"守夜"}}
+ "dayNames":["晨露日","风息日"],"festivals":{"45":"灯节","60":"守夜"}}
 ```"#
             .into()
     }
@@ -436,14 +453,14 @@ mod tests {
         );
         assert_eq!(snake.days_per_month, 30);
         assert_eq!(snake.festivals.get(&15).map(String::as_str), Some("上元"));
-        // camelCase（wire 习惯）+ null 历法名 + 数字字符串节日键。
+        // camelCase（wire 习惯）+ null 历法名 + 数字字符串节日键（键 30 = 界内末日）。
         let camel = parse_ok(
             r#"{"name":null,"months":["霜月"],"daysPerMonth":30,
-                "dayNames":["晨露日"],"festivals":{"360":"守夜"}}"#,
+                "dayNames":["晨露日"],"festivals":{"30":"守夜"}}"#,
         );
         assert_eq!(camel.name, None);
         assert_eq!(camel.days_per_month, 30);
-        assert_eq!(camel.festivals.get(&360).map(String::as_str), Some("守夜"));
+        assert_eq!(camel.festivals.get(&30).map(String::as_str), Some("守夜"));
         // 整数值浮点与数字字符串的每月天数都容忍。
         assert_eq!(parse_ok(r#"{"months":["霜月"],"days_per_month":30.0}"#).days_per_month, 30);
         assert_eq!(parse_ok(r#"{"months":["霜月"],"daysPerMonth":"30"}"#).days_per_month, 30);
@@ -452,6 +469,29 @@ mod tests {
             r#"{"months":["霜月"],"days_per_month":30,"festivals":{"第几日":"灯节","2":"  "}}"#,
         );
         assert!(noisy.festivals.is_empty());
+    }
+
+    #[test]
+    fn parse_draft_drops_out_of_year_festivals_silently() {
+        // 3 月 × 30 天 = 90：键 90 恰在界内保留，361 越年整条丢弃且不计入失败
+        // 原因（若计因，parse_ok 会因触发修正重试语义而失败）。
+        let calendar = parse_ok(
+            r#"{"months":["霜月","烬月","雪月"],"days_per_month":30,
+                "festivals":{"90":"融雪祭","361":"越年死键","15":"上元"}}"#,
+        );
+        assert_eq!(calendar.festivals.len(), 2, "越年键被丢弃，合法键保留");
+        assert_eq!(calendar.festivals.get(&90).map(String::as_str), Some("融雪祭"));
+        assert_eq!(calendar.festivals.get(&15).map(String::as_str), Some("上元"));
+        assert!(!calendar.festivals.contains_key(&361));
+        // months 为空（仅日名）时无法界定年长：只查 ≥ 1 界，大键保留。
+        let only_day_names = parse_ok(
+            r#"{"months":[],"dayNames":["晨露日"],"days_per_month":30,
+                "festivals":{"361":"无界保留"}}"#,
+        );
+        assert_eq!(
+            only_day_names.festivals.get(&361).map(String::as_str),
+            Some("无界保留")
+        );
     }
 
     #[test]
@@ -485,11 +525,11 @@ mod tests {
             .months
             .first()
             .is_some());
-        // 超钳制：65 条节日。
+        // 超钳制：65 条节日（键 1..=65 须全部在年内，故用 999 天/月放大年长）。
         let festivals: Vec<String> =
             (1..=65).map(|i| format!("\"{i}\":\"节{i}\"")).collect();
         let reason =
-            parse_err(&format!(r#"{{"months":["霜月"],"days_per_month":30,"festivals":{{{}}}}}"#, festivals.join(",")));
+            parse_err(&format!(r#"{{"months":["霜月"],"days_per_month":999,"festivals":{{{}}}}}"#, festivals.join(",")));
         assert!(reason.contains("超过上限 64"), "实际：{reason}");
         // 根不是对象。
         let value = serde_json::from_str::<serde_json::Value>("[1,2]").unwrap();

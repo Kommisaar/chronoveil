@@ -116,6 +116,29 @@ describe('buildCalendar（表单字段 → 校验判定，对齐 fiction_time::v
     }
   });
 
+  it('每月天数上界含端点：999 放行、1000 拦为 daysPerMonthMax（对齐 coerce_days_per_month）', () => {
+    // 界值 999 合法通过（Rust 侧 `(1..=999).contains` 含端点）。
+    const atMax = buildCalendar({ ...EMPTY_CALENDAR_FIELDS, daysPerMonth: '999', months: '一月' });
+    expect(atMax).toEqual({
+      kind: 'valid',
+      config: {
+        name: null,
+        months: ['一月'],
+        daysPerMonth: 999,
+        dayNames: [],
+        festivals: null,
+      },
+    });
+    // 超上界独立定位为 daysPerMonthMax（文案说明合理范围 1–999）。
+    expect(
+      buildCalendar({ ...EMPTY_CALENDAR_FIELDS, daysPerMonth: '1000', months: '一月' }),
+    ).toEqual({ kind: 'invalid', error: 'daysPerMonthMax' });
+    // 明显越界同样拦截，防「10000 天/月」这类失真输入。
+    expect(
+      buildCalendar({ ...EMPTY_CALENDAR_FIELDS, daysPerMonth: '10000', months: '一月' }),
+    ).toEqual({ kind: 'invalid', error: 'daysPerMonthMax' });
+  });
+
   it('月名 / 日名至少其一非空（对齐 Rust validate），皆空拦为 names 错误', () => {
     expect(
       buildCalendar({ ...EMPTY_CALENDAR_FIELDS, daysPerMonth: '30' }),

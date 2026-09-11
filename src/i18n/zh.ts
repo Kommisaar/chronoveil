@@ -146,6 +146,7 @@ export const zh = {
       dayNamesField: '日名（每行一个）',
       festivalsField: '节日（每行「第N天=名称」）',
       errorDaysPerMonth: '每月天数需为 ≥1 的整数',
+      errorDaysPerMonthMax: '每月天数需为 1–999 的整数',
       errorNames: '至少填写月名或日名（其一即可）',
       errorFestivals: '节日行需为「第N天=名称」，N 为 ≥1 的整数，配置了月名时不得超过年总天数（月数 × 每月天数）',
       draftTitle: 'AI 起草历法',

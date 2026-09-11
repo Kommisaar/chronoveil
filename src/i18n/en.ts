@@ -147,6 +147,7 @@ export const en = {
       dayNamesField: 'Day names (one per line)',
       festivalsField: 'Festivals (one "day N = name" per line)',
       errorDaysPerMonth: 'Days per month must be an integer ≥ 1',
+      errorDaysPerMonthMax: 'Days per month must be an integer 1–999',
       errorNames: 'Fill in month names or day names (at least one)',
       errorFestivals:
         'Each festival line must be "day N = name" with integer N ≥ 1 and, when month names are set, N within the year length (months × days per month)',

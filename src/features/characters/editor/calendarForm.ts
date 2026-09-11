@@ -11,11 +11,19 @@
  * - 编辑产物走 wire DTO（CalendarConfigDto，camelCase）随整卡 update_character
  *   提交，由 Rust 折叠成存储 JSON——前端不手写存储 JSON；
  * - 校验规则对齐 Rust domain/fiction_time::validate：days_per_month > 0 且
- *   月名 / 日名至少其一非空；节日行另加「N=名称，N 为 ≥1 整数且不超年长
- *   （月数 × 每月天数，月名未配置时不设上界）」的行式约定，与 Rust AI 路径
- *   services/calendar_draft::coerce_festivals 的越年防御对齐。
+ *   月名 / 日名至少其一非空；每月天数另有上界 999（含端点），对齐 Rust AI
+ *   路径 services/calendar_draft::coerce_days_per_month——持久化路径维持
+ *   validate-only，上界由前端把关；节日行另加「N=名称，N 为 ≥1 整数且不超
+ *   年长（月数 × 每月天数，月名未配置时不设上界）」的行式约定，与 Rust AI
+ *   路径 services/calendar_draft::coerce_festivals 的越年防御对齐。
  */
 import type { CalendarConfigDto } from '../../../api/types';
+
+/**
+ * 每月天数上界（含端点：999 放行、1000 拦截）。与 Rust
+ * services/calendar_draft 的 `MAX_DAYS_PER_MONTH` 常量对齐。
+ */
+export const MAX_DAYS_PER_MONTH = 999;
 
 /** 历法编辑表单形态（textarea 原文：月名/日名每行一项，节日每行「N=名称」）。 */
 export interface CalendarFields {
@@ -43,8 +51,8 @@ export type CalendarBuild =
   | { kind: 'invalid'; error: CalendarFieldError }
   | { kind: 'valid'; config: CalendarConfigDto };
 
-/** 校验失败定位（i18n 文案由 UI 层映射）。 */
-export type CalendarFieldError = 'daysPerMonth' | 'names' | 'festivals';
+/** 校验失败定位（i18n 文案由 UI 层映射）。daysPerMonthMax = 超上界。 */
+export type CalendarFieldError = 'daysPerMonth' | 'daysPerMonthMax' | 'names' | 'festivals';
 
 /** 按行拆 textarea：trim 后丢空行，保持书写顺序。 */
 function lines(text: string): string[] {
@@ -136,6 +144,9 @@ export function buildCalendar(fields: CalendarFields): CalendarBuild {
 
   const days = Number(fields.daysPerMonth);
   if (!Number.isInteger(days) || days < 1) return { kind: 'invalid', error: 'daysPerMonth' };
+  // 上界含端点（1–999），对齐 calendar_draft::coerce_days_per_month 的
+  // `(1..=MAX_DAYS_PER_MONTH).contains` 语义。
+  if (days > MAX_DAYS_PER_MONTH) return { kind: 'invalid', error: 'daysPerMonthMax' };
   // 对齐 fiction_time::validate：月名 / 日名至少其一非空。
   if (months.length === 0 && dayNames.length === 0) {
     return { kind: 'invalid', error: 'names' };

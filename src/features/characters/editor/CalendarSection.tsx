@@ -19,12 +19,13 @@ import {
 } from '../../../components/calendarPresets';
 import type { CalendarConfigDto } from '../../../api/types';
 import type { CalendarBuild, CalendarFieldError, CalendarFields } from './calendarForm';
-import { fieldsFromCalendar } from './calendarForm';
+import { fieldsFromCalendar, MAX_DAYS_PER_MONTH } from './calendarForm';
 import { useFieldStyles } from './pieces';
 
-/** 校验失败 → i18n key（文案与 calendarForm 的三个错误定位一一对应）。 */
+/** 校验失败 → i18n key（文案与 calendarForm 的错误定位一一对应）。 */
 const ERROR_KEYS: Record<CalendarFieldError, string> = {
   daysPerMonth: 'characters.calendar.errorDaysPerMonth',
+  daysPerMonthMax: 'characters.calendar.errorDaysPerMonthMax',
   names: 'characters.calendar.errorNames',
   festivals: 'characters.calendar.errorFestivals',
 };
@@ -169,6 +170,7 @@ export function CalendarSection(props: {
                   <Input
                     type="number"
                     min={1}
+                    max={MAX_DAYS_PER_MONTH}
                     value={props.fields.daysPerMonth}
                     onChange={(_, d) => props.onFieldsChange((c) => ({ ...c, daysPerMonth: d.value }))}
                     aria-label={t('characters.calendar.daysPerMonthField')}

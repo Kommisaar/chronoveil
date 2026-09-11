@@ -233,10 +233,17 @@ impl StoragePort for Storage {
             // 一次提交，任一支路失败整体回滚，不留半结算状态（避免 idx 空洞 / 摘要
             // 回写与消息归属脱节等不一致）。unchecked_transaction 模式同 insert_message。
             let tx = conn.unchecked_transaction()?;
-            // 1) 上一场景 summary 回写（边界快照：上一行 = 它所辖场景的 header + 消息 + 摘要）。
-            if let (Some(scene_id), Some(summary)) = (&write.close_scene_id, &write.close_summary)
-            {
-                scenes::update_summary(&tx, *scene_id, summary)?;
+            // 1) 上一场景收束回写（边界快照：上一行 = 它所辖场景的 header + 消息 +
+            //    摘要；Task-03 起 recap 随 summary 同路径回写，None 字段不动既有值）。
+            if let Some(scene_id) = write.close_scene_id {
+                if write.close_summary.is_some() || write.close_recap.is_some() {
+                    scenes::backfill_close(
+                        &tx,
+                        scene_id,
+                        write.close_summary.as_deref(),
+                        write.close_recap.as_deref(),
+                    )?;
+                }
             }
             // 2) 收束段消息归属（半开区间挂到上一行；无上一行则无归属，消息留待自愈）。
             if let Some(range) = &write.attach {
@@ -341,7 +348,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6], "schema_version 各版本只记录一次");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7], "schema_version 各版本只记录一次");
 
         let tables: Vec<String> = {
             let mut stmt = conn
@@ -496,6 +503,7 @@ mod tests {
             fic_part: Some("清晨".into()),
             date_label: Some("第2日·清晨".into()),
             summary: Some("昨夜争执后两人无言告别".into()),
+            recap: None,
             present: vec![1],
         }
     }
@@ -527,6 +535,7 @@ mod tests {
             },
             close_scene_id: Some(previous.id),
             close_summary: Some("昨夜争执后两人无言告别".into()),
+            close_recap: Some("争执从一句误口信开始。两人隔着柜台沉默了很久。最后她把伞留下，独自走进雨夜。".into()),
             attach: Some(AttachRange {
                 scene_id: previous.id,
                 after_message_id: 0,
@@ -550,11 +559,21 @@ mod tests {
         assert_eq!(scene.location.as_deref(), Some("旧书店 · 打烊后"));
         assert_eq!(scene.summary.as_deref(), Some("钟楼下的对峙无果而终"));
         assert_eq!(scene.present, vec![1]);
-        // 上一行 summary 回写 + 收束段两条消息归属到上一行（边界快照语义）。
+        // 上一行 summary / recap 回写（Task-03 同路径）+ 收束段两条消息归属到上一行
+        // （边界快照语义）。
         let reloaded = storage.list_scenes(session_id).unwrap();
         assert_eq!(reloaded.len(), 3, "开场锚行（FR-014 seed）+ 上一行 + 新行");
         let previous_row = reloaded.iter().find(|s| s.id == previous.id).unwrap();
         assert_eq!(previous_row.summary.as_deref(), Some("昨夜争执后两人无言告别"));
+        assert_eq!(
+            previous_row.recap.as_deref(),
+            Some("争执从一句误口信开始。两人隔着柜台沉默了很久。最后她把伞留下，独自走进雨夜。"),
+            "recap 随 summary 同路径回写上一行"
+        );
+        assert_eq!(
+            reloaded.last().unwrap().recap, None,
+            "新行只预填 verdict 给出的 recap（本例 None），list_scenes 往返读出"
+        );
         assert_eq!(
             attached_scene_ids(&dir, session_id),
             vec![Some(previous.id), Some(previous.id)],
@@ -583,6 +602,7 @@ mod tests {
                 scene: new_scene(session_id),
                 close_scene_id: None,
                 close_summary: None,
+                close_recap: None,
                 attach: None,
                 state_upserts: Vec::new(),
                 state_clears: Vec::new(),
@@ -613,6 +633,7 @@ mod tests {
                 scene: new_scene(session_id),
                 close_scene_id: Some(previous.id),
                 close_summary: Some("不该被写进去的摘要".into()),
+                close_recap: Some("不该被写进去的回顾".into()),
                 attach: Some(AttachRange {
                     scene_id: previous.id,
                     after_message_id: 0,
@@ -637,6 +658,11 @@ mod tests {
             storage.latest_scene(session_id).unwrap().unwrap().summary,
             before_summary,
             "summary 回写未发生"
+        );
+        assert_eq!(
+            storage.latest_scene(session_id).unwrap().unwrap().recap,
+            None,
+            "recap 回写未发生（回滚覆盖 Task-03 同路径支路）"
         );
         assert!(
             attached_scene_ids(&dir, session_id).iter().all(|id| id.is_none()),

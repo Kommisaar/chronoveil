@@ -22,6 +22,8 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // render_style 遗留默认值订正（Task-10）：'typewriter' 是 18 表外串（真实 id 为
     // 'type'），存量行订正为引擎可识别风格；列默认值随 0001 历史保留（插入恒显式传值）
     (6, include_str!("../../../migrations/0006_render_style_type.sql")),
+    // 桥场加厚（Task-03）：scenes.recap 可空扩列（两三句加厚回顾，远景编年史桥场专用）
+    (7, include_str!("../../../migrations/0007_scenes_recap.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。
@@ -117,7 +119,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6], "旧版本记录保留，新版本追加");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7], "旧版本记录保留，新版本追加");
 
         // 旧数据逐字段原样（验收 1：迁移不丢数据）
         let (name, persona): (String, String) = conn
@@ -181,6 +183,59 @@ mod tests {
                 "{table}.deleted_at 缺失（ADR-009）"
             );
         }
+    }
+
+    /// 0007（Task-03 桥场加厚）：scenes 扩可空 recap 列；0006 形态的既有库跑 0007
+    /// 不丢数据，旧行 recap 为 NULL（渲染回退单行），summary 原样保留。
+    #[test]
+    fn migration_0007_adds_nullable_scenes_recap() {
+        let conn = Connection::open_in_memory().unwrap();
+        // 手工推进到版本 6，让 run() 只应用 0007。
+        for (version, sql) in &MIGRATIONS[..6] {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+                [version],
+            )
+            .unwrap();
+        }
+        // 0006 形态既有数据：角色 + 会话 + 一行带 summary 的场景。
+        conn.execute(
+            "INSERT INTO characters (name, persona, render_style, created_at, updated_at) \
+             VALUES ('艾莉', '底版', 'type', 10, 10)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (character_id, title, created_at, updated_at) \
+             VALUES (1, '旧会话', 11, 12)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scenes (session_id, idx, location, summary, present, fic_day, fic_part) \
+             VALUES (1, 0, '钟楼下', '开场', '[1]', 1, '夜')",
+            [],
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        // 版本账本：7 新记。
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_version WHERE version = 7", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1, "0007 恰好记录一次");
+        // recap 列就位且旧行为 NULL；既有列不丢。
+        let (recap, summary): (Option<String>, Option<String>) = conn
+            .query_row("SELECT recap, summary FROM scenes WHERE idx = 0", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(recap, None, "旧行扩列为 NULL（可空回退）");
+        assert_eq!(summary.as_deref(), Some("开场"), "既有 summary 原样保留");
     }
 
     /// 0006（Task-10）：存量遗留串 'typewriter'（18 表外，渲染端静默回落 fade）

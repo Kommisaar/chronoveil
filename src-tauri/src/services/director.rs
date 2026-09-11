@@ -70,6 +70,9 @@ pub struct DirectorVerdict {
     pub fic_day: Option<i64>,
     pub fic_part: Option<String>,
     pub summary: Option<String>,
+    /// 桥场加厚回顾（Task-03）：对收束的上一场景产出的两三句回顾，summary 保持一行；
+    /// 缺失 / 空白 → None 不重试（字段级容错，同 summary）。
+    pub recap: Option<String>,
     #[serde(default)]
     pub present: Vec<i64>,
     #[serde(default)]
@@ -115,6 +118,7 @@ pub struct SettlementVerdict {
     pub fic_day: Option<i64>,
     pub fic_part: Option<String>,
     pub summary: Option<String>,
+    pub recap: Option<String>,
     pub present: Vec<i64>,
     pub upserts: Vec<StateUpsert>,
     /// (character_id, key)：编排层映射到在世状态行 id 后走 soft_delete。
@@ -122,7 +126,7 @@ pub struct SettlementVerdict {
 }
 
 /// 字段级容错（§2，值域修正、不重试）：
-/// - location / time_note / summary：缺失或空白 → None（列可空）；
+/// - location / time_note / summary / recap：缺失或空白 → None（列可空）；
 /// - fic_day：缺失 → 沿用 latest.fic_day（不推进）；小于账本位 → 钳到账本位（BR-003 单调）；
 /// - fic_part：不在六值 → None；
 /// - present / states 引用 roster 外 character_id、scope 非法 → 丢弃该条继续（配合
@@ -196,6 +200,7 @@ pub fn normalize(raw: &DirectorVerdict, roster: &[i64], latest: Option<&Scene>) 
         fic_day,
         fic_part,
         summary: clean(&raw.summary),
+        recap: clean(&raw.recap),
         present: roster.to_vec(),
         upserts,
         clears,
@@ -266,28 +271,37 @@ fn system_prompt() -> &'static str {
 
 你的职责（四件事）：
 1. 新场景定稿：给出边界之后新场景的 location（地点）与 time_note（叙事时间原文，如「次日清晨」）。
-2. 收束段摘要：用一句远景概括 --- 之前刚收束的整段剧情（summary），供日后回看。
+2. 收束段两档摘要：对 --- 之前刚收束的整段剧情同时产出两档——summary 用一句远景概括（供久远回看），recap 用两三句加厚回顾（保留关键对话与转折，供刚滑出叙事窗口时回顾）。两档内容一致但详略不同，不是重复同一句。
 3. 状态清算：维护 states。增改状态用 {\"character_id\":…,\"scope\":\"state|relation\",\"key\":…,\"value\":…,\"expiry\":…}；清除状态用 {\"character_id\":…,\"clear\":\"键名\"}。硬规则：value 用叙事语言、绝不用数字；在册总条数保持 10 条以内，超出时合并或清除最陈旧的；expiry 三义取其一：scene_end（下次场景收束失效）/ event:事件名 / manual（仅手动清除）。
 4. 时间换算：给出 fic_day（第几天，整数）与 fic_part（六值之一：清晨/上午/午后/黄昏/夜/深夜）。模糊时间（「次日」「片刻后」）取最小合理值，并把准确的叙事时间写进 time_note。虚时只被叙事推进，绝不倒流：fic_day 不得小于当前账本位。
 
 输出格式（缺失字段用 null）：
-{\"location\":\"…\",\"time_note\":\"…\",\"fic_day\":2,\"fic_part\":\"夜\",\"summary\":\"…\",\"present\":[角色id],\"states\":[{\"character_id\":1,\"scope\":\"state\",\"key\":\"情绪\",\"value\":\"释然\",\"expiry\":\"scene_end\"}]}"
+{\"location\":\"…\",\"time_note\":\"…\",\"fic_day\":2,\"fic_part\":\"夜\",\"summary\":\"…\",\"recap\":\"…\",\"present\":[角色id],\"states\":[{\"character_id\":1,\"scope\":\"state\",\"key\":\"情绪\",\"value\":\"释然\",\"expiry\":\"scene_end\"}]}"
 }
 
 /// user payload（§2 五段）：上一场快照 / 当前状态集 / 在场名单 / 日历提示 / 本回合叙事。
 fn user_payload(input: &SettlementInput<'_>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
-    // 1) 上一场快照（无则开场段）。
+    // 1) 上一场快照（无则开场段）；recap（Task-03 加厚回顾）有则附在摘要之后。
     sections.push(match input.latest_scene {
-        Some(scene) => format!(
-            "【上一场快照】\n地点：{}\n时间：{}（第 {} 天 · {}）\n上一场摘要：{}",
-            scene.location.as_deref().unwrap_or("（未记录）"),
-            scene.date_label.as_deref().unwrap_or("（未记录）"),
-            scene.fic_day.map(|day| day.to_string()).unwrap_or_else(|| "?".into()),
-            scene.fic_part.as_deref().unwrap_or("?"),
-            scene.summary.as_deref().unwrap_or("（无）"),
-        ),
+        Some(scene) => {
+            let recap_line = scene
+                .recap
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(|text| format!("\n上一场回顾：{text}"))
+                .unwrap_or_default();
+            format!(
+                "【上一场快照】\n地点：{}\n时间：{}（第 {} 天 · {}）\n上一场摘要：{}{recap_line}",
+                scene.location.as_deref().unwrap_or("（未记录）"),
+                scene.date_label.as_deref().unwrap_or("（未记录）"),
+                scene.fic_day.map(|day| day.to_string()).unwrap_or_else(|| "?".into()),
+                scene.fic_part.as_deref().unwrap_or("?"),
+                scene.summary.as_deref().unwrap_or("（无）"),
+            )
+        }
         None => "【上一场快照】\n本段是开场后第一段，没有上一场。".to_string(),
     });
 
@@ -405,6 +419,7 @@ fn build_write(
         fic_part: verdict.fic_part.clone(),
         date_label,
         summary: verdict.summary.clone(),
+        recap: verdict.recap.clone(),
         present: verdict.present.clone(),
     };
     let attach = close_scene_id.map(|scene_id| AttachRange {
@@ -441,6 +456,8 @@ fn build_write(
         close_scene_id,
         // 边界快照（§7-1）：收束段摘要落新行，同时回写上一行使上一行与其归属消息自洽。
         close_summary: verdict.summary.clone().filter(|_| close_scene_id.is_some()),
+        // Task-03 桥场加厚：recap 随 summary 同路径回写上一行（新行亦预填一份）。
+        close_recap: verdict.recap.clone().filter(|_| close_scene_id.is_some()),
         attach,
         state_upserts,
         state_clears,
@@ -651,6 +668,7 @@ mod tests {
             fic_part: Some("夜".into()),
             date_label: None,
             summary: Some("开场".into()),
+            recap: None,
             present: vec![1],
             deleted_at: None,
         }
@@ -763,6 +781,62 @@ mod tests {
         assert!(verdict.clears.is_empty());
     }
 
+    // ---- Task-03：recap 两档（有值 / 缺失→None / 空白→None） ----
+
+    #[test]
+    fn normalize_keeps_recap_when_present() {
+        // verdict 反序列化：recap 键存在且非空 → 透传。
+        let raw: DirectorVerdict = serde_json::from_str(
+            r#"{"summary": "争执后告别", "recap": "争执从误口信开始。两人隔柜沉默。最后她留伞走进雨夜。"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            raw.recap.as_deref(),
+            Some("争执从误口信开始。两人隔柜沉默。最后她留伞走进雨夜。")
+        );
+        // normalize：trim 后非空保留。
+        let verdict = normalize(&raw, &[1], None);
+        assert_eq!(verdict.summary.as_deref(), Some("争执后告别"));
+        assert_eq!(
+            verdict.recap.as_deref(),
+            Some("争执从误口信开始。两人隔柜沉默。最后她留伞走进雨夜。")
+        );
+    }
+
+    #[test]
+    fn normalize_recap_missing_or_blank_is_none_without_retry() {
+        // 键缺失 → None（serde 宽松缺省，不报错）。
+        let missing = normalize_json(r#"{"summary": "只有一句"}"#, None);
+        assert_eq!(missing.recap, None, "缺失 recap → None（不是错误）");
+        // 空白 → None（字段级容错，同 summary）。
+        let blank = normalize_json(r#"{"summary": "s", "recap": "   "}"#, None);
+        assert_eq!(blank.recap, None, "空白 recap 修正为 None");
+        assert_eq!(blank.summary.as_deref(), Some("s"), "summary 不受 recap 噪声影响");
+    }
+
+    /// Task-03：recap 与 summary 同路径——新行预填一份、上一行回写一份；
+    /// 开场即结算（无上一行）时 close_* 全 None、新行仍预填。
+    #[test]
+    fn build_write_prefills_recap_and_backfills_previous_row() {
+        let calendar = fiction_time::CalendarConfig::default();
+        let verdict = normalize_json(
+            r#"{"location":"旧书店","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人隔着巷口的灯沉默对望。最后谁也没先开口。"}"#,
+            Some(&scene(Some(1))),
+        );
+        // 有上一行：新行预填两档，close_summary / close_recap 均回写（scene() 夹具 id = 10）。
+        let write = build_write(7, &verdict, Some(&scene(Some(1))), &[], 2, 5, &calendar);
+        assert_eq!(write.scene.recap, verdict.recap, "新行预填 recap");
+        assert_eq!(write.close_scene_id, Some(10));
+        assert_eq!(write.close_summary, verdict.summary);
+        assert_eq!(write.close_recap, verdict.recap, "recap 随 summary 同路径回写上一行");
+        // 开场即结算（无上一行）：close_* 全 None，新行仍预填两档。
+        let first = build_write(7, &verdict, None, &[], 0, 5, &calendar);
+        assert_eq!(first.close_scene_id, None);
+        assert_eq!(first.close_summary, None);
+        assert_eq!(first.close_recap, None);
+        assert_eq!(first.scene.recap, verdict.recap);
+    }
+
     // ---- 编排半：模型解析 / prompt 装配（纯函数） ----
 
     fn config_with_provider(models: &[&str], director: Option<&str>) -> FileConfig {
@@ -873,7 +947,9 @@ mod tests {
     #[test]
     fn assemble_prompt_sections_are_labeled() {
         let roster = vec![(1, "苏鸢".to_string())];
-        let latest = scene(Some(1));
+        // Task-03：上一场快照带 recap 时附「上一场回顾」行。
+        let mut latest = scene(Some(1));
+        latest.recap = Some("巷口初遇。她提灯替我照了一段路。".into());
         let calendar = fiction_time::CalendarConfig {
             name: Some("白蜡历".into()),
             festivals: std::collections::BTreeMap::from([(7, "灯节".to_string())]),
@@ -891,10 +967,18 @@ mod tests {
         assert_eq!(messages[0].role, ChatRole::System);
         assert!(messages[0].content.contains("只输出一个 JSON"), "硬规则：只输出 JSON");
         assert!(messages[0].content.contains("scene_end"), "expiry 三义指令");
+        assert!(
+            messages[0].content.contains("recap") && messages[0].content.contains("两三句"),
+            "Task-03：两档摘要指令（summary 一行 + recap 两三句）"
+        );
 
         let user = &messages[1].content;
         assert!(user.starts_with("【上一场快照】"));
         assert!(user.contains("钟楼下"), "上一场地点");
+        assert!(
+            user.contains("\n上一场回顾：巷口初遇。她提灯替我照了一段路。"),
+            "recap 附在上一场摘要之后（Task-03）：{user}"
+        );
         assert!(user.contains("【当前状态集】\n（空）"));
         assert!(user.contains("[1] 苏鸢"), "在场名单");
         assert!(user.contains("白蜡历") && user.contains("第7日 灯节"), "日历提示");
@@ -999,6 +1083,7 @@ mod tests {
                 fic_part: Some("夜".into()),
                 date_label: Some("第1日·夜".into()),
                 summary: Some("开场".into()),
+                recap: None,
                 present: vec![char_id],
             })
             .unwrap();
@@ -1020,7 +1105,7 @@ mod tests {
             cap.lock().unwrap().push(req.json());
             let _ = json_body(
                 stream,
-                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","present":[1],"states":[{"character_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"},{"character_id":1,"clear":"别扭"}]}"#,
+                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人在钟楼下的巷口对望。最后她转身走进夜色。","present":[1],"states":[{"character_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"},{"character_id":1,"clear":"别扭"}]}"#,
             );
         });
 
@@ -1043,8 +1128,18 @@ mod tests {
         assert_eq!(newest.date_label.as_deref(), Some("第2日·清晨"), "date_label 由日历派生");
         assert_eq!(newest.summary.as_deref(), Some("钟楼下的对峙无果而终"));
         assert_eq!(newest.present, vec![char_id], "§7-7：在场恒为会话角色");
-        // 上一行 summary 回写（边界快照：上一行与其归属消息自洽）。
+        // 上一行 summary / recap 回写（边界快照：上一行与其归属消息自洽；Task-03 recap
+        // 随 summary 同路径）。
         assert_eq!(scenes[1].summary.as_deref(), Some("钟楼下的对峙无果而终"));
+        assert_eq!(
+            scenes[1].recap.as_deref(),
+            Some("对峙从一句口信误会开始。两人在钟楼下的巷口对望。最后她转身走进夜色。"),
+            "recap 回写上一行"
+        );
+        assert_eq!(
+            newest.recap, scenes[1].recap,
+            "新行预填同一份 recap（两档随行 header 落库）"
+        );
         // 状态清算：upsert 新键（source_scene = 收束场景）、clear 旧键（软删）。
         let states = storage.list_character_states(session_id).unwrap();
         assert_eq!(states.len(), 1, "「别扭」已清除、「情绪」已 upsert");
@@ -1100,6 +1195,7 @@ mod tests {
             "重试成功后恰好结算一次（INT-003 幂等）；scenes[0] = 开场锚行（FR-014）"
         );
         assert_eq!(scenes[1].summary.as_deref(), Some("重试后的裁决"));
+        assert_eq!(scenes[1].recap, None, "裁决未给 recap → 落库 None（不是错误、不重试）");
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -7,7 +7,7 @@ use crate::domain::error::StorageError;
 use crate::domain::models::{NewScene, Scene};
 
 const COLS: &str = "id, session_id, idx, location, time_note, fic_day, fic_part, \
-                    date_label, summary, present, deleted_at";
+                    date_label, summary, recap, present, deleted_at";
 /// present 列（JSON 文本）→ Vec；NULL = 空数组。坏 JSON 属后端数据损坏，上抛不吞。
 fn parse_present(raw: Option<String>) -> Result<Vec<i64>, StorageError> {
     match raw {
@@ -24,7 +24,7 @@ fn serialize_present(present: &[i64]) -> Result<String, StorageError> {
 
 /// 行 → 领域对象；present 解析需携带领域错误，故不走 `rusqlite::Result` 闭包签名。
 fn scene_from_row(row: &Row<'_>) -> Result<Scene, StorageError> {
-    let present_raw: Option<String> = row.get(9)?;
+    let present_raw: Option<String> = row.get(10)?;
     Ok(Scene {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -35,8 +35,9 @@ fn scene_from_row(row: &Row<'_>) -> Result<Scene, StorageError> {
         fic_part: row.get(6)?,
         date_label: row.get(7)?,
         summary: row.get(8)?,
+        recap: row.get(9)?,
         present: parse_present(present_raw)?,
-        deleted_at: row.get(10)?,
+        deleted_at: row.get(11)?,
     })
 }
 
@@ -50,8 +51,8 @@ pub(crate) fn insert(conn: &Connection, new: &NewScene) -> Result<Scene, Storage
     let present = serialize_present(&new.present)?;
     conn.execute(
         "INSERT INTO scenes (session_id, idx, location, time_note, fic_day, fic_part, \
-             date_label, summary, present) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             date_label, summary, recap, present) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             new.session_id,
             idx,
@@ -61,6 +62,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewScene) -> Result<Scene, Storage
             new.fic_part,
             new.date_label,
             new.summary,
+            new.recap,
             present,
         ],
     )?;
@@ -74,6 +76,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewScene) -> Result<Scene, Storage
         fic_part: new.fic_part.clone(),
         date_label: new.date_label.clone(),
         summary: new.summary.clone(),
+        recap: new.recap.clone(),
         present: new.present.clone(),
         deleted_at: None,
     })
@@ -110,16 +113,20 @@ pub(crate) fn latest(conn: &Connection, session_id: i64) -> Result<Option<Scene>
     }
 }
 
-/// 上一场景 summary 回写（FR-011 边界快照，§7-1）：把收束段摘要回写到指定在世场景行；
-/// 行不存在或已软删 → NotFound（结算整体失败回滚，重试从头再来）。
-pub(crate) fn update_summary(
+/// 上一场景收束回写（FR-011 边界快照，§7-1；Task-03 加 recap 同路径）：把收束段
+/// summary / recap 回写到指定在世场景行；None 的字段不动既有值（COALESCE），
+/// 由调用方保证两者皆 None 时不发起回写。行不存在或已软删 → NotFound
+/// （结算整体失败回滚，重试从头再来）。
+pub(crate) fn backfill_close(
     conn: &Connection,
     scene_id: i64,
-    summary: &str,
+    summary: Option<&str>,
+    recap: Option<&str>,
 ) -> Result<(), StorageError> {
     let n = conn.execute(
-        "UPDATE scenes SET summary = ?2 WHERE id = ?1 AND deleted_at IS NULL",
-        params![scene_id, summary],
+        "UPDATE scenes SET summary = COALESCE(?2, summary), recap = COALESCE(?3, recap) \
+         WHERE id = ?1 AND deleted_at IS NULL",
+        params![scene_id, summary, recap],
     )?;
     if n == 0 {
         return Err(StorageError::NotFound { entity: "scene", id: scene_id });
@@ -159,6 +166,7 @@ mod tests {
             fic_part: Some("夜".into()),
             date_label: Some("白蜡月·晨露日".into()),
             summary: Some(summary.into()),
+            recap: None,
             present: vec![1, 2],
         }
     }

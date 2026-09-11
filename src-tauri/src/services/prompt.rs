@@ -7,7 +7,9 @@
 //!      记账位 + 会话日历快照（FR-013），让角色知道「现在是什么时间」；
 //!   3. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
 //!      一句话摘要中可用的字段），拼在 persona 之后；persona 为空时 system 只含
-//!      其余三段；
+//!      其余三段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
+//!      recap（两三句加厚回顾）时追加一行缩进回顾，无 recap 回退单行，更古老的
+//!      场恒一行；
 //!   4. 人物状态快照（FR-012）：character_state 按 scope 分「当前状态」/「关系」
 //!      两组渲染，让角色知道自己当前的状态；expiry 是给结算的清算线索，不进
 //!      叙事快照（给模型的永远是「现在成立的事实」）；
@@ -112,7 +114,9 @@ fn split_into_scene_spans(history: &[Message]) -> SceneSpans<'_> {
     }
 }
 
-/// 远景编年史（§7.8「之前每场一行摘要」）：收录比近景更早的场景行，每场恰好一行。
+/// 远景编年史（§7.8「之前每场一行摘要」；Task-03 两档）：收录比近景更早的场景行，
+/// 每场恰好一行；**桥场**（窗口外最近的一场 = far 末行）有 recap 时追加一行缩进
+/// 回顾（两三句加厚形态），无 recap 回退单行，更早的场恒单行。
 /// 场景行数 = 进行中 header 行（结算只建行不挂消息，最后 1 行恒为进行中场）+
 /// `kept_settled` 行（整场在近景）+ 远景行数。列缺失（锚行未回写 / 欠账）跳过该
 /// 字段，不输出「（未记录）」占位——编年史要的是一行一个脚印，不是快照。
@@ -122,7 +126,7 @@ fn chronicle_block(scenes: &[Scene], kept_settled: usize) -> String {
         return String::new();
     }
     let mut block = String::from("【往事编年史】更早的场景各压缩为一行（从旧到新）：");
-    for scene in far {
+    for (position, scene) in far.iter().enumerate() {
         block.push_str(&format!("\n场{}", scene.idx));
         for field in [
             &scene.location,
@@ -133,6 +137,13 @@ fn chronicle_block(scenes: &[Scene], kept_settled: usize) -> String {
             if let Some(text) = field.as_deref().filter(|text| !text.trim().is_empty()) {
                 block.push_str(" · ");
                 block.push_str(text);
+            }
+        }
+        // 桥场加厚（Task-03）：仅窗口外最近的一场渲染 recap，缩进 + 树形前缀与
+        // header 行区分；缺失 / 空白 → 回退单行。
+        if position + 1 == far.len() {
+            if let Some(recap) = scene.recap.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+                block.push_str(&format!("\n    └ 回顾：{recap}"));
             }
         }
     }
@@ -249,7 +260,8 @@ mod tests {
         }
     }
 
-    /// 场景行：idx 单调递增，各可空字段给全（锚行用 [`anchor_scene`] 造缺省形态）。
+    /// 场景行：idx 单调递增，各可空字段给全（锚行用 [`anchor_scene`] 造缺省形态）；
+    /// recap 可选（Task-03 桥场加厚，None = 未产出 / 旧数据）。
     fn scene(idx: i64, summary: &str) -> Scene {
         Scene {
             id: idx + 1,
@@ -261,6 +273,7 @@ mod tests {
             fic_part: Some("清晨".into()),
             date_label: Some(format!("第{idx}日·清晨")),
             summary: Some(summary.into()),
+            recap: None,
             present: vec![1],
             deleted_at: None,
         }
@@ -278,6 +291,7 @@ mod tests {
             fic_part: Some("夜".into()),
             date_label: None,
             summary: (!summary.is_empty()).then(|| summary.to_string()),
+            recap: None,
             present: vec![1],
             deleted_at: None,
         }
@@ -782,5 +796,69 @@ mod tests {
             states: &[],
         });
         assert_eq!(messages[0].content, "人设", "状态全空整段省略");
+    }
+
+    // ---- Task-03：桥场加厚（远景两档渲染） ----
+
+    /// 桥场（窗口外最近的一场 = 编年史末行）有 recap → 追加一行缩进回顾，
+    /// 树形前缀「└」与 header 行区分；header 行自身形态不变（summary 仍在行末）。
+    #[test]
+    fn bridge_scene_renders_recap_as_indented_review_line() {
+        let c = character("人设");
+        let mut rows = multi_scene_rows();
+        // 远景 = 锚行 + 场二行（idx1）；桥场 = 场二行。
+        rows[1].recap = Some("巷口初遇时她提灯替我照了一段路。后来我们在钟楼下分食了一块饼。分别时她说明天见。".into());
+
+        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        let system = &messages[0].content;
+        assert!(
+            system.contains("\n    └ 回顾：巷口初遇时她提灯替我照了一段路。后来我们在钟楼下分食了一块饼。分别时她说明天见。"),
+            "桥场 recap 渲染为缩进回顾行：{system}"
+        );
+        // 回顾行紧跟桥场 header 行（场1 行以 summary 结尾，回顾行紧随其后）。
+        let bridge_header = system.lines().find(|l| l.starts_with("场1")).unwrap();
+        let bridge_at = system.lines().position(|l| l == bridge_header).unwrap();
+        let after = system.lines().nth(bridge_at + 1).unwrap();
+        assert!(after.starts_with("    └ 回顾："), "回顾行紧随桥场 header：{system}");
+        assert!(bridge_header.ends_with("场二摘要"), "header 行形态不变，summary 仍在行末");
+    }
+
+    /// 桥场无 recap（旧数据 / 模型未产出）→ 回退现有单行形态，不产生回顾行。
+    #[test]
+    fn bridge_scene_without_recap_falls_back_to_single_line() {
+        let c = character("人设");
+        // multi_scene_rows 全部 recap = None：远景 = 锚行 + 场二行，每场恰好一行。
+        let messages = assemble_base(&c, &multi_scene_rows(), &multi_scene_history());
+        let system = &messages[0].content;
+        assert!(!system.contains("└ 回顾"), "无 recap 不输出回顾行：{system}");
+        let lines: Vec<&str> = system.lines().skip(5).collect();
+        assert_eq!(lines.len(), 2, "远景每场恰好一行（回退 Task-01 形态）");
+        // 空白 recap 同为 None 路径：trim 后空 → 不渲染。
+        let mut rows = multi_scene_rows();
+        rows[1].recap = Some("   ".into());
+        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        assert!(!messages[0].content.contains("└ 回顾"), "空白 recap 视为无：跳过");
+    }
+
+    /// 更早的场（桥场之前的远景行）即使有 recap 也保持单行——加厚只给桥场。
+    #[test]
+    fn older_scenes_stay_single_line_even_with_recap() {
+        let c = character("人设");
+        let mut rows = multi_scene_rows();
+        // 更早的锚行也塞了 recap：只有桥场（场二行 idx1）的 recap 被渲染。
+        rows[0].recap = Some("锚行不该出现的回顾。".into());
+        rows[1].recap = Some("桥场回顾：一句。两句。三句。".into());
+
+        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        let system = &messages[0].content;
+        assert!(
+            system.contains("\n    └ 回顾：桥场回顾：一句。两句。三句。"),
+            "桥场 recap 渲染：{system}"
+        );
+        assert!(
+            !system.contains("锚行不该出现的回顾"),
+            "更早的场（锚行）即使有 recap 也保持单行：{system}"
+        );
+        assert!(system.contains("场一摘要"), "锚行单行原样保留");
     }
 }

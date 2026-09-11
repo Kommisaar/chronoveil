@@ -24,7 +24,7 @@ pub struct AttachRange {
 }
 
 /// 结算单事务写入包（FR-011 / INT-003「未成功的结算无副作用」）：新场景行 + 上一场景
-/// summary 回写 + 收束段消息归属 + 状态 upsert / 软删，由 [`StoragePort::commit_settlement`]
+/// summary / recap 回写 + 收束段消息归属 + 状态 upsert / 软删，由 [`StoragePort::commit_settlement`]
 /// 绑成一次提交——任一支路失败整体回滚，不留半结算状态。
 ///
 /// scenes 行语义为「边界快照」模型（§7-1 拍板）：新行 = `---` 之后新场景的 header
@@ -39,6 +39,9 @@ pub struct SettlementWrite {
     /// 回写到 `close_scene_id` 行的 summary：与 `scene.summary` 同为收束段摘要，
     /// 使上一行与其归属消息自洽（行内即该场景的 header + 消息 + 摘要）。None = 不回写。
     pub close_summary: Option<String>,
+    /// 回写到 `close_scene_id` 行的 recap（Task-03 桥场加厚）：与 close_summary 同路径，
+    /// 两三句加厚回顾。None = 不回写该字段（summary 分支不受影响）。
+    pub close_recap: Option<String>,
     /// 收束段消息归属范围；开场即结算（无上一行）= None，消息留待后续结算自愈（§7-2）。
     pub attach: Option<AttachRange>,
     pub state_upserts: Vec<NewCharacterState>,

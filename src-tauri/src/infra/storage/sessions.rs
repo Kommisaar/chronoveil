@@ -92,6 +92,8 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
             &calendar, fic_day, &fic_part,
         )),
         summary: None,
+        // 开场锚行无收束段，无 recap（Task-03）。
+        recap: None,
         // 在场 = 会话角色（FR-014 §1；对齐导演备忘 §7-7 v1 收窄，单角色 roster）。
         present: vec![new.character_id],
     })?;

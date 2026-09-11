@@ -253,6 +253,10 @@ pub struct Scene {
     pub date_label: Option<String>,
     /// 本场一句话（远景压缩单元），可空。
     pub summary: Option<String>,
+    /// 桥场加厚回顾（Task-03）：两三句、细节比 summary 全，由导演结算对刚收束的
+    /// 场景产出；远景编年史只对刚滑出窗口的桥场渲染，更古老的场保持一行 summary。
+    /// 可空：旧数据 / 新结算未产出时为 NULL，渲染回退单行。
+    pub recap: Option<String>,
     /// 在场 character id 数组（库内以 JSON 文本存储）。
     pub present: Vec<i64>,
     /// 软删除墓碑（ADR-009）。
@@ -291,6 +295,8 @@ pub struct NewScene {
     pub fic_part: Option<String>,
     pub date_label: Option<String>,
     pub summary: Option<String>,
+    /// 桥场加厚回顾（Task-03），可空；与 summary 同路径落库（新行预填 + 上一行回写）。
+    pub recap: Option<String>,
     /// 在场 character id 数组；空数组落库为 NULL。
     pub present: Vec<i64>,
 }

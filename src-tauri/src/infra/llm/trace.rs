@@ -45,7 +45,29 @@ pub(super) struct CallObservation {
     pub(super) tool_calls_json: Option<String>,
     pub(super) prompt_tokens: Option<i64>,
     pub(super) completion_tokens: Option<i64>,
+    /// 完整错误文本（不在此处钳长，保留给运行期日志 / 调试）；落库截断统一在
+    /// [`record_call`] 按 [`MAX_ERROR_TEXT_CHARS`] 执行——各赋值点（gateway / client
+    /// 共 10+ 处）禁止分散截断，持久化边界单一事实源。
     pub(super) error_text: Option<String>,
+}
+
+/// error_text 落库钳长上限（**字符数**，非字节）：2000 字符足以容纳常见 API 错误的
+/// 头部（状态码 / 错误类型 / message 首段都在前部），其后多为此刻对排查无增益的
+/// HTML 错误页或巨型响应体回显。不钳制时 llm_calls 表重度使用实测膨胀 10-15MB/天
+/// （错误详情占大头），钳制后单条错误至多约 6KB（按中文 UTF-8 3 字节/字符估算），
+/// 年增量从 GB 级降到 MB 级。
+const MAX_ERROR_TEXT_CHARS: usize = 2000;
+
+/// 落库前对 error_text 统一钳长（持久化边界）：按**字符边界**截断——Rust 按字节
+/// 切片会在多字节字符中间 panic——保留对排查最有用的头部，并附注明原长（字符数）
+/// 的省略标记。恰好等于上限不截断。
+fn clamp_error_text(text: String) -> String {
+    let original_chars = text.chars().count();
+    if original_chars <= MAX_ERROR_TEXT_CHARS {
+        return text;
+    }
+    let head: String = text.chars().take(MAX_ERROR_TEXT_CHARS).collect();
+    format!("{head}…（截断，原长 {original_chars} 字符）")
 }
 
 impl LlmClient {
@@ -83,7 +105,8 @@ impl LlmClient {
             } else {
                 LlmCallStatus::Error
             },
-            error_text: obs.error_text,
+            // 落库钳长单点：所有路径（流式 / 非流式 / 工具回路）的 error_text 均经此入 sink。
+            error_text: obs.error_text.map(clamp_error_text),
         });
     }
 }

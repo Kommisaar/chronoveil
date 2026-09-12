@@ -9,7 +9,8 @@ use serde_json::Value;
 use super::*;
 use crate::domain::models::{LlmCallKind, LlmCallStatus, NewLlmCall};
 use crate::infra::llm::mock::{
-    delta_json, json_body, json_raw_body, sse_data, sse_head, status_head, MockServer,
+    delta_json, json_body, json_raw_body, sse_data, sse_head, status_head, status_head_with_body,
+    MockServer,
 };
 
 /// 轨迹收集器：记录全部 NewLlmCall 供断言。
@@ -263,4 +264,88 @@ async fn complete_with_tools_trace_records_tool_calls_per_round() {
     assert_eq!(second_prompt[2]["tool_call_id"], "call_1");
     assert_eq!(second_prompt[1]["tool_calls"][0]["id"], "call_1");
     assert_eq!(records[1].tool_calls_json, None, "正文轮无 tool_calls 记录");
+}
+
+// ---- error_text 落库钳长（持久化边界统一截断，见 trace.rs MAX_ERROR_TEXT_CHARS）----
+
+/// 500 带巨型响应体（线上 HTML 错误页形态）：落库 error_text 截断到上限（2000 字符）
+/// 内并附注明原长的省略标记，头部（状态码 + body 开头）保留可排查。
+#[tokio::test]
+async fn trace_error_text_truncated_with_marker_when_over_limit() {
+    let body = "x".repeat(5000);
+    let server = MockServer::start(move |_req, stream| {
+        let _ = status_head_with_body(stream, 500, "Internal Server Error", &body);
+    });
+    let collector = trace_collector();
+    let (sink_tx, _rx) = sink();
+    let (_signal, cancel) = cancel_channel();
+    let trace = CallTrace { session_id: Some(1), kind: LlmCallKind::Dialogue };
+    let outcome = client(&server.url(), retry_policy(0))
+        .with_call_sink(collector.clone())
+        .chat_stream(&messages(), IDS, sink_tx, &cancel, Some(&trace))
+        .await;
+    assert!(outcome.is_err());
+
+    // Display 全文 = 「LLM 服务返回状态 500：」15 字符 + body 5000 字符 = 5015 字符；
+    // 截断后 = 头部 2000 字符 + 标记「…（截断，原长 5015 字符）」16 字符 = 2016。
+    let call = &records_of(&collector)[0];
+    let reason = call.error_text.as_deref().expect("错误原因必须留痕");
+    assert!(reason.starts_with("LLM 服务返回状态 500：xxx"), "保留头部：{reason}");
+    assert!(reason.ends_with("…（截断，原长 5015 字符）"), "标记注明原长：{reason}");
+    assert_eq!(reason.chars().count(), 2016, "截断到 2000 字符 + 标记");
+}
+
+/// 恰好等于上限（前缀 15 字符 + body 1985 = 2000 字符）：不截断、无标记，全文如实落库。
+#[tokio::test]
+async fn trace_error_text_at_exact_limit_not_truncated() {
+    let body = "a".repeat(1985);
+    let expected_full = format!("LLM 服务返回状态 500：{body}");
+    let server = MockServer::start(move |_req, stream| {
+        let _ = status_head_with_body(stream, 500, "Internal Server Error", &body);
+    });
+    let collector = trace_collector();
+    let (sink_tx, _rx) = sink();
+    let (_signal, cancel) = cancel_channel();
+    let trace = CallTrace { session_id: Some(1), kind: LlmCallKind::Dialogue };
+    let outcome = client(&server.url(), retry_policy(0))
+        .with_call_sink(collector.clone())
+        .chat_stream(&messages(), IDS, sink_tx, &cancel, Some(&trace))
+        .await;
+    assert!(outcome.is_err());
+
+    let call = &records_of(&collector)[0];
+    let reason = call.error_text.as_deref().expect("错误原因必须留痕");
+    assert_eq!(reason, expected_full, "上限内全文保留");
+    assert_eq!(reason.chars().count(), 2000);
+    assert!(!reason.contains('…'), "恰好等于上限不附标记");
+}
+
+/// 多字节字符（中文 + emoji）错误消息：按字符边界截断不 panic（本用例的头部字节位
+/// 2000 恰落在某个 emoji 的 UTF-8 序列中间，按字节切片实现会在此 panic），截断结果
+/// 全部是完整字符。
+#[tokio::test]
+async fn trace_error_text_truncation_respects_char_boundary() {
+    let body = "错🌟".repeat(2000); // 4000 字符 / 14000 字节
+    let expected_full = format!("LLM 服务返回状态 500：{body}");
+    let server = MockServer::start(move |_req, stream| {
+        let _ = status_head_with_body(stream, 500, "Internal Server Error", &body);
+    });
+    let collector = trace_collector();
+    let (sink_tx, _rx) = sink();
+    let (_signal, cancel) = cancel_channel();
+    let trace = CallTrace { session_id: Some(1), kind: LlmCallKind::Dialogue };
+    let outcome = client(&server.url(), retry_policy(0))
+        .with_call_sink(collector.clone())
+        .chat_stream(&messages(), IDS, sink_tx, &cancel, Some(&trace))
+        .await;
+    assert!(outcome.is_err());
+
+    // 原长 4015 字符 → 头部 2000 字符 + 标记 16 字符 = 2016；头部与按字符截断的
+    // 期望逐字符一致（多字节字符不被切半）。
+    let call = &records_of(&collector)[0];
+    let reason = call.error_text.as_deref().expect("错误原因必须留痕");
+    assert!(reason.ends_with("…（截断，原长 4015 字符）"), "标记注明原长：{reason}");
+    assert_eq!(reason.chars().count(), 2016);
+    let expected_head: String = expected_full.chars().take(2000).collect();
+    assert!(reason.starts_with(&expected_head), "头部为完整字符序列：{reason}");
 }

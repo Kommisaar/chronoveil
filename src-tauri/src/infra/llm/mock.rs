@@ -130,6 +130,23 @@ pub fn status_head(stream: &mut TcpStream, code: u16, reason: &str) -> std::io::
     write_head(stream, &format!("HTTP/1.1 {code} {reason}"), "text/plain")
 }
 
+/// 带响应体的错误状态响应（error_text 落库钳长测试用：`status_head` 声明
+/// content-length: 0，无法让 body 进入 `LlmError::Status` 的错误文本）。
+pub fn status_head_with_body(
+    stream: &mut TcpStream,
+    code: u16,
+    reason: &str,
+    body: &str,
+) -> std::io::Result<()> {
+    stream.write_all(
+        format!(
+            "HTTP/1.1 {code} {reason}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .as_bytes(),
+    )
+}
+
 /// 非流式 JSON 响应（结构化调用 helper 测试用）。
 pub fn json_body(stream: &mut TcpStream, content: &str) -> std::io::Result<()> {
     let payload = serde_json::json!({

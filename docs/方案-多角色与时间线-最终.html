@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 最终方案 · 多角色群像与时间线分叉 · 2026-09-12</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --surface: #232323; --surface2: #2b2b2b;
+    --border: #3a3a3a; --text: #e8e4dc; --dim: #a8a49c;
+    --accent: #93a5c8; --accent2: #e8b06a; --green: #6cc0a0; --blue: #7aa2c8;
+    --pink: #d090a8; --red: #d08080;
+    --mono: "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.75; padding: 2rem; max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 1.55rem; font-weight: 600; }
+  h1 .sub { color: var(--dim); font-size: 1rem; font-weight: 400; margin-left: .75rem; }
+  h2 { font-size: 1.18rem; font-weight: 600; margin: 2.6rem 0 1rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); color: var(--accent2); }
+  h3 { font-size: 1rem; font-weight: 600; margin: 1.4rem 0 .5rem; color: var(--accent); }
+  .meta { color: var(--dim); font-size: .9rem; margin: .3rem 0 1.5rem; }
+  p { margin: .5rem 0; }
+  code { font-family: var(--mono); font-size: .84em; background: var(--surface2); padding: .08em .4em; border-radius: 4px; color: var(--accent2); }
+  ul, ol { padding-left: 1.5rem; margin: .5rem 0; }
+  li { margin: .35rem 0; }
+  .decision { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 6px; padding: .55rem .9rem; margin: .45rem 0; font-size: .9rem; }
+  .decision b { color: var(--green); }
+  .open { border-left-color: var(--accent2); }
+  .open b { color: var(--accent2); }
+  .flow { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: .8rem 0; font-family: var(--mono); font-size: .82rem; overflow-x: auto; white-space: pre; color: var(--dim); }
+  .flow b { color: var(--accent); font-weight: 400; }
+  .flow em { color: var(--accent2); font-style: normal; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; font-size: .88rem; }
+  th, td { padding: .45rem .7rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--surface2); color: var(--accent); font-weight: 600; white-space: nowrap; }
+  .step { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1.2rem; margin: 1rem 0; }
+  .step h3 { margin-top: 0; }
+  .step .no { display: inline-block; background: var(--accent2); color: #1a1a1a; font-weight: 700; border-radius: 6px; padding: .05rem .55rem; margin-right: .5rem; font-family: var(--mono); }
+  .risk { color: var(--pink); }
+  .note { color: var(--dim); font-size: .84rem; }
+  .ref { font-size: .8rem; color: var(--dim); font-family: var(--mono); }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<h1>最终方案：多角色群像 与 时间线分叉<span class="sub">2026-09-12 · 全部决策已拍板</span></h1>
+<p class="meta">本文是两轮讨论的收敛产物，取代 <code>docs/设计备忘-多角色群像.md</code> 的待定项。决策依据：用户逐条拍板（账本 run <code>20260911T134930Z-292a175d</code> decision 事件）。实施按三步依赖链，每步独立验收。</p>
+
+<h2>〇、核心模型一句话</h2>
+<div class="flow"><b>角色卡库（模板）</b>──选卡/动态造人──→ <b>会话实例宇宙</b>（快照，独立演进）──手动导出──→ <b>模板库</b>
+                                     └──任意分叉点──→ <b>新时间线</b>（历史快照 + 当时状态，独立演进）</div>
+<p>两条公理：<b>① 卡是死的，人是活的</b>——卡只做初始化模板，一切运行时身份挂在会话实例上；<b>② 时间线是树不是链</b>——任何历史点都可以分叉出新世界，线内规则照旧，跨线由实例隔离保证。</p>
+
+<h2>一、已拍板决策（9 项）</h2>
+<div class="decision"><b>D1 模板/实例分离</b>：角色卡 = 初始化模板；建会话时所有入选角色从卡实例化快照进会话，之后改卡不影响已开会话，实例态独立演进。v1 唯一的快照例外（日历）升格为普适规则。</div>
+<div class="decision"><b>D2 扮演位必选</b>：用户必须选一张卡扮演「你」——提供用户侧设定；扮演位从卡实例化，与 LLM 扮演位同构区分（<code>is_user</code> 恰好 1）。</div>
+<div class="decision"><b>D3 Q1 生成模式</b>：按角色逐拍独立生成（原语路线）——每个 LLM 位角色每拍各自一次调用；用户位由用户亲自输入。</div>
+<div class="decision"><b>D4 Q2 离场清算</b>：不在场角色状态照常清算（遗忘 = 不再注入），不做冻结。</div>
+<div class="decision"><b>D5 Q4 roster 无上限</b>：同会话角色数不设硬限；过多角色的 token/耗时代价由使用者承担，调用次数在轨迹面板明示。</div>
+<div class="decision"><b>D6 动态人物</b>：会话内可随时动态创建人物（建议走导演裁决通道），只活在会话实例内；<b>绝不自动入库</b>，「保存为角色卡」是用户手动显式动作（实例 → 模板的手动收编）。动态人物与选卡人物同权。</div>
+<div class="decision"><b>D7 greeting 移除</b>：单角色卡片式开场的遗物，已被场景式开局取代（0004 已删模板表列）；实例表不设。开场职责归场景 seed。</div>
+<div class="decision"><b>D8 无迁移负担</b>：预发布无存量数据——schema 可破坏性变更，迁移只需保证全新库建到最新（AGENTS.md 已记，发布后失效）。</div>
+<div class="decision"><b>D9 Q5 关系键</b>：「对XX」文本约定（key 内写目标实例名），不加列；状态表 (instance_id, key) 唯一。实施中若发现指向歧义再升级。</div>
+
+<h2>二、数据模型变更</h2>
+<p>现状 schema 详见 <code>docs/报告-数据模型.html</code>。变更三件事：</p>
+<h3>2.1 新表 <code>character_instances</code>（核心）</h3>
+<table>
+<tr><th>列</th><th>说明</th></tr>
+<tr><td><code>id</code></td><td>PK。运行时角色身份的唯一标识</td></tr>
+<tr><td><code>session_id</code> → sessions</td><td>实例必属会话</td></tr>
+<tr><td><code>character_id</code> → characters（可空）</td><td>模板溯源：选卡实例化记卡 id；动态造人 NULL（D6）</td></tr>
+<tr><td><code>name / persona / render_style</code></td><td>设定快照（D1：值拷贝，改卡不回写）</td></tr>
+<tr><td><code>is_user</code></td><td>扮演位标记，全会话恰好 1（D2）；侧栏/统计读它</td></tr>
+<tr><td><code>created_at / deleted_at</code></td><td>软删惯例（ADR-009）</td></tr>
+</table>
+<h3>2.2 既有表的三处换挂</h3>
+<ul>
+<li><code>messages.character_id</code>（0002 死列，从未写入）→ 激活为 <code>instance_id</code>；wire 的 characterId 从「命令层推导假值」变实例真值；历史消息不回填。</li>
+<li><code>character_state.character_id + session_id</code> → <code>instance_id</code>（会话隶属由实例携带）；唯一约束 (character_id, session_id, key) 简化为 (instance_id, key)；Q5 关系键走 key 文本。</li>
+<li><code>scenes.present</code>（JSON 数组，v1 恒 [占位]）→ 实例 id 数组，真语义。</li>
+</ul>
+<h3>2.3 删除与保留</h3>
+<ul>
+<li><code>sessions.character_id</code> 删除（D2 的 is_user 取代）；<code>calendar_config</code> 快照列可留（实例化先例，或一并移入会话级配置——实施时定）。</li>
+<li><code>characters</code> 模板表全部列保留（greeting 0004 已删），与运行时彻底解耦。</li>
+<li><code>llm_calls</code> 不受影响；其 session_id 语义扩展为「时间线」（见 3.3）。</li>
+</ul>
+
+<h2>三、三步实施链（依赖严格，倒做会返工）</h2>
+
+<div class="step">
+<h3><span class="no">第 1 步</span>会话角色实例层（地基）</h3>
+<p><b>做什么</b>：迁移建 <code>character_instances</code> + 三处换挂 + 建会话流程改造（选卡阵容 + 扮演位 → 逐卡实例化）+ 开局向导两步选人 UI + 装配/结算/探索器按实例取人设。</p>
+<p><b>验收要点</b>：同会话 1 用户位 + N LLM 位实例共存；改卡不影响已开会话的装配输出；动态人物实例（character_id=NULL）与选卡实例同权；<code>messages.character_id</code> 死列消失。</p>
+<p><b>风险</b>：触全链（装配/结算/探索/wire/UI），最大单片；建议「存储+服务」与「wire+UI」两 builder 契约冻结并行。</p>
+</div>
+
+<div class="step">
+<h3><span class="no">第 2 步</span>状态历史化（方案 A）</h3>
+<p><b>做什么</b>：<code>character_state</code> 从 upsert 改 append-only——每次变更插新行，旧行打 <code>superseded_at</code>；查询语义改为「取当前生效行」（<code>superseded_at IS NULL</code>）；新增「取某时间点（场景 idx / 消息 id）前最后生效行」的查询。</p>
+<p><b>验收要点</b>：现有装配/结算行为不变（读「生效行」视角）；同 key 多次变更保留全链（警惕→释然→悲伤 三行都在）；时间点查询可还原「第 N 场时的状态」。</p>
+<p class="note">方案 B（分叉时用 LLM 重建状态）已否决：还原的是猜的不是存的。</p>
+</div>
+
+<div class="step">
+<h3><span class="no">第 3 步</span>时间线分叉</h3>
+<p><b>做什么</b>：任意场景/消息上「从此分叉」→ 新会话：拷贝锚点前全部消息/场景行（session_id 整体改写，禁止引用式偷懒）→ 每实例取「锚点前最后生效状态行」落新实例 → 分叉锚记入新会话元信息 → 分叉 UI。</p>
+<p><b>三个单链假设的重审（本步核心）</b>：</p>
+<ol>
+<li><b>scenes.idx</b>：各线独立计数；拷贝的历史场保留原号，新线从锚点下一号长自己的场次；号在本会话内唯一（表结构天然支持），UI 标明所属时间线。</li>
+<li><b>BR-003「虚时绝不倒流」收窄为「单时间线内不倒流」</b>：每条线独立虚时钟，从分叉点重新起算；跨线回退合法且正是分叉的意义。<code>clamp_day</code> 按会话取账本值需重审措辞与测试。</li>
+<li><b>探索器隔离确认</b>：拷贝必须彻底（消息/场景行归属切到新会话），探索器按会话过滤天然不串线；两线各自的场号列表各自正确。</li>
+</ol>
+<p><b>验收要点</b>：第 7 天分叉回第 3 天——新线状态是第 3 天当时值（无第 7 天才获得的东西）、虚时从第 3 天重走、原线零影响、两线轨迹面板各自独立可查。</p>
+</div>
+
+<h2>四、与既有体系的接线</h2>
+<ul>
+<li><b>结算/导演</b>：verdict 的 state_upserts/clears 按 instance_id；动态造人建议走导演裁决（D6），裁决 schema 增新登场人物字段，与状态清算同通道；多角色逐拍生成 N 次调用，轨迹面板 kind=dialogue 天然按实例显示归属（D5 的「次数明示」由它承担）。</li>
+<li><b>探索器</b>：search_history/read_scene 按会话过滤不变；命中标签随实例语义自然精确；跨线隔离由第 3 步的拷贝彻底性保证。</li>
+<li><b>账本面板</b>：状态/场景史读实例；调用轨迹段（Task-28/29）不改即用；「在场：…」行展示的实例名即 roster。</li>
+<li><b>活动条/透明化</b>：逐拍生成的 N 次调用按角色透出「正在以 苏鸢 的身份思考…」——透明化三部曲的自然延伸。</li>
+<li><b>历法/虚时</b>：快照在会话级（FR-013 不变）；BR-003 收窄见第 3 步。</li>
+</ul>
+
+<h2>五、开放问题（实施中再裁，不阻塞立项）</h2>
+<ul>
+<li>calendar_config 快照列留 sessions 还是移会话级配置块（第 1 步实施时定）。</li>
+<li>动态造人的触发方式：纯导演自主裁决 vs 用户半自动（「给这里加个人物」指令）——倾向两者都支持，导演裁决优先。</li>
+<li>导出为卡的内容选择：原始快照 vs 快照+演化沉淀（导出 UI 时定）。</li>
+<li>分叉锚点粒度：场景级还是消息级（建议场景级起步，消息级后补）。</li>
+<li>多角色同一拍内各角色的「发言顺序」：并行生成后按什么序拼接（叙事自然序 vs roster 序，第 1 步 UI 层定）。</li>
+</ul>
+
+<h2>六、验收总纲</h2>
+<ol>
+<li>建会话：选「旅人（我）」+「苏鸢」「阿烬」三卡 → 三实例，is_user 恰一。</li>
+<li>玩几拍：苏鸢、阿烬各自独立生成；轨迹面板显示每拍 N 次 dialogue 调用与归属。</li>
+<li>导演裁决引入第四人「路人甲」（动态）→ 下一拍起 roster+1，调用次数+1 明示。</li>
+<li>改「苏鸢」模板卡的人设 → 已开会话的苏鸢实例不变（模板/实例分离实证）。</li>
+<li>第 2 步后：查看「苏鸢@第 3 场时的状态」——与当时装配快照一致。</li>
+<li>第 3 步后：从第 3 场分叉 → 新线状态=当时值、虚时回第 3 天、原线零扰动、两线并行推进互不影响。</li>
+<li>全部门禁绿：cargo / vitest / tsc / 守卫（含新表迁移专项测试）。</li>
+</ol>
+
+<footer>ChronoVeil 最终方案 · 多角色群像与时间线分叉 · 2026-09-12 · 决策来源：用户逐条拍板 · 配套：<code>docs/报告-数据模型.html</code>（ER 图）· <code>docs/设计备忘-多角色群像.md</code>（v1 现状调研）· <code>docs/报告-路线图.html</code></footer>
+
+</body>
+</html>

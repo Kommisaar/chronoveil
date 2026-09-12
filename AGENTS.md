@@ -41,6 +41,7 @@ Rust 四层（`src-tauri/src/`）：`interfaces → services → domain ← infr
 - TypeScript strict 全开（含 `noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`）。
 - UI 用 Fluent UI v9 griffel 样式钩子（参照 `src/components/use*Styles.ts`）；会话清单以 `src/stores/ui.ts` 为单一数据源，刷新走 `refreshSessions` 单点重拉。
 - 应用数据目录 `~/.chronoveil/`（`chronoveil.db` + `config.json`）；Rust 侧 home 可注入（`AppState::init_with_home`）便于测试。
+- **源文件硬上限 500 行**：任何源文件（.rs/.ts/.tsx，测试与生成物除外）超过 500 行必须在本次改动中考虑重构拆分（按领域/职责切子模块），并在返回/commit 中说明拆分方案或豁免理由；新建文件直接不得超过 500 行。
 
 ## 已知坑与例行处置（踩过实坑的固化，违者 reviewer 必拦）
 

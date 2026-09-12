@@ -167,3 +167,26 @@ export function subscribeTrace(sessionId: number, handler: (call: LlmCallDto) =>
     void unlisten.then((off) => off());
   };
 }
+
+/**
+ * 应用级轨迹订阅（不过滤会话）：消费方（账本面板的 streamHub 桥）自行按
+ * `call.sessionId` 过滤当前会话。与 [`subscribeTrace`] 的差别仅在无会话过滤——
+ * null（起草调用）也投递，消费方不需要时可忽略。
+ */
+export function subscribeTraces(handler: (call: LlmCallDto) => void): () => void {
+  if (!isTauri) {
+    // 纯浏览器 mock：无真实生成流，无轨迹事件。
+    return () => {
+      /* mock 环境无事件 */
+    };
+  }
+  const unlisten = events.streamEvent.listen((event) => {
+    const streamEvent = fromWireEvent(event.payload);
+    if (streamEvent !== null && streamEvent.type === 'trace') {
+      handler(streamEvent.call);
+    }
+  });
+  return () => {
+    void unlisten.then((off) => off());
+  };
+}

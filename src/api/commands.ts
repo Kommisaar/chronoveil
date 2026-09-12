@@ -72,8 +72,8 @@ export async function deleteSession(sessionId: number): Promise<void> {
  * 会话（含锚点场及其之前的消息 / 状态），返回新会话摘要（含分叉溯源回显字段）。
  * 调用方成功后走 `refreshSessions` 单点重拉并选中新会话（会话清单纪律）。
  * 锚点场号不存在 → NotFound(scene)；源会话不存在 / 已删 → NotFound(session)。
- * 桌面壳当前处于 stub 阶段（Rust 侧 Task-43 接线，返回 Unavailable），纯浏览器
- * mock 为完整实现。
+ * 桌面壳为真实分叉（Task-45 接线，按锚点裁剪消息 / 状态）；纯浏览器 mock 无场景
+ * 时间线，拷贝全量消息历史（行为差异属 mock 诚实缺省）。
  */
 export async function forkSession(
   sessionId: number,

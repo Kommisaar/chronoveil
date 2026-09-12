@@ -901,7 +901,7 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
   });
 });
 
-describe('forkSession（时间线分叉第 3 步：Task-44 冻结契约，mock 完整实现 / Rust Task-43）', () => {
+describe('forkSession（时间线分叉第 3 步：Task-44 冻结契约；Rust 已真实接线，mock 保持简化）', () => {
   /** 源会话 1（种子）：双实例（1 用户位 / 2 LLM 位）+ 4 条消息（含 1 中断条）。 */
   it('分叉产生新会话：溯源回显、阵容逐实例再实例化（新 id）、消息拷贝换新 id 且源不受影响', async () => {
     const { backend, data } = await loadMock();
@@ -925,7 +925,8 @@ describe('forkSession（时间线分叉第 3 步：Task-44 冻结契约，mock �
     expect(listed[0]!.id).toBe(created.id);
     expect(listed.find((s) => s.id === created.id)?.forkedFromSessionId).toBe(1);
 
-    // 消息拷贝：换新 id / 新 sessionId，内容逐条同构；源会话原条不动
+    // 消息拷贝（mock 无场景时间线：拷贝全量消息历史，桌面壳按锚点裁剪为准——
+    // 行为差异属 mock 诚实缺省）：换新 id / 新 sessionId，内容逐条同构；源会话原条不动
     const copied = data.messagesBySession[created.id]!;
     expect(copied).toHaveLength(sourceMessages.length);
     copied.forEach((message, index) => {

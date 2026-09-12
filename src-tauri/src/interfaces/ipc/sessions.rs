@@ -54,11 +54,11 @@ pub struct SessionSummary {
     /// 空数组仅出现在异常数据（正常建会话至少一个用户位）。
     pub instances: Vec<SessionInstanceDto>,
     /// 分叉溯源（时间线分叉 wire，Task-44 契约冻结）：源会话 id；非分叉会话 =
-    /// null。侧栏分叉标识经 list_sessions 回显读。当前恒 None（分叉落库由
-    /// Task-43 接线，见 ipc/fork.rs stub 说明）。
+    /// null。侧栏分叉标识经 list_sessions 回显读。取数 = 会话行真值（迁移 0011
+    /// 两列，分叉落库见 infra/storage/session_fork.rs）。
     pub forked_from_session_id: Option<i64>,
     /// 分叉锚点场号（含锚点场及其之前的消息 / 状态复制进新会话）；非分叉会话
-    /// = null。与上一字段同批由 Task-43 接线。
+    /// = null。
     pub fork_anchor_scene_idx: Option<i64>,
 }
 
@@ -161,8 +161,9 @@ fn opening_seed_from(input: &SessionOpeningInput) -> Result<models::OpeningSeed,
 }
 
 /// 领域会话 → 摘要 DTO：instances 回显需查实例表（会失败、带 AppState），故不用
-/// `From<models::Session>`，所有 SessionSummary 产出统一走本助手（wire 回显单点）。
-fn session_summary_with_roster(
+/// `From<models::Session>`，所有 SessionSummary 产出统一走本助手（wire 回显单点）；
+/// `pub(super)` 因 fork 域（ipc/fork.rs）同为产出方。
+pub(super) fn session_summary_with_roster(
     app: &AppState,
     session: models::Session,
 ) -> Result<SessionSummary, IpcError> {
@@ -177,10 +178,9 @@ fn session_summary_with_roster(
         title: session.title,
         updated_at: session.updated_at,
         instances,
-        // 分叉溯源字段位先占（恒 null = 非分叉）；取数由 Task-43 分叉服务落库后
-        // 接入，stub 边界见 ipc/fork.rs 头注。
-        forked_from_session_id: None,
-        fork_anchor_scene_idx: None,
+        // 分叉溯源取会话行真值（迁移 0011 两列；非分叉会话行 = NULL → None）。
+        forked_from_session_id: session.forked_from_session_id,
+        fork_anchor_scene_idx: session.fork_anchor_scene_idx,
     })
 }
 
@@ -391,6 +391,39 @@ mod tests {
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// 分叉溯源真值回填（Task-45 接线）：list 路径（session_summary_with_roster）
+    /// 从会话行取分叉两列真值——分叉会话回显源会话 id 与锚点场号，非分叉会话
+    /// （建会话路径）保持 null。
+    #[test]
+    fn session_summary_carries_fork_fields_from_row() {
+        let (app, dir) = temp_state("fork_fields");
+        let user_card = sample_character(&app, "旅人");
+        let llm_card = sample_character(&app, "苏鸢");
+        let source = app
+            .storage
+            .create_session(&models::NewSession {
+                roster: vec![
+                    models::RosterPick { character_id: user_card.id, is_user: true },
+                    models::RosterPick { character_id: llm_card.id, is_user: false },
+                ],
+                title: "雨夜来电".into(),
+                opening: None,
+            })
+            .unwrap();
+        let forked = app.storage.fork_session(source.id, 0, "雨夜来电（分叉）").unwrap();
+
+        let listed = list_sessions_impl(&app).unwrap();
+        let fork_row = listed.iter().find(|s| s.id == forked.id).unwrap();
+        assert_eq!(fork_row.forked_from_session_id, Some(source.id), "list 回显源会话 id");
+        assert_eq!(fork_row.fork_anchor_scene_idx, Some(0), "list 回显锚点场号");
+        let source_row = listed.iter().find(|s| s.id == source.id).unwrap();
+        assert_eq!(source_row.forked_from_session_id, None, "非分叉会话保持 null");
+        assert_eq!(source_row.fork_anchor_scene_idx, None, "非分叉会话保持 null");
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn create_session_with_opening_seeds_calendar_and_anchor() {
         let (app, dir) = temp_state("opening");

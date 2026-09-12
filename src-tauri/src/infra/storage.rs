@@ -155,10 +155,8 @@ impl StoragePort for Storage {
         self.with_conn(|conn| sessions::restore(conn, id))
     }
 
-    // 时间线分叉（方案 §2 第 3 步）：拷贝编排单事务见 session_fork 模块。
-    // 「从此分叉」IPC 命令由 wire/UI 任务（Task-44）接线，登记归其管；接线前
-    // 无生产调用方（仅测试消费）。
-    #[allow(dead_code)]
+    // 时间线分叉（方案 §2 第 3 步）：拷贝编排单事务见 session_fork 模块；
+    // 生产调用方 = 「从此分叉」IPC 命令（ipc/fork.rs，Task-45 接线）。
     fn fork_session(
         &self,
         source_session_id: i64,

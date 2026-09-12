@@ -589,13 +589,13 @@ export type SessionSummary = { id: number; title: string; updatedAt: number;
 instances: SessionInstanceDto[]; 
 /**
  * 分叉溯源（时间线分叉 wire，Task-44 契约冻结）：源会话 id；非分叉会话 =
- * null。侧栏分叉标识经 list_sessions 回显读。当前恒 None（分叉落库由
- * Task-43 接线，见 ipc/fork.rs stub 说明）。
+ * null。侧栏分叉标识经 list_sessions 回显读。取数 = 会话行真值（迁移 0011
+ * 两列，分叉落库见 infra/storage/session_fork.rs）。
  */
 forkedFromSessionId: number | null; 
 /**
  * 分叉锚点场号（含锚点场及其之前的消息 / 状态复制进新会话）；非分叉会话
- * = null。与上一字段同批由 Task-43 接线。
+ * = null。
  */
 forkAnchorSceneIdx: number | null }
 /**

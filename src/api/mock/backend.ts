@@ -162,16 +162,17 @@ export async function deleteSession(sessionId: number): Promise<void> {
   delete messagesBySession[sessionId];
 }
 
-// ---- 会话分叉（时间线分叉 wire，Task-44 契约冻结；Rust 真实分叉服务由 Task-43 落地）----
+// ---- 会话分叉（时间线分叉 wire，Task-44 契约冻结；Rust 侧已真实接线，Task-45）----
 
 /**
  * 分叉会话（Task-44 冻结契约）：从源会话 `anchorSceneIdx` 场分叉新会话（含锚点场
  * 及其之前的消息 / 状态），返回新会话摘要（溯源字段回显）；阵容快照逐实例再实例化
  * （新实例 id 全局自增，快照值原样拷贝，D1 延续），消息拷贝换新 id 与新 sessionId。
  *
- * mock 简化口径（Task-43 合入后以 Rust 为准）：无 scenes 存储 → 锚点场号只校验
- * 「非负整数」（负数 / 非整数必然不存在，NotFound scene 对齐 fork.rs 契约），消息
- * 拷贝取源会话全量代「锚点场及其之前」前缀（Rust 按 as_of 口径）；无状态历史可拷。
+ * mock 诚实缺省（Task-45 起 Rust 已接线，简化保留）：mock 无场景时间线（无 scenes
+ * 存储），分叉拷贝**全量消息历史**——桌面壳按锚点裁剪（以 Rust 为准），行为差异属
+ * mock 诚实缺省；锚点场号只校验「非负整数」（负数 / 非整数必然不存在，NotFound
+ * scene 对齐 fork.rs 契约）；无状态历史可拷。
  */
 export async function forkSession(
   sessionId: number,

@@ -29,12 +29,12 @@ use serde::Deserialize;
 
 use crate::domain::chat::TerminalState;
 use crate::domain::error::StorageError;
-use crate::domain::models::{Character, Message, MessageRole, NewMessage};
+use crate::domain::models::{Character, LlmCallKind, Message, MessageRole, NewMessage};
 use crate::domain::ports::StoragePort;
 use crate::infra::config::{Config as FileConfig, ProviderConfig};
 use crate::infra::llm::{
-    cancel_channel, CancelHandle, CancelSignal, EventSink, LlmClient, LlmConfig, LlmEvent,
-    MessageIds, StreamOutcome,
+    cancel_channel, CallTrace, CancelHandle, CancelSignal, EventSink, LlmClient, LlmConfig,
+    LlmEvent, MessageIds, StreamOutcome,
 };
 
 /// 取消终态经 error 事件上报时的 reason 稳定取值（前端据此区分「用户取消」与真失败）。
@@ -433,7 +433,13 @@ async fn generate_once(
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
     let ids = MessageIds { session_id, message_id };
-    let outcome = deps.llm.chat_stream(&messages, ids, sink.clone(), ticket.cancel_handle()).await;
+    // 调用轨迹接线（透明化功能）：主对话流式按 dialogue 类别落轨迹；断流重发的
+    // 每次尝试在网关内各记一条（每次 HTTP 请求 = 一条）。
+    let trace = CallTrace { session_id: Some(session_id), kind: LlmCallKind::Dialogue };
+    let outcome = deps
+        .llm
+        .chat_stream(&messages, ids, sink.clone(), ticket.cancel_handle(), Some(&trace))
+        .await;
 
     match outcome {
         Ok(StreamOutcome::Completed { content, reasoning, think_ms }) => {

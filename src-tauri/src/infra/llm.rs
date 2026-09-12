@@ -6,6 +6,8 @@
 //! 消息级断流重发、立即取消、结构化 JSON 调用 helper、非流式工具调用回路
 //! （OpenAI 兼容 tools / tool_calls，切片 C 记忆探索 agent 的地基，暂无业务接线）。
 //! 不负责：渲染决策、落库时机（只上报终态，ADR-001 由调用方落库）、prompt 业务装配。
+//! 例外：调用轨迹（透明化功能）——每次 HTTP 请求经 [`LlmCallSink`]（组合根注入的
+//! 旁路记录器）回调一条轨迹观测（prompt / 响应 / usage / 状态），持久化在 sink 实现侧。
 //!
 //! 分层约束：本模块不 `use tauri`——事件经 `EventSink` 抽象回调发射（TASK-005 接通道）。
 //!
@@ -34,6 +36,8 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::sync::watch;
+
+use crate::domain::models::{LlmCallKind, LlmCallStatus, NewLlmCall};
 
 // ---------------------------------------------------------------------------
 // 配置（INT-002：base_url + api_key + model；Character 级覆写由上层合成）
@@ -198,6 +202,29 @@ pub trait EventSink: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// 调用轨迹（透明化功能）：CallTrace 上下文 + LlmCallSink 记录器
+// ---------------------------------------------------------------------------
+
+/// 一次 LLM 调用的轨迹上下文（调用方传入）：会话内定位 + 调用类别。
+/// `None` trace 参数 = 不记录（测试 / 未来可能的内部调用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallTrace {
+    /// 所属会话；None = 无会话调用（历法起草 draft）。
+    pub session_id: Option<i64>,
+    pub kind: LlmCallKind,
+}
+
+/// LLM 调用轨迹记录器（旁路）：网关每完成一次 HTTP 请求回调一次
+/// （含失败 / 取消尝试——「每次 HTTP 请求 = 一条记录」）。
+///
+/// trait 定义在 infra（网关在记录点所见信息最全），实现由组合根注入：
+/// 生产实现（interfaces::events::TauriCallSink）落库 + 发 Trace 事件，
+/// 轨迹是旁路——实现内部吞掉失败（warn 留痕），不影响主流程。
+pub trait LlmCallSink: Send + Sync {
+    fn record(&self, call: NewLlmCall);
+}
+
+// ---------------------------------------------------------------------------
 // 取消（验收 6：立即中断连接与后续事件发射）
 // ---------------------------------------------------------------------------
 
@@ -346,7 +373,7 @@ pub struct StreamFailure {
 }
 
 /// 单次尝试内累积的半条（最后尝试视角）。
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct AttemptPartial {
     content: String,
     reasoning: String,
@@ -360,10 +387,20 @@ impl AttemptPartial {
 }
 
 /// OpenAI 兼容 LLM 客户端（CMP-002）。
-#[derive(Debug, Clone)]
 pub struct LlmClient {
     http: reqwest::Client,
     config: LlmConfig,
+    /// 调用轨迹记录器（旁路，透明化功能）：None = 不记录（测试 / 未接线装配）。
+    call_sink: Option<Arc<dyn LlmCallSink>>,
+}
+
+impl std::fmt::Debug for LlmClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlmClient")
+            .field("config", &self.config)
+            .field("call_sink", &self.call_sink.is_some())
+            .finish()
+    }
 }
 
 impl LlmClient {
@@ -379,7 +416,13 @@ impl LlmClient {
             .read_timeout(Duration::from_millis(config.read_timeout_ms))
             .build()
             .map_err(|e| LlmError::Config(format!("HTTP 客户端构建失败：{e}")))?;
-        Ok(Self { http, config })
+        Ok(Self { http, config, call_sink: None })
+    }
+
+    /// 挂接调用轨迹记录器（组合根 / 命令层装配时调用一次；builder 风格链式）。
+    pub fn with_call_sink(mut self, sink: Arc<dyn LlmCallSink>) -> Self {
+        self.call_sink = Some(sink);
+        self
     }
 
     pub fn config(&self) -> &LlmConfig {
@@ -435,16 +478,22 @@ impl LlmClient {
     }
 
     /// 聊天流式生成（验收 2–6）。事件经 `sink` 发射；取消立即返回，不再产生事件。
+    /// `trace`：调用轨迹上下文（透明化功能）——每次 HTTP 请求（含断流重发的每次
+    /// 尝试）记录一条轨迹；None = 不记录。
     pub async fn chat_stream(
         &self,
         messages: &[ChatMessage],
         ids: MessageIds,
         sink: Arc<dyn EventSink>,
         cancel: &CancelHandle,
+        trace: Option<&CallTrace>,
     ) -> Result<StreamOutcome, StreamFailure> {
         let mut attempt: u32 = 0;
         loop {
-            match self.attempt_stream(messages, ids, &sink, cancel, attempt).await {
+            match self
+                .attempt_stream(messages, ids, &sink, cancel, attempt, trace)
+                .await
+            {
                 Ok(outcome) => return Ok(outcome),
                 Err((error, partial)) => {
                     if error.is_retryable() && attempt < self.config.retry.max_retries {
@@ -467,7 +516,8 @@ impl LlmClient {
         }
     }
 
-    /// 单次尝试：连接 → 状态映射 → 逐块解析 → 事件发射。断流以可重试错误返回。
+    /// 单次尝试（外层）：计时 + 轨迹记录（透明化功能：每次 HTTP 请求一条），
+    /// 请求本体在 [`Self::attempt_stream_once`]。
     async fn attempt_stream(
         &self,
         messages: &[ChatMessage],
@@ -475,23 +525,97 @@ impl LlmClient {
         sink: &Arc<dyn EventSink>,
         cancel: &CancelHandle,
         attempt: u32,
+        trace: Option<&CallTrace>,
     ) -> Result<StreamOutcome, (LlmError, AttemptPartial)> {
+        let started_at = epoch_ms();
+        let started = Instant::now();
+        let (outcome, usage) =
+            self.attempt_stream_once(messages, ids, sink, cancel, attempt).await;
+        // 轨迹旁路记录：ok / error / 取消三种终态都记（取消按 error，原因「已取消」；
+        // 半条内容如实入 response_text / reasoning_text，供回放对账）。
+        match &outcome {
+            Ok(StreamOutcome::Completed { content, reasoning, .. }) => {
+                let (prompt_tokens, completion_tokens) =
+                    usage.map_or((None, None), |u| (Some(u.prompt_tokens), Some(u.completion_tokens)));
+                self.record_call(
+                    trace,
+                    started_at,
+                    started,
+                    messages,
+                    CallObservation {
+                        response_text: non_empty(content.clone()),
+                        reasoning_text: reasoning.clone(),
+                        tool_calls_json: None,
+                        prompt_tokens,
+                        completion_tokens,
+                        error_text: None,
+                    },
+                );
+            }
+            Ok(StreamOutcome::Cancelled { partial_content, partial_reasoning }) => {
+                self.record_call(
+                    trace,
+                    started_at,
+                    started,
+                    messages,
+                    CallObservation {
+                        response_text: non_empty(partial_content.clone()),
+                        reasoning_text: partial_reasoning.clone(),
+                        tool_calls_json: None,
+                        prompt_tokens: None,
+                        completion_tokens: None,
+                        error_text: Some("已取消".into()),
+                    },
+                );
+            }
+            Err((error, partial)) => {
+                let (partial_content, partial_reasoning) = partial.clone().into_parts();
+                self.record_call(
+                    trace,
+                    started_at,
+                    started,
+                    messages,
+                    CallObservation {
+                        response_text: non_empty(partial_content),
+                        reasoning_text: partial_reasoning,
+                        tool_calls_json: None,
+                        prompt_tokens: None,
+                        completion_tokens: None,
+                        error_text: Some(error.to_string()),
+                    },
+                );
+            }
+        }
+        outcome
+    }
+
+    /// 单次尝试（内层）：连接 → 状态映射 → 逐块解析 → 事件发射。断流以可重试错误
+    /// 返回；同时返回流内捕获的 usage（OpenAI 兼容 usage 终帧，有则记无则 None）。
+    async fn attempt_stream_once(
+        &self,
+        messages: &[ChatMessage],
+        ids: MessageIds,
+        sink: &Arc<dyn EventSink>,
+        cancel: &CancelHandle,
+        attempt: u32,
+    ) -> (Result<StreamOutcome, (LlmError, AttemptPartial)>, Option<sse::SseUsage>) {
         let mut parser = sse::SseParser::new();
         let mut splitter = think::ThinkSplitter::new();
         let mut partial = AttemptPartial::default();
         let mut first_reasoning_at: Option<Instant> = None;
+        let mut usage: Option<sse::SseUsage> = None;
         let mut router = EventRouter { sink, ids, attempt, first_event: true };
 
         // ---- 连接（可被取消打断）----
         let response = tokio::select! {
             resp = self.chat_request(messages, true).send() => match resp {
                 Ok(r) => r,
-                Err(e) => return Err((map_reqwest_error(e), partial)),
+                Err(e) => return (Err((map_reqwest_error(e), partial)), None),
             },
-            _ = cancel.wait() => return Ok(StreamOutcome::Cancelled {
+            _ = cancel.wait() => return (Ok(StreamOutcome::Cancelled {
                 partial_content: partial.content,
                 partial_reasoning: non_empty(partial.reasoning),
-            }),
+            }), None),
         };
 
         // ---- 状态码映射（验收 8）----
@@ -504,7 +628,7 @@ impl LlmClient {
                 429 => LlmError::RateLimited,
                 _ => LlmError::Status { status: code, body },
             };
-            return Err((error, partial));
+            return (Err((error, partial)), None);
         }
         let mut response = response;
 
@@ -512,10 +636,10 @@ impl LlmClient {
         loop {
             let chunk = tokio::select! {
                 c = response.chunk() => c,
-                _ = cancel.wait() => return Ok(StreamOutcome::Cancelled {
+                _ = cancel.wait() => return (Ok(StreamOutcome::Cancelled {
                     partial_content: partial.content,
                     partial_reasoning: non_empty(partial.reasoning),
-                }),
+                }), usage),
             };
             match chunk {
                 Ok(Some(bytes)) => {
@@ -529,11 +653,16 @@ impl LlmClient {
                                     message_id: ids.message_id,
                                     think_ms,
                                 });
-                                return Ok(StreamOutcome::Completed {
+                                return (Ok(StreamOutcome::Completed {
                                     content: partial.content,
                                     reasoning: non_empty(partial.reasoning),
                                     think_ms,
-                                });
+                                }), usage);
+                            }
+                            // usage 终帧（透明化功能）：网关主动回报才记，不做请求侧
+                            // stream_options 追加（部分中转不认识该参数，保守兼容）。
+                            sse::SseItem::Usage(captured) => {
+                                usage = Some(captured);
                             }
                             sse::SseItem::Delta(delta) => {
                                 // 字段型 reasoning：直通思考通道（FR-003 / INT-002）。
@@ -561,12 +690,12 @@ impl LlmClient {
                 }
                 // 流在 [DONE] 前正常 EOF：断流，按整条重发（验收 5）。
                 Ok(None) => {
-                    return Err((
-                        LlmError::Network("SSE 流在 [DONE] 前中断".into()),
-                        partial,
-                    ));
+                    return (
+                        Err((LlmError::Network("SSE 流在 [DONE] 前中断".into()), partial)),
+                        usage,
+                    );
                 }
-                Err(e) => return Err((map_reqwest_error(e), partial)),
+                Err(e) => return (Err((map_reqwest_error(e), partial)), usage),
             }
         }
     }
@@ -587,54 +716,98 @@ impl LlmClient {
 
     /// 结构化 JSON 调用（验收 7）：非流式一次性调用 + 容错提取（容忍 ```json 围栏与前后杂文），
     /// 失败返回 `LlmError::Json`。INT-002 的「结算重试直到成功」循环由调用方（导演服务）持有。
+    /// `trace`：调用轨迹上下文（透明化功能）——本方法单次请求即一条轨迹（重试重发
+    /// 由调用方循环发起，每次调用各自成条）；None = 不记录。
     pub async fn complete_json<T: DeserializeOwned>(
         &self,
         messages: &[ChatMessage],
+        trace: Option<&CallTrace>,
     ) -> Result<T, LlmError> {
-        let response = self
-            .chat_request(messages, false)
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
+        let started_at = epoch_ms();
+        let started = Instant::now();
+        let (result, obs) = self.complete_json_once(messages).await;
+        self.record_call(trace, started_at, started, messages, obs);
+        result
+    }
+
+    /// 非流式结构化调用的单次请求本体：请求 → 状态映射 → 解析 → 提取；
+    /// 同时产出轨迹观测（正文 / reasoning / usage / 错误，Json 失败也如实记下原始输出）。
+    async fn complete_json_once<T: DeserializeOwned>(
+        &self,
+        messages: &[ChatMessage],
+    ) -> (Result<T, LlmError>, CallObservation) {
+        let mut obs = CallObservation::default();
+        let response = match self.chat_request(messages, false).send().await {
+            Ok(response) => response,
+            Err(e) => {
+                let error = map_reqwest_error(e);
+                obs.error_text = Some(error.to_string());
+                return (Err(error), obs);
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             let code = status.as_u16();
             let body = response.text().await.unwrap_or_default();
-            return Err(match code {
+            let error = match code {
                 401 => LlmError::Unauthorized,
                 429 => LlmError::RateLimited,
                 _ => LlmError::Status { status: code, body },
-            });
+            };
+            obs.error_text = Some(error.to_string());
+            return (Err(error), obs);
         }
-        let payload: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| LlmError::Protocol(format!("非流式响应不是合法 JSON：{e}")))?;
-        let content = payload
-            .get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|a| a.first())
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| LlmError::Protocol("响应缺少 choices[0].message.content".into()))?;
-        let value = extract_json(content)?;
-        serde_json::from_value(value)
-            .map_err(|e| LlmError::Json(format!("模型输出与目标结构不符：{e}")))
+        let payload: serde_json::Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(e) => {
+                let error = LlmError::Protocol(format!("非流式响应不是合法 JSON：{e}"));
+                obs.error_text = Some(error.to_string());
+                return (Err(error), obs);
+            }
+        };
+        obs.prompt_tokens = usage_tokens(&payload).0;
+        obs.completion_tokens = usage_tokens(&payload).1;
+        obs.reasoning_text = message_field_str(&payload, "reasoning_content")
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let Some(content) = message_field_str(&payload, "content") else {
+            let error = LlmError::Protocol("响应缺少 choices[0].message.content".into());
+            obs.error_text = Some(error.to_string());
+            return (Err(error), obs);
+        };
+        obs.response_text = Some(content.to_owned());
+        let value = match extract_json(content) {
+            Ok(value) => value,
+            Err(error) => {
+                obs.error_text = Some(error.to_string());
+                return (Err(error), obs);
+            }
+        };
+        match serde_json::from_value(value) {
+            Ok(parsed) => (Ok(parsed), obs),
+            Err(e) => {
+                let error = LlmError::Json(format!("模型输出与目标结构不符：{e}"));
+                obs.error_text = Some(error.to_string());
+                (Err(error), obs)
+            }
+        }
     }
 
     /// 非流式工具调用回路单轮：携带工具定义请求，返回本轮「正文或工具调用」；
     /// 调用方执行工具后以 tool 角色消息回传并再次调用，循环直到 Content
     /// （循环责任在调用方，本方法只做一轮）。重试语义与 chat_stream 一致：
     /// 可重试错误（超时 / 网络 / 429 / 5xx）按整条消息重发，max_retries 与指数退避同池。
+    /// `trace`：调用轨迹上下文——工具循环的**每一轮请求各记录一条**（每轮的
+    /// prompt / 响应 / 该轮模型发起的 tool_calls 都不同，合并会丢回放信息）。
     pub async fn complete_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: &[ToolSpec],
+        trace: Option<&CallTrace>,
     ) -> Result<ToolLoopTurn, LlmError> {
         let mut attempt: u32 = 0;
         loop {
-            match self.attempt_complete_with_tools(messages, tools).await {
+            match self.attempt_complete_with_tools(messages, tools, trace).await {
                 Ok(turn) => return Ok(turn),
                 Err(error) => {
                     if error.is_retryable() && attempt < self.config.retry.max_retries {
@@ -648,33 +821,160 @@ impl LlmClient {
         }
     }
 
-    /// 工具回路单次尝试：请求 → 状态映射（与 complete_json 同一套）→ tool_calls / content 分支解析。
+    /// 工具回路单次尝试：请求 → 状态映射（与 complete_json 同一套）→ tool_calls / content
+    /// 分支解析；轨迹记录在本层完成（每次尝试 = 一条，含重试的失败尝试）。
     async fn attempt_complete_with_tools(
         &self,
         messages: &[ChatMessage],
         tools: &[ToolSpec],
+        trace: Option<&CallTrace>,
     ) -> Result<ToolLoopTurn, LlmError> {
-        let response = self
+        let started_at = epoch_ms();
+        let started = Instant::now();
+        let (result, mut obs) = self.attempt_complete_with_tools_once(messages, tools).await;
+        // 该轮模型发起的工具调用：[{name, arguments}]（不含 id——回放关注语义而非回链）。
+        if let Ok(ToolLoopTurn::ToolCalls(calls)) = &result {
+            let wire: Vec<serde_json::Value> = calls
+                .iter()
+                .map(|c| serde_json::json!({ "name": c.name, "arguments": c.arguments }))
+                .collect();
+            obs.tool_calls_json = Some(serde_json::Value::Array(wire).to_string());
+        }
+        self.record_call(trace, started_at, started, messages, obs);
+        result
+    }
+
+    /// 工具回路单次请求本体：同时产出轨迹观测。
+    async fn attempt_complete_with_tools_once(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolSpec],
+    ) -> (Result<ToolLoopTurn, LlmError>, CallObservation) {
+        let mut obs = CallObservation::default();
+        let response = match self
             .chat_request_with_options(messages, false, Some(tools), None)
             .send()
             .await
-            .map_err(map_reqwest_error)?;
+        {
+            Ok(response) => response,
+            Err(e) => {
+                let error = map_reqwest_error(e);
+                obs.error_text = Some(error.to_string());
+                return (Err(error), obs);
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             let code = status.as_u16();
             let body = response.text().await.unwrap_or_default();
-            return Err(match code {
+            let error = match code {
                 401 => LlmError::Unauthorized,
                 429 => LlmError::RateLimited,
                 _ => LlmError::Status { status: code, body },
-            });
+            };
+            obs.error_text = Some(error.to_string());
+            return (Err(error), obs);
         }
-        let payload: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| LlmError::Protocol(format!("非流式响应不是合法 JSON：{e}")))?;
-        parse_tool_turn(&payload)
+        let payload: serde_json::Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(e) => {
+                let error = LlmError::Protocol(format!("非流式响应不是合法 JSON：{e}"));
+                obs.error_text = Some(error.to_string());
+                return (Err(error), obs);
+            }
+        };
+        obs.prompt_tokens = usage_tokens(&payload).0;
+        obs.completion_tokens = usage_tokens(&payload).1;
+        obs.response_text = message_field_str(&payload, "content").map(str::to_owned);
+        match parse_tool_turn(&payload) {
+            Ok(turn) => (Ok(turn), obs),
+            Err(error) => {
+                obs.error_text = Some(error.to_string());
+                (Err(error), obs)
+            }
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 轨迹记录（透明化功能）：观测结构 + 组装 + 发往 sink（旁路，None 全跳过）
+// ---------------------------------------------------------------------------
+
+/// 一次 HTTP 请求的轨迹观测：网关在各出口路径填充，`record_call` 统一组装落 sink。
+#[derive(Debug, Default)]
+struct CallObservation {
+    response_text: Option<String>,
+    reasoning_text: Option<String>,
+    tool_calls_json: Option<String>,
+    prompt_tokens: Option<i64>,
+    completion_tokens: Option<i64>,
+    error_text: Option<String>,
+}
+
+impl LlmClient {
+    /// 组装一条 NewLlmCall 并发往记录器；trace / sink 任一为 None 即 no-op
+    /// （轨迹是旁路：不阻塞、不影响主流程，失败由 sink 实现侧吞掉）。
+    fn record_call(
+        &self,
+        trace: Option<&CallTrace>,
+        started_at: i64,
+        started: Instant,
+        messages: &[ChatMessage],
+        obs: CallObservation,
+    ) {
+        let Some(trace) = trace else { return };
+        let Some(sink) = &self.call_sink else { return };
+        let prompt_json = serde_json::Value::Array(
+            messages.iter().map(chat_message_wire).collect(),
+        )
+        .to_string();
+        sink.record(NewLlmCall {
+            session_id: trace.session_id,
+            kind: trace.kind,
+            model: self.config.model.clone(),
+            started_at,
+            duration_ms: started.elapsed().as_millis().min(i64::MAX as u128) as i64,
+            prompt_json,
+            response_text: obs.response_text,
+            reasoning_text: obs.reasoning_text,
+            tool_calls_json: obs.tool_calls_json,
+            prompt_tokens: obs.prompt_tokens,
+            completion_tokens: obs.completion_tokens,
+            status: if obs.error_text.is_none() {
+                LlmCallStatus::Ok
+            } else {
+                LlmCallStatus::Error
+            },
+            error_text: obs.error_text,
+        });
+    }
+}
+
+/// 当前时刻的 Unix 毫秒（轨迹 started_at；与 storage::now 同义，infra/llm 不反向
+/// 依赖 storage 模块，就地实现）。
+fn epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// 非流式响应体内的 usage 提取（OpenAI 兼容 usage 对象；字段缺失 / 非数字按无）。
+fn usage_tokens(payload: &serde_json::Value) -> (Option<i64>, Option<i64>) {
+    let usage = payload.get("usage");
+    let get = |key: &str| usage.and_then(|u| u.get(key)).and_then(serde_json::Value::as_i64);
+    (get("prompt_tokens"), get("completion_tokens"))
+}
+
+/// choices[0].message.<field> 的字符串取值（缺失 / null / 非字符串 → None）。
+fn message_field_str<'a>(payload: &'a serde_json::Value, field: &str) -> Option<&'a str> {
+    payload
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get(field)?
+        .as_str()
 }
 
 /// 事件发射路由：跟踪「重发尝试首事件」以打 `reset` 标。

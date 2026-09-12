@@ -6,7 +6,11 @@
 //! - 只认 `data:` 行；`event:` / `id:` / 注释（`:`）与空行全部忽略（验收 2：未知事件优雅忽略）；
 //! - `data: [DONE]` 为终止哨兵；
 //! - delta 的 `content` 走正文、`reasoning_content`（兼容别名 `reasoning`）走思考，
-//!   未知字段（finish_reason、usage、role 等）一律忽略。
+//!   未知字段（finish_reason、role 等）一律忽略；
+//! - 顶层 `usage` 对象（透明化功能，调用轨迹用）单独产出 [`SseItem::Usage`]：
+//!   OpenAI 兼容网关在流末尾直发 usage 终帧（choices 空数组）时捕获；请求侧
+//!   **不追加** `stream_options: {"include_usage": true}`（部分中转不认识该参数，
+//!   保守兼容——有则记，无则调用轨迹的 usage 为 NULL）。
 
 use serde_json::Value;
 
@@ -17,14 +21,23 @@ pub struct ChatDelta {
     pub reasoning: Option<String>,
 }
 
-/// 解析产物：`[DONE]` 哨兵或一个有效 delta（无效行在解析层即被忽略，不上抛）。
+/// 流内捕获的 usage 终帧（透明化功能：调用轨迹的 token 用量）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SseUsage {
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+}
+
+/// 解析产物：`[DONE]` 哨兵、一个有效 delta、或一帧 usage（无效行在解析层即被忽略，
+/// 不上抛）。同一帧同时带 usage 与有效 delta 时产出两个条目（Usage 在前）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SseItem {
     Delta(ChatDelta),
+    Usage(SseUsage),
     Done,
 }
 
-/// 流式行解析器：跨 chunk 攒字节，逐完整行解析。
+/// 解析器：跨 chunk 攒字节，逐完整行解析。
 #[derive(Debug, Default)]
 pub struct SseParser {
     buf: Vec<u8>,
@@ -45,9 +58,7 @@ impl SseParser {
             let line = &line[..line.len() - 1]; // 去掉 \n
             let line = String::from_utf8_lossy(line);
             let line = line.strip_suffix('\r').unwrap_or(&line);
-            if let Some(item) = parse_line(line) {
-                items.push(item);
-            }
+            items.extend(parse_line(line));
         }
         items
     }
@@ -59,24 +70,52 @@ impl SseParser {
         }
         let line = String::from_utf8_lossy(&self.buf).into_owned();
         self.buf.clear();
-        parse_line(&line).into_iter().collect()
+        parse_line(&line)
     }
 }
 
-/// 单行解析：非 `data:` 行一律忽略；`data: [DONE]` 为哨兵；其余按 delta 解析。
-fn parse_line(line: &str) -> Option<SseItem> {
-    let payload = line.strip_prefix("data:")?.trim_start();
+/// 单行解析：非 `data:` 行一律忽略；`data: [DONE]` 为哨兵；其余按帧解析
+/// （usage 终帧与 delta 可在同帧并存，各自产出）。
+fn parse_line(line: &str) -> Vec<SseItem> {
+    let Some(payload) = line.strip_prefix("data:").map(str::trim_start) else {
+        return Vec::new();
+    };
     if payload == "[DONE]" {
-        return Some(SseItem::Done);
+        return vec![SseItem::Done];
     }
-    parse_delta(payload).map(SseItem::Delta)
+    parse_frame(payload)
 }
 
-/// OpenAI 兼容 delta 解析。容错策略（INT-002 兼容退化）：
-/// 非 JSON、缺 choices、缺 delta、字段为 null、空串——都视为「本轮无增量」返回 None，
-/// 不让怪异 provider 的杂音炸掉整条流。
-pub fn parse_delta(data: &str) -> Option<ChatDelta> {
-    let value: Value = serde_json::from_str(data).ok()?;
+/// 单帧解析：顶层 usage 对象 → [`SseItem::Usage`]；choices[0].delta 有效增量 →
+/// [`SseItem::Delta`]。非 JSON、两者皆缺 → 空（本帧忽略）。
+fn parse_frame(payload: &str) -> Vec<SseItem> {
+    let Ok(value) = serde_json::from_str::<Value>(payload) else {
+        return Vec::new();
+    };
+    let mut items = Vec::new();
+    if let Some(usage) = usage_of(&value) {
+        items.push(SseItem::Usage(usage));
+    }
+    if let Some(delta) = delta_of(&value) {
+        items.push(SseItem::Delta(delta));
+    }
+    items
+}
+
+/// 帧内 usage 提取（透明化功能）：顶层 `usage` 对象的 prompt_tokens /
+/// completion_tokens 皆须为整数，缺一即视为无 usage（不猜不补）。
+fn usage_of(value: &Value) -> Option<SseUsage> {
+    let usage = value.get("usage")?;
+    Some(SseUsage {
+        prompt_tokens: usage.get("prompt_tokens")?.as_i64()?,
+        completion_tokens: usage.get("completion_tokens")?.as_i64()?,
+    })
+}
+
+/// choices[0].delta 的两路增量提取。容错策略（INT-002 兼容退化）：缺 choices、
+/// 缺 delta、字段为 null、空串——都视为「本轮无增量」返回 None，不让怪异
+/// provider 的杂音炸掉整条流。
+fn delta_of(value: &Value) -> Option<ChatDelta> {
     let choice = value.get("choices")?.as_array()?.first()?;
     let delta = choice.get("delta")?;
     // 字段型 reasoning：reasoning_content 为主，兼容别名 reasoning（部分网关用后者）。
@@ -95,6 +134,18 @@ pub fn parse_delta(data: &str) -> Option<ChatDelta> {
         return None;
     }
     Some(ChatDelta { content, reasoning })
+}
+
+/// OpenAI 兼容 delta 解析（公开形态，测试与既有消费方沿用）。
+pub fn parse_delta(data: &str) -> Option<ChatDelta> {
+    let value: Value = serde_json::from_str(data).ok()?;
+    delta_of(&value)
+}
+
+/// OpenAI 兼容 usage 帧解析（透明化功能，测试沿用）。
+pub fn parse_usage(data: &str) -> Option<SseUsage> {
+    let value: Value = serde_json::from_str(data).ok()?;
+    usage_of(&value)
 }
 
 #[cfg(test)]
@@ -294,5 +345,62 @@ mod tests {
         let mut p = SseParser::new();
         assert_eq!(p.feed(b""), Vec::new());
         assert_eq!(p.finish(), Vec::new());
+    }
+
+    // ---- usage 终帧（透明化功能：调用轨迹的 token 用量）----
+
+    /// OpenAI 兼容 usage 终帧（choices 空数组 + 顶层 usage）单独产出 Usage 条目。
+    #[test]
+    fn usage_terminal_frame_is_captured() {
+        let mut p = SseParser::new();
+        let payload =
+            r#"{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7}}"#;
+        let items = feed_all(
+            &mut p,
+            &[format!("data: {payload}\n\ndata: [DONE]\n\n").as_bytes()],
+        );
+        assert_eq!(
+            items,
+            vec![
+                SseItem::Usage(SseUsage { prompt_tokens: 11, completion_tokens: 7 }),
+                SseItem::Done,
+            ]
+        );
+        assert_eq!(parse_usage(payload).unwrap(), SseUsage { prompt_tokens: 11, completion_tokens: 7 });
+    }
+
+    /// 同帧既有有效 delta 又带 usage（部分网关末帧形态）：两个条目都产出（Usage 在前）。
+    #[test]
+    fn usage_and_delta_in_same_frame_yield_both_items() {
+        let mut p = SseParser::new();
+        let items = feed_all(
+            &mut p,
+            &[format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                r#"{"choices":[{"delta":{"content":"终"}}],"usage":{"prompt_tokens":1,"completion_tokens":2}}"#
+            )
+            .as_bytes()],
+        );
+        assert_eq!(
+            items,
+            vec![
+                SseItem::Usage(SseUsage { prompt_tokens: 1, completion_tokens: 2 }),
+                SseItem::Delta(ChatDelta { content: Some("终".into()), reasoning: None }),
+                SseItem::Done,
+            ]
+        );
+    }
+
+    /// usage 字段缺失 / 非整数 / 非对象：按无 usage 忽略，不影响 delta 解析。
+    #[test]
+    fn malformed_usage_is_ignored() {
+        assert_eq!(parse_usage(r#"{"choices":[]}"#), None, "无 usage 对象");
+        assert_eq!(parse_usage(r#"{"usage":{"prompt_tokens":1}}"#), None, "缺 completion_tokens");
+        assert_eq!(parse_usage(r#"{"usage":{"prompt_tokens":"11","completion_tokens":7}}"#), None, "非整数");
+        assert_eq!(parse_usage(r#"{"usage":null}"#), None);
+        // 杂音帧（无 delta 无 usage）整帧忽略，不产出条目。
+        let mut p = SseParser::new();
+        let items = feed_all(&mut p, &[b"data: {\"usage\":{\"prompt_tokens\":1}}\n\n"]);
+        assert_eq!(items, Vec::<SseItem>::new());
     }
 }

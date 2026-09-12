@@ -34,11 +34,11 @@
 //! 已取消 → 返回 None，上游 chat_stream 会立刻看到取消并按既有语义走半条落库。
 
 use crate::domain::context;
-use crate::domain::models::{Message, Scene};
+use crate::domain::models::{LlmCallKind, Message, Scene};
 use crate::domain::ports::StoragePort;
 use crate::infra::llm::{
-    ActivityPhase, CancelHandle, ChatMessage, ChatRole, EventSink, LlmClient, LlmEvent, ToolCall,
-    ToolLoopTurn, ToolSpec,
+    ActivityPhase, CallTrace, CancelHandle, ChatMessage, ChatRole, EventSink, LlmClient, LlmEvent,
+    ToolCall, ToolLoopTurn, ToolSpec,
 };
 
 /// 工具往返上限：累计达此轮数后强制收尾（下一轮不再带 tools，让模型只输出卷宗正文）。
@@ -110,6 +110,8 @@ pub async fn explore(
         ChatMessage::new(ChatRole::User, latest_user_message),
     ];
     let tools = tool_specs();
+    // 调用轨迹接线（透明化功能）：工具循环的每一轮请求在网关内各记一条 explorer 轨迹。
+    let trace = CallTrace { session_id: Some(session_id), kind: LlmCallKind::Explorer };
     let mut tool_rounds: u32 = 0;
     loop {
         // 取消检查（每轮工具往返间）：已取消 → None，上游按既有取消语义走。
@@ -119,9 +121,9 @@ pub async fn explore(
         // 累计工具轮达上限 → 强制收尾：不再带 tools（空切片在网关构造层等同未提供），
         // 模型只能输出正文总结卷宗。
         let turn = if tool_rounds >= MAX_TOOL_ROUNDS {
-            llm.complete_with_tools(&conversation, &[]).await
+            llm.complete_with_tools(&conversation, &[], Some(&trace)).await
         } else {
-            llm.complete_with_tools(&conversation, &tools).await
+            llm.complete_with_tools(&conversation, &tools, Some(&trace)).await
         };
         match turn {
             // 失败降级（硬约束）：Err（含重试耗尽）→ 留痕 + 无卷宗，不阻塞主对话。
@@ -1252,5 +1254,57 @@ mod tests {
 
         assert_eq!(out, None, "收尾轮仍回工具调用 → 降级无卷宗");
         assert_eq!(counter.load(Ordering::SeqCst), 4, "恰好 4 次请求（3 轮工具 + 收尾轮）后退出");
+    }
+
+    // ---- 调用轨迹 kind 接线（透明化功能）：explorer 类别 + 会话定位 ----
+
+    /// 轨迹收集器：挂在客户端上验证 explore 的每轮请求都落 explorer 轨迹。
+    struct TraceCollector(std::sync::Mutex<Vec<crate::domain::models::NewLlmCall>>);
+    impl crate::infra::llm::LlmCallSink for TraceCollector {
+        fn record(&self, call: crate::domain::models::NewLlmCall) {
+            self.0.lock().unwrap().push(call);
+        }
+    }
+
+    #[tokio::test]
+    async fn explore_records_one_trace_per_tool_round() {
+        use crate::domain::models::LlmCallKind;
+        let (storage, sid) = storage_with_session("exp_trace");
+        storage
+            .insert_message(&NewMessage::new(sid, MessageRole::User, "灯塔的旧事"))
+            .unwrap();
+        let (server, _counter) = scripted_server(
+            vec![
+                tool_calls_body("call_1", "search_history", r#"{"keyword":"灯塔"}"#),
+                content_body("卷宗：灯塔旧事一条。"),
+            ],
+            None,
+        );
+        let (_signal, cancel) = cancel_channel();
+        let collector = Arc::new(TraceCollector(std::sync::Mutex::new(Vec::new())));
+        let llm = client(&server.url()).with_call_sink(collector.clone());
+
+        let out = explore(
+            storage.as_ref(),
+            &llm,
+            &NoopSink,
+            sid,
+            -1,
+            "还记得灯塔吗",
+            &cancel,
+        )
+        .await;
+
+        assert!(out.is_some(), "两轮回路产出卷宗");
+        let records = collector.0.lock().unwrap().clone();
+        assert_eq!(records.len(), 2, "工具循环每轮请求各一条轨迹");
+        for call in &records {
+            assert_eq!(call.session_id, Some(sid), "轨迹带会话定位");
+            assert_eq!(call.kind, LlmCallKind::Explorer, "探索器调用类别");
+            assert_eq!(call.status, crate::domain::models::LlmCallStatus::Ok);
+        }
+        // 第二轮 prompt 含工具回填（每轮请求形态逐条可回放）。
+        let second: serde_json::Value = serde_json::from_str(&records[1].prompt_json).unwrap();
+        assert_eq!(second.as_array().unwrap().len(), 4, "system + user + assistant(tool_calls) + tool");
     }
 }

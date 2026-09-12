@@ -16,13 +16,13 @@ use serde::Deserialize;
 use crate::domain::error::StorageError;
 use crate::domain::fiction_time;
 use crate::domain::models::{
-    Character, CharacterState, CharacterStateScope, Message, NewCharacterState, NewScene, Scene,
-    Session,
+    Character, CharacterState, CharacterStateScope, LlmCallKind, Message, NewCharacterState,
+    NewScene, Scene, Session,
 };
 use crate::domain::ports::{AttachRange, SettlementWrite};
 use crate::domain::state_expiry;
 use crate::infra::config::Config as FileConfig;
-use crate::infra::llm::{ChatMessage, ChatRole, LlmClient, LlmConfig};
+use crate::infra::llm::{CallTrace, ChatMessage, ChatRole, LlmClient, LlmConfig};
 use crate::services::generation::{GenerationDeps, GenerationTicket};
 
 // ---------------------------------------------------------------------------
@@ -523,12 +523,15 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
 
     let mut backoff_ms = BACKOFF_INITIAL_MS;
     let mut failures: u32 = 0;
+    // 调用轨迹接线（透明化功能）：结算裁决的每次 complete_json（含修正重试的每次
+    // 尝试）在网关内各记一条 director 轨迹（每次 HTTP 请求 = 一条）。
+    let trace = CallTrace { session_id: Some(session_id), kind: LlmCallKind::Director };
     loop {
         if ticket.cancel_handle().is_cancelled() {
             log::warn!("会话 #{session_id} 结算被用户打断，本轮放弃（欠账由下次结算自愈）");
             return;
         }
-        match llm.complete_json::<DirectorVerdict>(&prompt).await {
+        match llm.complete_json::<DirectorVerdict>(&prompt, Some(&trace)).await {
             Ok(raw) => {
                 let verdict = normalize(&raw, &roster_ids, latest.as_ref());
                 let write = build_write(
@@ -1369,5 +1372,57 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         panic!("等待条件超时");
+    }
+
+    // ---- 调用轨迹 kind 接线（透明化功能）：director 类别 + 每次重试各一条 ----
+
+    /// 轨迹收集器：挂在导演客户端上验证结算裁决每次调用落 director 轨迹。
+    struct TraceCollector(std::sync::Mutex<Vec<crate::domain::models::NewLlmCall>>);
+    impl crate::infra::llm::LlmCallSink for TraceCollector {
+        fn record(&self, call: crate::domain::models::NewLlmCall) {
+            self.0.lock().unwrap().push(call);
+        }
+    }
+
+    /// Json 失败重试：两次调用各落一条轨迹——首条 status error（带原因），
+    /// 次条 status ok；kind 均为 director、会话定位一致。
+    #[tokio::test]
+    async fn run_settlement_records_one_trace_per_attempt() {
+        use crate::domain::models::{LlmCallKind, LlmCallStatus};
+        let (storage, dir, session_id, _char_id, _trigger_id) = settlement_setup("dir_trace");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        let server = MockServer::start(move |_req, stream| {
+            let nth = counter.fetch_add(1, Ordering::SeqCst);
+            if nth == 0 {
+                let _ = json_body(stream, "抱歉，我无法输出 JSON。");
+            } else {
+                let _ = json_body(stream, r#"{"fic_day":2,"summary":"重试后的裁决"}"#);
+            }
+        });
+        let collector = Arc::new(TraceCollector(std::sync::Mutex::new(Vec::new())));
+        let llm = Arc::new(director_client(&server.url()).with_call_sink(collector.clone()));
+        let deps = GenerationDeps {
+            storage: storage.clone(),
+            sink: Arc::new(NoopSink),
+            llm: llm.clone(),
+            director_llm: Some(llm),
+            near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        };
+        let registry = GenerationRegistry::new();
+        let ticket = registry.begin(session_id).unwrap();
+        run_settlement(&deps, &ticket, &trigger_of(&storage, session_id)).await;
+        assert!(attempts.load(Ordering::SeqCst) >= 2, "Json 失败后必须重试");
+
+        let records = collector.0.lock().unwrap().clone();
+        assert_eq!(records.len(), 2, "每次结算尝试各一条轨迹");
+        assert!(records.iter().all(|call| call.session_id == Some(session_id)));
+        assert!(records.iter().all(|call| call.kind == LlmCallKind::Director));
+        assert_eq!(records[0].status, LlmCallStatus::Error);
+        assert!(records[0].error_text.is_some(), "失败尝试留原因");
+        assert_eq!(records[1].status, LlmCallStatus::Ok);
+        assert_eq!(records[1].response_text.as_deref(), Some(r#"{"fic_day":2,"summary":"重试后的裁决"}"#));
+        drop(storage);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

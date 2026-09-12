@@ -12,8 +12,9 @@
 use std::collections::BTreeMap;
 
 use crate::domain::fiction_time::{self, CalendarConfig};
+use crate::domain::models::LlmCallKind;
 use crate::infra::config::Config as FileConfig;
-use crate::infra::llm::{CancelHandle, ChatMessage, ChatRole, LlmClient, LlmConfig};
+use crate::infra::llm::{CallTrace, CancelHandle, ChatMessage, ChatRole, LlmClient, LlmConfig};
 
 /// 世界观描述长度上限（按码点计）：超长直接拒绝（错误信息明确），不静默截断
 /// ——截断可能把设定拦腰斩断，起草质量不可控。
@@ -307,17 +308,18 @@ pub fn resolve_draft_llm(config: &FileConfig) -> Result<LlmClient, String> {
 /// 单次结构化调用（可取消）：取消在发起前检查；调用中经 `select!` 打断——
 /// future 被 drop 即中止底层请求。`complete_json` 自持围栏剥离与可重试错误
 /// 的整条重发，JSON 提取失败直接归入 [`CalendarDraftError::Llm`]（不走修正
-/// 重试：网关已尽力容错，仍失败说明输出不可救）。
+/// 重试：网关已尽力容错，仍失败说明输出不可救）。`trace`：调用轨迹上下文。
 async fn complete_value(
     llm: &LlmClient,
     messages: &[ChatMessage],
     cancel: &CancelHandle,
+    trace: &CallTrace,
 ) -> Result<serde_json::Value, CalendarDraftError> {
     if cancel.is_cancelled() {
         return Err(CalendarDraftError::Cancelled);
     }
     tokio::select! {
-        result = llm.complete_json::<serde_json::Value>(messages) => {
+        result = llm.complete_json::<serde_json::Value>(messages, Some(trace)) => {
             result.map_err(CalendarDraftError::Llm)
         }
         _ = cancel.wait() => Err(CalendarDraftError::Cancelled),
@@ -349,7 +351,10 @@ pub async fn draft_calendar(
     }
 
     let mut messages = build_prompt(trimmed);
-    let value = complete_value(llm, &messages, cancel).await?;
+    // 调用轨迹接线（透明化功能）：起草发生在会话之外（session_id = None），draft 类别；
+    // 修正重试的每次调用在网关内各记一条轨迹。
+    let trace = CallTrace { session_id: None, kind: LlmCallKind::Draft };
+    let value = complete_value(llm, &messages, cancel, &trace).await?;
     // 一次修正重试：assistant 原样回放已提取的 JSON + user 指出失败原因。
     let reason = match parse_draft(&value) {
         Ok(calendar) => return Ok(calendar),
@@ -357,7 +362,7 @@ pub async fn draft_calendar(
     };
     messages.push(ChatMessage::new(ChatRole::Assistant, value.to_string()));
     messages.push(ChatMessage::new(ChatRole::User, correction_message(&reason)));
-    let value = complete_value(llm, &messages, cancel).await?;
+    let value = complete_value(llm, &messages, cancel, &trace).await?;
     parse_draft(&value).map_err(CalendarDraftError::InvalidOutput)
 }
 
@@ -668,5 +673,34 @@ mod tests {
         // active_model 未选 → 回落该服务第一个模型。
         config.active_model = None;
         assert_eq!(resolve_draft_llm(&config).unwrap().config().model, "m1");
+    }
+
+    // ---- 调用轨迹 kind 接线（透明化功能）：draft 类别 + 无会话（session_id None）----
+
+    /// 轨迹收集器：挂在起草客户端上验证起草调用落 draft 轨迹。
+    struct TraceCollector(std::sync::Mutex<Vec<crate::domain::models::NewLlmCall>>);
+    impl crate::infra::llm::LlmCallSink for TraceCollector {
+        fn record(&self, call: crate::domain::models::NewLlmCall) {
+            self.0.lock().unwrap().push(call);
+        }
+    }
+
+    #[tokio::test]
+    async fn draft_records_trace_without_session() {
+        use crate::domain::models::{LlmCallKind, LlmCallStatus};
+        let (server, captured) = scripted_server(vec![fenced_valid_calendar()]);
+        let (_signal, cancel) = crate::infra::llm::cancel_channel();
+        let collector = Arc::new(TraceCollector(std::sync::Mutex::new(Vec::new())));
+        let llm = client(&server.url()).with_call_sink(collector.clone());
+
+        draft_calendar(&llm, "旧都世界观", &cancel).await.unwrap();
+
+        let records = collector.0.lock().unwrap().clone();
+        assert_eq!(records.len(), 1, "一次合法起草恰好一条轨迹");
+        let call = &records[0];
+        assert_eq!(call.session_id, None, "起草发生在会话之外");
+        assert_eq!(call.kind, LlmCallKind::Draft);
+        assert_eq!(call.status, LlmCallStatus::Ok);
+        assert_eq!(captured.lock().unwrap().len(), 1);
     }
 }

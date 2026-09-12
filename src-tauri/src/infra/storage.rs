@@ -12,6 +12,7 @@ mod llm_calls;
 mod messages;
 mod migrations;
 mod scenes;
+mod session_fork;
 mod sessions;
 
 use std::path::Path;
@@ -152,6 +153,24 @@ impl StoragePort for Storage {
     #[allow(dead_code)]
     fn restore_session(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| sessions::restore(conn, id))
+    }
+
+    // 时间线分叉（方案 §2 第 3 步）：拷贝编排单事务见 session_fork 模块。
+    // 「从此分叉」IPC 命令由 wire/UI 任务（Task-44）接线，登记归其管；接线前
+    // 无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
+    fn fork_session(
+        &self,
+        source_session_id: i64,
+        anchor_scene_idx: i64,
+        new_title: &str,
+    ) -> Result<Session, StorageError> {
+        self.with_conn(|conn| {
+            let tx = conn.unchecked_transaction()?;
+            let session = session_fork::fork(&tx, source_session_id, anchor_scene_idx, new_title)?;
+            tx.commit()?;
+            Ok(session)
+        })
     }
 
     // ---- messages ----

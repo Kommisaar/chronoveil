@@ -29,7 +29,7 @@ fn reopen_same_db_is_idempotent() {
     };
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         "schema_version 各版本只记录一次"
     );
 

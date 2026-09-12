@@ -80,6 +80,28 @@ pub trait StoragePort: Send + Sync {
     fn update_session_title(&self, id: i64, title: &str) -> Result<(), StorageError>;
     fn soft_delete_session(&self, id: i64) -> Result<(), StorageError>;
     fn restore_session(&self, id: i64) -> Result<(), StorageError>;
+    /// 时间线分叉（方案 §2 第 3 步）：在源会话的锚点场景上「从此分叉」，生成新会话
+    /// 并从锚点重走自己的时间线，返回新会话行。单事务完成，任一步失败整体回滚。
+    ///
+    /// 契约（实现见 infra/storage/session_fork.rs，拷贝口径的详细取舍在其模块注释）：
+    /// - 拷贝范围 = 源会话锚点前（**含锚点场**）全部在世行，session_id 整体改写、
+    ///   逐字段值拷贝（禁止引用式偷懒）；场景**保留原 idx**（各线独立计数，号在
+    ///   会话内唯一），新线自有场次从锚点下一号长起。
+    /// - 消息按结算归属判定：归属场 ≤ 锚点的在世消息随线；`scene_id IS NULL` 的
+    ///   未归属消息仅当锚点 = 最新在世场时随线（属于进行中的锚场）；墓碑消息不拷。
+    /// - 状态取「含锚点场收束成果」口径 `as_of(锚点 idx + 1)`，每（实例, key）落
+    ///   一条当前生效行，instance_id / source_scene 全部落到新线 id。
+    /// - **llm_calls 不拷贝**：轨迹属原线，新线从零开始（两线轨迹各自独立）。
+    /// - 新会话：标题 = `new_title` 原样（文案由调用方定）、日历 = 源会话快照值拷贝、
+    ///   `forked_from_session_id` / `fork_anchor_scene_idx` 记分叉锚（迁移 0011）。
+    /// - 错误：源会话不存在 / 已软删 → NotFound；锚点号无对应在世场景 → NotFound。
+    ///   原线零影响（只读，不改任何行）。
+    fn fork_session(
+        &self,
+        source_session_id: i64,
+        anchor_scene_idx: i64,
+        new_title: &str,
+    ) -> Result<Session, StorageError>;
 
     // ---- messages（ADR-001：终态落库原语） ----
     /// 插入消息；同一事务内刷新所属会话 updated_at（FR-007：每条新消息刷新）。

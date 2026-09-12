@@ -18,8 +18,11 @@ pub fn is_valid_part(part: &str) -> bool {
     PARTS.contains(&part)
 }
 
-/// 记账层 day 单调（BR-003：虚时只被叙事推进，绝不倒流）——
-/// 新值小于账本最后值时钳到 last；无账本（last = None）原样通过。
+/// 记账层 day 单调（BR-003，第 3 步「时间线分叉」起收窄为**单时间线内**不倒流）——
+/// 虚时只被叙事推进，绝不倒流，但账本是**每条时间线（会话）一份**：跨线回退合法且
+/// 正是「从此分叉」的意义（新线从锚点场的 fic_day 重走，见 infra/storage/session_fork）。
+/// 本函数的 `last` 由调用方取**本会话**最新场景行的 fic_day（如 director::verdict），
+/// 天然按线隔离，跨会话钳制不存在。新值小于账本最后值时钳到 last；无账本原样通过。
 pub fn clamp_day(new: i64, last: Option<i64>) -> i64 {
     match last {
         Some(last) if new < last => last,

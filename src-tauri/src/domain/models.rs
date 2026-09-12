@@ -73,6 +73,13 @@ pub struct Session {
     /// 会话日历快照（FR-013）：建会话时从用户位角色卡复制，之后各自演进互不回写；
     /// None = 内置默认历。快照列留 sessions 维持现状（方案开放问题的实施裁量）。
     pub calendar_config: Option<String>,
+    /// 分叉溯源（方案 §2 第 3 步「时间线分叉」）：非 NULL = 本会话是「从此分叉」
+    /// 产生的新时间线，值 = 源会话 id。逻辑指向，不设外键——源会话软删不阻断新线
+    /// （迁移 0011 注）。普通建会话为 NULL。
+    pub forked_from_session_id: Option<i64>,
+    /// 分叉锚场景号（源会话内 scenes.idx 口径）：新线从锚点场的下一时刻长自己的
+    /// 时间线；与 [`Session::forked_from_session_id`] 成对出现（分叉写入路径同事务落值）。
+    pub fork_anchor_scene_idx: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 软删除墓碑（ADR-009）。

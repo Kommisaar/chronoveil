@@ -63,7 +63,7 @@ fn migration_0002_preserves_v1_data() {
     };
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         "旧版本记录保留，新版本追加"
     );
 
@@ -629,5 +629,77 @@ fn migration_0010_adds_superseded_column_and_live_only_unique_index() {
     assert!(
         index_sql.contains("deleted_at IS NULL") && index_sql.contains("superseded_at IS NULL"),
         "唯一索引只约束当前生效行，实际：{index_sql}"
+    );
+}
+
+/// 0011（时间线分叉地基，方案 §2 第 3 步）：sessions 扩两列可空分叉元信息——
+/// 旧行扩列为 NULL（非分叉会话），列可写、无外键（源会话软删不阻断新线）。
+#[test]
+fn migration_0011_adds_fork_metadata_columns() {
+    let conn = Connection::open_in_memory().unwrap();
+    // 手工推进到版本 10（0010 形态既有库），预置数据后让 run() 只应用 0011。
+    for (version, sql) in &MIGRATIONS[..10] {
+        conn.execute_batch(sql).unwrap();
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+            [version],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO sessions (title, created_at, updated_at) VALUES ('旧会话', 1, 1)",
+        [],
+    )
+    .unwrap();
+
+    run(&conn).unwrap();
+
+    // 版本账本：11 新记。
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 11",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "0011 恰好记录一次");
+
+    // 新列就位且旧行为 NULL（非分叉会话）。
+    let (from, anchor): (Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT forked_from_session_id, fork_anchor_scene_idx FROM sessions WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (from, anchor),
+        (None, None),
+        "旧行分叉元信息扩列为 NULL = 非分叉会话"
+    );
+
+    // 列可写且无外键约束：forked_from_session_id 指向已软删的源会话也合法
+    // （不设外键是迁移 0011 的明确决策——源会话墓碑不阻断新线）。
+    conn.execute("UPDATE sessions SET deleted_at = 2 WHERE id = 1", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO sessions (title, created_at, updated_at, \
+             forked_from_session_id, fork_anchor_scene_idx) \
+         VALUES ('分叉线', 3, 3, 1, 3)",
+        [],
+    )
+    .unwrap();
+    let (from, anchor): (Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT forked_from_session_id, fork_anchor_scene_idx \
+             FROM sessions WHERE title = '分叉线'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (from, anchor),
+        (Some(1), Some(3)),
+        "分叉元信息可落值，且源会话已软删（墓碑）不构成外键阻断"
     );
 }

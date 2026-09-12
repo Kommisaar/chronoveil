@@ -9,7 +9,8 @@ use super::{instances, now, scenes, characters};
 
 pub(crate) const ENTITY: &str = "session";
 
-const COLS: &str = "id, title, calendar_config, created_at, updated_at, deleted_at";
+const COLS: &str = "id, title, calendar_config, created_at, updated_at, deleted_at, \
+                    forked_from_session_id, fork_anchor_scene_idx";
 
 fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -19,6 +20,9 @@ fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
         created_at: row.get(3)?,
         updated_at: row.get(4)?,
         deleted_at: row.get(5)?,
+        // 分叉元信息（迁移 0011）：普通建会话恒 NULL，只有分叉写入路径落值。
+        forked_from_session_id: row.get(6)?,
+        fork_anchor_scene_idx: row.get(7)?,
     })
 }
 
@@ -144,6 +148,9 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
         created_at: ts,
         updated_at: ts,
         deleted_at: None,
+        // 建会话非分叉路径：分叉元信息为 NULL（迁移 0011）。
+        forked_from_session_id: None,
+        fork_anchor_scene_idx: None,
     })
 }
 

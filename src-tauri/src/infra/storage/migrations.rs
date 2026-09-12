@@ -35,6 +35,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // character_state 扩 superseded_at（取代链）+ 唯一索引收窄为只约束当前生效行
     // （deleted_at IS NULL AND superseded_at IS NULL）
     (10, include_str!("../../../migrations/0010_character_state_history.sql")),
+    // 时间线分叉地基（方案《多角色与时间线-最终》§2 第 3 步）：sessions 扩可空
+    // 分叉元信息两列（forked_from_session_id 不设外键、fork_anchor_scene_idx 记锚场景号）
+    (11, include_str!("../../../migrations/0011_session_fork.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

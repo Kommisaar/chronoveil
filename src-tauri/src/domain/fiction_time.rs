@@ -27,6 +27,20 @@ pub fn clamp_day(new: i64, last: Option<i64>) -> i64 {
     }
 }
 
+/// 每月天数合法域上界（域 = 1..=999，含端点）：跨文件边界常量的单一事实源，
+/// 各钳制点编译期引用本常量，禁止再独立硬编码 999。消费方：
+///
+/// - AI 起草合理性钳制（`services::calendar_draft`，range 与 prompt 文案同源）；
+/// - 前端表单校验（`src/features/characters/editor/calendarForm.ts` 同名常量
+///   ——TS 无法编译期引用 Rust，注释互指，改动须两侧同步）。
+///
+/// [`validate`] 只守下限（`days_per_month > 0`，0 = 无月换算基准哨兵，见字段
+/// 文档）：上限属 AI 输出合理性钳制而非 domain 不变量，落库路径（角色卡 / 开局
+/// 日历）不做 999 校验是现状语义，本常量不参与 [`validate`] 判定。
+/// 类型取 u32：与 [`CalendarConfig::days_per_month`] 字段及各消费方的 range
+/// 判定（`1..=MAX_DAYS_PER_MONTH`）直接绑定，避免类型转换。
+pub const MAX_DAYS_PER_MONTH: u32 = 999;
+
 /// 角色世界观日历（FR-013；data_model §7.6 schema）。只做 day → 命名的双射换算皮肤，
 /// 不参与记账。全部字段缺省可用：空配置 = 无命名皮肤（v1 默认历）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

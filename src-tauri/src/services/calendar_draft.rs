@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::domain::fiction_time::{self, CalendarConfig};
+use crate::domain::fiction_time::{self, CalendarConfig, MAX_DAYS_PER_MONTH};
 use crate::domain::models::LlmCallKind;
 use crate::infra::config::Config as FileConfig;
 use crate::infra::llm::{CallTrace, CancelHandle, ChatMessage, ChatRole, LlmClient, LlmConfig};
@@ -26,8 +26,9 @@ const MAX_NAME_ITEMS: usize = 64;
 const MAX_ITEM_CHARS: usize = 32;
 /// 合理性钳制：节日条数上限。
 const MAX_FESTIVALS: usize = 64;
-/// 合理性钳制：每月天数上限（下限 1 由 [`fiction_time::validate`] 把守）。
-const MAX_DAYS_PER_MONTH: u32 = 999;
+// 每月天数上界不在此定义：直接引用 domain 单一事实源
+// `fiction_time::MAX_DAYS_PER_MONTH`（模块顶部 use），钳制 range、报错文案与
+// prompt 取值域说明三处同源；下限 1 由 [`fiction_time::validate`] 把守。
 
 // ---------------------------------------------------------------------------
 // 错误（调用方 ipc 层映射为 IpcError 分型）
@@ -67,30 +68,36 @@ impl std::error::Error for CalendarDraftError {}
 // ---------------------------------------------------------------------------
 
 /// 起草 system 指令：只输出 JSON、schema 说明、取材与自洽规则、默认结构。
-fn system_prompt() -> &'static str {
-    "你是世界观设定助手：根据用户给出的世界观描述，起草一份与之自洽的架空历法（固定天数历）。
+/// days_per_month 取值域上界由单一事实源 [`fiction_time::MAX_DAYS_PER_MONTH`]
+/// 格式化注入，与 [`coerce_days_per_month`] 的钳制 range 同源，消除文案与
+/// 逻辑漂移；schema 示例中的花括号是字面 JSON 而非占位符，故转义为
+/// `{{` / `}}`。
+fn system_prompt() -> String {
+    format!(
+        "你是世界观设定助手：根据用户给出的世界观描述，起草一份与之自洽的架空历法（固定天数历）。
 只输出一个 JSON 对象——不要 markdown 代码围栏（不要输出 ```），不要解释，不要输出 JSON 以外的任何文字。
 
 JSON schema（字段名固定）：
-{
+{{
   \"name\": \"历法名（字符串，或 null 表示不命名）\",
   \"months\": [\"月名\", …],
   \"days_per_month\": 每月天数（正整数）,
   \"day_names\": [\"日名\", …],
-  \"festivals\": {\"年内第几天\": \"节日名\", …}
-}
+  \"festivals\": {{\"年内第几天\": \"节日名\", …}}
+}}
 
 字段说明：
 - months：月名序列（字符串数组），按时间顺序排列；
-- days_per_month：每月天数，1–999 的正整数；
+- days_per_month：每月天数，1–{MAX_DAYS_PER_MONTH} 的正整数；
 - day_names：日名序列（字符串数组，如七曜），按（当日 - 1）对序列长度取模循环使用；
-- festivals：节日表对象，键为「年内第几天」的数字字符串（从 1 起，如 \"45\"），值为节日名；没有节日给空对象 {}。
+- festivals：节日表对象，键为「年内第几天」的数字字符串（从 1 起，如 \"45\"），值为节日名；没有节日给空对象 {{}}。
 
 起草规则：
 1. 默认结构为一年 12 个月、每月 30 天，除非描述另有说明；
 2. 历法名、月名、日名与节日名从描述中取材命名（人物、地名、意象、事件等），与世界观自洽；
 3. 不要发明与描述矛盾的设定；描述未提及的细节用中性、可泛化的命名补全；
 4. 每个节日的「年内第几天」不得超过一年总天数（月数 × 每月天数）。"
+    )
 }
 
 /// 装配起草 prompt：system 指令 + 单条 user（世界观描述）。
@@ -162,7 +169,9 @@ fn coerce_names(
 }
 
 /// 每月天数容错：接受整数、整数值浮点（30.0）与数字字符串（"30"）；
-/// 缺失 / 形态不符 / 越界（1–999 之外）记因。
+/// 缺失 / 形态不符 / 越界（合法域 1..=[`fiction_time::MAX_DAYS_PER_MONTH`]
+/// 之外）记因。上界为 domain 单一事实源（与 system prompt 文案同源）；
+/// 下限 1 由 [`fiction_time::validate`] 把守（0 = 无月换算基准哨兵）。
 fn coerce_days_per_month(
     value: Option<&serde_json::Value>,
     reasons: &mut Vec<String>,

@@ -5,8 +5,8 @@
  * - 会话：阵容制建会话（非空 + is_user 恰好一 + 逐成员卡在世 → 逐卡实例化快照，
  *   D1/D2）、快照与卡隔离（改卡不影响已建会话读数）、软删后不再出现、重复删除
  *   NotFound、列表 updated_at DESC + id DESC（infra/storage/sessions.rs 排序）；
- * - 消息：先取会话（不存在 / 已删 → NotFound）、instanceId 实例真值（user 条 =
- *   用户扮演位实例，assistant 条 = 发声 LLM 位实例）；
+ * - 消息：先取会话（不存在 / 已删 → NotFound）、characterId wire 定案（assistant 条 =
+ *   说话实例真值，user 条恒 null）；
  * - 场景 / 人物状态列表（FR-011 / FR-012）：mock 无存储诚实返回空数组、
  *   会话不存在 / 已软删 → NotFound；
  * - 发送：检查顺序（先会话后内容）、只回执用户条 + mock 占位回复、FR-007 标题
@@ -117,8 +117,8 @@ describe('listSessions（FR-007 排序 / 软删过滤）', () => {
     const { backend } = await loadMock();
     expect((await backend.listSessions()).map((s) => s.id)).toEqual([1, 2, 3]);
     // 冻结时钟下新建的两条 updatedAt 相同 → id 大者在前
-    await backend.createSession(duo(1), null);
-    await backend.createSession(duo(1), null);
+    await backend.createSession(duo(1), null, null);
+    await backend.createSession(duo(1), null, null);
     expect((await backend.listSessions()).map((s) => s.id)).toEqual([5, 4, 1, 2, 3]);
   });
 
@@ -144,6 +144,7 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
         { characterId: 1, isUser: false },
       ],
       null,
+      null,
     );
     // 1+2 → 3 实例；种子实例 id 最大 6，游标 7 起全局自增（不与会话 1–3 冲突）
     expect(created.instances).toHaveLength(3);
@@ -154,6 +155,7 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
       name: '林深', // 快照名值拷贝（D1）
       isUser: true,
       characterId: 2, // 模板溯源
+      renderStyle: 'ink', // 出场风格快照值拷贝（D1）
     });
     // 同卡可重复入选（D2 自己跟自己对话）：1 号卡两实例同形异 id
     expect(created.instances?.[0]?.name).toBe('苏鸢');
@@ -167,12 +169,12 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
 
   it('阵容为空 / is_user 数量不为 1 报 conflict（D2 恰好一的不变量在 wire 入口把关）', async () => {
     const { backend } = await loadMock();
-    expect(await apiErrorOf(backend.createSession([], null))).toEqual({
+    expect(await apiErrorOf(backend.createSession([], null, null))).toEqual({
       kind: 'conflict',
       message: '会话阵容不能为空',
     });
     expect(
-      (await apiErrorOf(backend.createSession([{ characterId: 1, isUser: false }], null))).kind,
+      (await apiErrorOf(backend.createSession([{ characterId: 1, isUser: false }], null, null))).kind,
     ).toBe('conflict');
     expect(
       (
@@ -182,6 +184,7 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
               { characterId: 1, isUser: true },
               { characterId: 2, isUser: true },
             ],
+            null,
             null,
           ),
         )
@@ -198,12 +201,13 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
           { characterId: 999, isUser: false },
         ],
         null,
+        null,
       ),
     );
     expect(payload).toEqual({ kind: 'notFound', entity: 'character', id: 999 });
     // 错误文案与 Rust IpcError::NotFound 的 Display 一致（ApiError.describe）
     await expect(
-      backend.createSession([{ characterId: 999, isUser: true }], null),
+      backend.createSession([{ characterId: 999, isUser: true }], null, null),
     ).rejects.toMatchObject({
       message: 'character #999 不存在（或已软删除）',
     });
@@ -212,7 +216,7 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
 
   it('快照与卡隔离（D1）：建会后改卡，已建会话的实例读数不变', async () => {
     const { backend } = await loadMock();
-    const created = await backend.createSession(duo(2), null);
+    const created = await backend.createSession(duo(2), null, null);
     await backend.updateCharacter(
       2,
       characterInput({ name: '林深（改）', renderStyle: 'typewriter' }),
@@ -240,28 +244,28 @@ describe('createSession 开局包（FR-014 入参校验对齐 Rust create_sessio
 
   it('带合法开局包照常建会话（mock 不入存储），opening = null（直接开始）等价降级', async () => {
     const { backend } = await loadMock();
-    const withOpening = await backend.createSession(duo(1), opening());
+    const withOpening = await backend.createSession(duo(1), null, opening());
     expect(withOpening.id).toBe(4);
-    const degraded = await backend.createSession(duo(1), null);
+    const degraded = await backend.createSession(duo(1), null, null);
     expect(degraded.id).toBe(5);
   });
 
   it('时段不在六值内报 conflict（fiction_time::PARTS 六值为校验基准）', async () => {
     const { backend } = await loadMock();
     const payload = await apiErrorOf(
-      backend.createSession(duo(1), opening({ ficPart: '半夜三更' })),
+      backend.createSession(duo(1), null, opening({ ficPart: '半夜三更' })),
     );
     expect(payload.kind).toBe('conflict');
     // 六值边界逐一放行
     for (const part of ['清晨', '上午', '午后', '黄昏', '夜', '深夜']) {
-      await backend.createSession(duo(1), opening({ ficPart: part }));
+      await backend.createSession(duo(1), null, opening({ ficPart: part }));
     }
   });
 
   it('起始日 < 1 报 conflict；显式日历缺月长基准 / 月日名全空报 conflict，合法日历放行', async () => {
     const { backend } = await loadMock();
     expect(
-      (await apiErrorOf(backend.createSession(duo(1), opening({ ficDay: 0 })))).kind,
+      (await apiErrorOf(backend.createSession(duo(1), null, opening({ ficDay: 0 })))).kind,
     ).toBe('conflict');
 
     const badCalendar = {
@@ -274,12 +278,12 @@ describe('createSession 开局包（FR-014 入参校验对齐 Rust create_sessio
     expect(
       (
         await apiErrorOf(
-          backend.createSession(duo(1), opening({ calendar: badCalendar, ficDay: null })),
+          backend.createSession(duo(1), null, opening({ calendar: badCalendar, ficDay: null })),
         )
       ).kind,
     ).toBe('conflict');
 
-    await backend.createSession(duo(1), opening({ ficDay: 45, ficPart: '夜', calendar: {
+    await backend.createSession(duo(1), null, opening({ ficDay: 45, ficPart: '夜', calendar: {
       name: '旧都历',
       months: ['霜月', '白蜡月'],
       daysPerMonth: 30,
@@ -359,7 +363,7 @@ describe('deleteSession', () => {
 });
 
 describe('listMessages（ADR-001 读路径）', () => {
-  it('返回种子消息（id 升序）；instanceId 实例真值：user 条为用户位实例，assistant 条为发声 LLM 位实例', async () => {
+  it('返回种子消息（id 升序）；characterId 定案：assistant 条为说话实例真值，user 条恒 null', async () => {
     const { backend } = await loadMock();
     const messages = await backend.listMessages(1);
     expect(messages.map((m) => m.id)).toEqual([1, 2, 3, 4]);
@@ -370,8 +374,8 @@ describe('listMessages（ADR-001 读路径）', () => {
       'assistant',
     ]);
     // 种子会话 1 阵容：实例 1 = 用户位（苏鸢）、实例 2 = LLM 位（苏鸢，自演自 D2）
-    expect(messages[1]?.instanceId).toBe(1);
-    expect(messages[0]?.instanceId).toBe(2);
+    expect(messages[1]?.characterId).toBeNull(); // user 条不携带实例 id（wire 定案）
+    expect(messages[0]?.characterId).toBe(2);
     expect(messages[3]?.interrupted).toBe(true);
   });
 
@@ -391,7 +395,7 @@ describe('listScenes / listCharacterStates（FR-011 / FR-012 读路径）', () =
     expect(await backend.listScenes(1)).toEqual([]);
     expect(await backend.listCharacterStates(1)).toEqual([]);
     // 新建会话同样为空（Rust 侧有开场锚行，mock 无 scenes 表——差异仅此一处，语义不破）。
-    const fresh = await backend.createSession(duo(1), null);
+    const fresh = await backend.createSession(duo(1), null, null);
     expect(await backend.listScenes(fresh.id)).toEqual([]);
     expect(await backend.listCharacterStates(fresh.id)).toEqual([]);
   });
@@ -434,7 +438,7 @@ describe('listLlmCalls（透明化功能：LLM 调用轨迹读路径，语义对
 
   it('sendMessage 合成一条 dialogue 轨迹：字段齐全、promptJson 可 parse、内容标注 mock', async () => {
     const { backend } = await loadMock();
-    const session = await backend.createSession(duo(1), null);
+    const session = await backend.createSession(duo(1), null, null);
     await backend.sendMessage(session.id, '你好，雨夜');
     const calls = await backend.listLlmCalls(session.id);
     expect(calls).toHaveLength(1);
@@ -454,8 +458,8 @@ describe('listLlmCalls（透明化功能：LLM 调用轨迹读路径，语义对
 
   it('按 id 倒序（最新在前）；limit 截断取最新；跨会话隔离', async () => {
     const { backend } = await loadMock();
-    const sessionA = await backend.createSession(duo(1), null);
-    const sessionB = await backend.createSession(duo(2), null);
+    const sessionA = await backend.createSession(duo(1), null, null);
+    const sessionB = await backend.createSession(duo(2), null, null);
     await backend.sendMessage(sessionA.id, '第一条');
     await backend.sendMessage(sessionA.id, '第二条');
     await backend.sendMessage(sessionB.id, '别会话');
@@ -478,7 +482,7 @@ describe('listLlmCalls（透明化功能：LLM 调用轨迹读路径，语义对
       entity: 'session',
       id: 999,
     });
-    const session = await backend.createSession(duo(1), null);
+    const session = await backend.createSession(duo(1), null, null);
     await backend.sendMessage(session.id, '轨迹一条');
     await backend.deleteSession(session.id);
     expect(await apiErrorOf(backend.listLlmCalls(session.id))).toEqual({
@@ -490,19 +494,19 @@ describe('listLlmCalls（透明化功能：LLM 调用轨迹读路径，语义对
 });
 
 describe('sendMessage（SEQ-001 回执 / FR-007 标题回填）', () => {
-  it('回执用户条（trim、instanceId 为用户位实例、正数 id）并追加 mock 占位回复（LLM 位实例发声）', async () => {
+  it('回执用户条（trim、characterId 恒 null、正数 id）并追加 mock 占位回复（LLM 位实例发声）', async () => {
     const { backend } = await loadMock();
-    const session = await backend.createSession(duo(1), null);
+    const session = await backend.createSession(duo(1), null, null);
     // 本会话阵容：实例 7 = 用户位、实例 8 = LLM 位（种子实例 1–6 后全局自增）
-    const userInstance = session.instances?.find((i) => i.isUser);
-    const llmInstance = session.instances?.find((i) => !i.isUser);
+    const userInstance = session.instances.find((i) => i.isUser);
+    const llmInstance = session.instances.find((i) => !i.isUser);
     expect(userInstance?.id).toBe(7);
     expect(llmInstance?.id).toBe(8);
     const user = await backend.sendMessage(session.id, '  你好，雨夜  ');
     expect(user).toEqual({
       id: 7, // 种子消息 id 最大 6，游标不冲突
       sessionId: session.id,
-      instanceId: userInstance?.id,
+      characterId: null, // wire 定案：user 条恒 null（实例 id 只在存储层盖章，不出 wire）
       role: 'user',
       content: '你好，雨夜',
       reasoning: null,
@@ -514,7 +518,7 @@ describe('sendMessage（SEQ-001 回执 / FR-007 标题回填）', () => {
     expect(listed).toHaveLength(2);
     const placeholder = listed[1];
     expect(placeholder?.role).toBe('assistant');
-    expect(placeholder?.instanceId).toBe(llmInstance?.id); // 占位回复由 LLM 位实例发声
+    expect(placeholder?.characterId).toBe(llmInstance?.id); // 占位回复由 LLM 位实例发声
     expect(placeholder?.content).toContain('mock');
     expect(placeholder?.reasoning).toBeTruthy();
     expect(placeholder?.thinkMs).toBe(800);
@@ -530,13 +534,13 @@ describe('sendMessage（SEQ-001 回执 / FR-007 标题回填）', () => {
 
   it('标题缺省回填：首条用户消息截断（≤20 字原样，>20 字补省略号）；已有标题不覆盖', async () => {
     const { backend } = await loadMock();
-    const short = await backend.createSession(duo(1), null);
+    const short = await backend.createSession(duo(1), null, null);
     await backend.sendMessage(short.id, '  你好，雨夜  ');
     expect((await backend.listSessions()).find((s) => s.id === short.id)?.title).toBe(
       '你好，雨夜',
     );
 
-    const long = await backend.createSession(duo(1), null);
+    const long = await backend.createSession(duo(1), null, null);
     await backend.sendMessage(long.id, '甲'.repeat(25));
     const longTitle = (await backend.listSessions()).find((s) => s.id === long.id)?.title;
     expect(longTitle).toBe(`${'甲'.repeat(20)}…`);
@@ -604,7 +608,7 @@ describe('regenerateLast（FR-008：软删旧条 + 新条从零演出）', () =>
     expect(replaced?.createdAt).toBe(BASE);
     expect(replaced?.interrupted).toBe(false);
     // 替换条继承原条的发声实例（会话 1 的 LLM 位实例 2）
-    expect(replaced?.instanceId).toBe(2);
+    expect(replaced?.characterId).toBe(2);
 
     const session = (await backend.listSessions()).find((s) => s.id === 1);
     expect(session?.updatedAt).toBe(BASE); // 替换落库刷新 updated_at（ADR-001 单事务）
@@ -620,7 +624,7 @@ describe('regenerateLast（FR-008：软删旧条 + 新条从零演出）', () =>
 
   it('无 assistant 条报 conflict；会话不存在报 NotFound', async () => {
     const { backend } = await loadMock();
-    const fresh = await backend.createSession(duo(1), null);
+    const fresh = await backend.createSession(duo(1), null, null);
     expect(await apiErrorOf(backend.regenerateLast(fresh.id))).toEqual({
       kind: 'conflict',
       message: '会话没有可重新生成的回复',
@@ -668,6 +672,7 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
         { characterId: 2, isUser: true },
         { characterId: 1, isUser: false },
       ],
+      null,
       null,
     );
     const refreshed = await backend.listCharacters();
@@ -858,7 +863,7 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
 });
 
 describe('mock/data.ts 种子（结构完整性）', () => {
-  it('引用完整：阵容 is_user 恰好一、实例溯源在世角色、消息 instanceId 属本会话阵容、interrupted 只在 assistant 条', async () => {
+  it('引用完整：阵容 is_user 恰好一、实例溯源在世角色、消息 characterId 属本会话阵容（user 条恒 null）、interrupted 只在 assistant 条', async () => {
     const { data } = await loadMock();
     const characterIds = new Set(data.characters.map((c) => c.id));
     const sessionIds = new Set(data.sessions.map((s) => s.id));
@@ -867,7 +872,7 @@ describe('mock/data.ts 种子（结构完整性）', () => {
     const allInstanceIds: number[] = [];
     for (const session of data.sessions) {
       // 阵容非空且 is_user 恰好一处 true（D2）；实例模板溯源指向在世卡（本切片无动态人物）
-      const instances = session.instances ?? [];
+      const instances = session.instances;
       expect(instances.length).toBeGreaterThan(0);
       expect(instances.filter((i) => i.isUser)).toHaveLength(1);
       for (const instance of instances) {
@@ -886,10 +891,15 @@ describe('mock/data.ts 种子（结构完整性）', () => {
       const instanceIds = instanceIdsBySession.get(Number(key));
       for (const message of messages) {
         expect(message.sessionId).toBe(Number(key));
-        expect(
-          instanceIds?.has(message.instanceId),
-          `消息 ${message.id} 的 instanceId 应属本会话阵容`,
-        ).toBe(true);
+        if (message.role === 'user') {
+          // wire 定案（ipc.rs to_chat_message）：user 条恒 null，不带实例 id
+          expect(message.characterId, `用户条 ${message.id} 的 characterId 应为 null`).toBeNull();
+        } else {
+          expect(
+            message.characterId !== null && instanceIds?.has(message.characterId),
+            `消息 ${message.id} 的说话实例应属本会话阵容`,
+          ).toBe(true);
+        }
         if (message.interrupted) expect(message.role).toBe('assistant');
       }
     }

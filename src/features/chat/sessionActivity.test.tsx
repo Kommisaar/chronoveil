@@ -48,7 +48,7 @@ const handlers = new Map<number, StreamEventHandler>();
 const USER_MESSAGE: ChatMessage = {
   id: 101,
   sessionId: 3,
-  instanceId: 1,
+  characterId: null, // wire 定案：user 条恒 null
   role: 'user',
   content: '你好',
   reasoning: null,
@@ -60,7 +60,7 @@ const USER_MESSAGE: ChatMessage = {
 const ASSISTANT_MESSAGE: ChatMessage = {
   id: 100,
   sessionId: 3,
-  instanceId: 1,
+  characterId: 1, // 说话实例真值（wire 定案）
   role: 'assistant',
   content: '旧回复',
   reasoning: null,

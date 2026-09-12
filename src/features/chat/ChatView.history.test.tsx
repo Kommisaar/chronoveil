@@ -61,22 +61,22 @@ const CHARACTER: CharacterSummary = {
   sessionCount: 1,
 };
 
-// 会话 3 的 roster 回显（多角色第 1 步）：说话人按实例名显示——
+// 会话 3 的 roster 回显（多角色阵容制）：说话人按实例名显示——
 // 实例 11 = LLM 位「织星者」（模板卡 1），实例 10 = 用户位「旅人」（模板卡 2）
 const SESSION: SessionSummary = {
   id: 3,
   title: '',
   updatedAt: 0,
   instances: [
-    { id: 10, name: '旅人', isUser: true, characterId: 2 },
-    { id: 11, name: '织星者', isUser: false, characterId: 1 },
+    { id: 10, name: '旅人', isUser: true, characterId: 2, renderStyle: 'fade' },
+    { id: 11, name: '织星者', isUser: false, characterId: 1, renderStyle: 'ink' },
   ],
 };
 
 const USER_MESSAGE: ChatMessage = {
   id: 101,
   sessionId: 3,
-  instanceId: 10,
+  characterId: null, // wire 定案：user 条恒 null
   role: 'user',
   content: '你好 *不解析*',
   reasoning: null,
@@ -88,7 +88,7 @@ const USER_MESSAGE: ChatMessage = {
 const ASSISTANT_MESSAGE: ChatMessage = {
   id: 100,
   sessionId: 3,
-  instanceId: 11,
+  characterId: 11, // 说话实例真值（wire 定案）
   role: 'assistant',
   content: '*她抬起头*，声音很轻。\n\n**别走。**\n\n---\n\n- 甲\n- 乙',
   reasoning: '内心戏',

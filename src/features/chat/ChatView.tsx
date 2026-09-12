@@ -23,14 +23,12 @@ import { useTranslation } from 'react-i18next';
 import {
   cancelGeneration,
   getConfig,
-  listCharacters,
   listMessages,
   regenerateLast,
   sendMessage,
 } from '../../api/commands';
 import { isTauri } from '../../api/client';
 import type {
-  CharacterSummary,
   ChatMessage,
   ConfigDto,
 } from '../../api/types';
@@ -247,7 +245,6 @@ export function ChatView() {
   // 事件级活性刷新（TASK-010）：落库 / 终态时点触发，失败在 store 侧静默
   const refreshSessionsQuietly = useUiStore((s) => s.refreshSessionsQuietly);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [characters, setCharacters] = useState<Map<number, CharacterSummary>>(new Map());
   const [config, setConfig] = useState<ConfigDto | null>(null);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
@@ -262,9 +259,6 @@ export function ChatView() {
   const busy = pending || streamState !== null;
 
   useEffect(() => {
-    void listCharacters().then((list) => {
-      setCharacters(new Map(list.map((c) => [c.id, c])));
-    });
     void getConfig()
       .then(setConfig)
       .catch(() => {
@@ -389,27 +383,26 @@ export function ChatView() {
     return <EmptyState message={t('chat.empty')} />;
   }
 
-  // 当前会话的 roster 回显（多角色第 1 步）：历史消息说话人 / 流式行归属都按
-  // 实例取——消息 instanceId 是实例真值，名字从会话的 instances 回显映射
+  // 当前会话的 roster 回显（多角色阵容制）：历史消息说话人 / 流式行归属都按
+  // 实例取——assistant 消息的 characterId 是说话实例真值（user 条恒 null），
+  // 名字从会话的 instances 回显映射（实例身份的权威来源，D1 快照）。
   const activeRoster = sessions.find((s) => s.id === activeSessionId)?.instances ?? [];
   const instanceNames = new Map(activeRoster.map((instance) => [instance.id, instance.name]));
 
   const speakerOf = (message: ChatMessage): string => {
     if (message.role === 'user') return t('chat.you');
-    return instanceNames.get(message.instanceId) ?? '—';
+    return message.characterId === null ? '—' : (instanceNames.get(message.characterId) ?? '—');
   };
 
   // 流式行说话人：首个 LLM 位实例。D3 逐拍生成的按实例归属待 Rust 事件携带
-  // 实例 id（Task-30 后对齐），事件流 v1 不区分实例，先以主 LLM 位显示；
-  // renderStyle 从该实例的模板溯源卡读取（实例 wire 回显不带快照 renderStyle）。
-  const primaryLlm = activeRoster.find((instance) => !instance.isUser) ?? activeRoster[0];
-  const primaryTemplateId = primaryLlm?.characterId ?? null;
+  // 实例 id（事件流 v1 不区分实例），先以主 LLM 位显示；renderStyle 读实例
+  // 快照回显（D1：改卡不回写，动态造人实例也无模板卡可查）。
+  // 不做 `?? activeRoster[0]` 兜底：阵容无 LLM 位时把用户位当流式发声人是错误
+  // 归属，缺位就诚实缺省（'—' / 无动效参数）。
+  const primaryLlm = activeRoster.find((instance) => !instance.isUser);
   const sessionSpeaker = primaryLlm?.name ?? '—';
   const tuning = {
-    style:
-      primaryTemplateId === null
-        ? undefined
-        : characters.get(primaryTemplateId)?.renderStyle,
+    style: primaryLlm?.renderStyle,
     msPerChar: config?.rhythmMsPerChar,
     punctPause: config?.punctPauseEnabled,
     durationMs: config?.animDurationBase,

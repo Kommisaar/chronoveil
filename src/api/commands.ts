@@ -30,25 +30,6 @@ import type {
   UpdateCharacterInput,
 } from './types';
 
-/**
- * 【契约 stub——移除条件：Task-30 合入后 bindings 再生成阵容制签名与
- * messages.instance_id wire，本投影删除，调用点直接用 `commands.*`】Task-30
- * 落地前生成物仍是单角色旧契约（create_session(characterId, title, opening)、
- * ChatMessage.characterId），与冻结契约不匹配；此处按冻结契约声明受影响命令面
- * 的投影供 isTauri 路径以终态调用形态编译（TS 层面自洽；运行时桌面壳内行为待
- * Task-30 落地后自然对齐）。
- */
-type RosterBindings = {
-  createSession: (
-    members: SessionRosterMember[],
-    opening: SessionOpeningInput | null,
-  ) => Promise<Result<SessionSummary, IpcError>>;
-  listMessages: (sessionId: number) => Promise<Result<ChatMessage[], IpcError>>;
-  sendMessage: (sessionId: number, content: string) => Promise<Result<ChatMessage, IpcError>>;
-  regenerateLast: (sessionId: number) => Promise<Result<ChatMessage, IpcError>>;
-};
-const rosterBindings = commands as unknown as RosterBindings;
-
 async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
   const outcome = await promise;
   if (outcome.status === 'error') throw new ApiError(outcome.error);
@@ -62,18 +43,20 @@ export async function listSessions(): Promise<SessionSummary[]> {
 }
 
 /**
- * 新建会话（FR-007 / FR-014 开局向导，多角色第 1 步阵容制改造）：`members` =
- * 会话阵容（恰好一个用户扮演位，D2），后端逐卡实例化快照（D1）；`opening` 缺省
- * 或 null = 降级路径——后端同样无条件 seed 默认锚开场行（day=1 / part=夜 /
- * 日历走会话快照，§7-6；calendar_config 快照透传维持现状）。
+ * 新建会话（FR-007 / FR-014 开局向导，多角色阵容制）：`members` = 会话阵容
+ * （恰好一个用户扮演位，D2），后端逐卡实例化快照（D1）并经返回值 / 列表回显
+ * instances；`title` 缺省（null）由后端取首条用户消息截断回填（FR-007），向导
+ * 本切片不收集标题恒传 null；`opening` 缺省或 null = 降级路径——后端同样无条件
+ * seed 默认锚开场行（day=1 / part=夜 / 日历走会话快照，§7-6）。
  */
 export async function createSession(
   members: SessionRosterMember[],
+  title: string | null,
   opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
   return isTauri
-    ? unwrap(rosterBindings.createSession(members, opening ?? null))
-    : mock.createSession(members, opening);
+    ? unwrap(commands.createSession(members, title, opening ?? null))
+    : mock.createSession(members, title, opening);
 }
 
 export async function deleteSession(sessionId: number): Promise<void> {
@@ -96,7 +79,7 @@ export async function draftCalendar(description: string): Promise<CalendarConfig
 // ---- 消息（ADR-001）----
 
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
-  return isTauri ? unwrap(rosterBindings.listMessages(sessionId)) : mock.listMessages(sessionId);
+  return isTauri ? unwrap(commands.listMessages(sessionId)) : mock.listMessages(sessionId);
 }
 
 // ---- 场景与人物状态（FR-011 / FR-012 读路径：叙事账本面板数据地基）----
@@ -134,7 +117,7 @@ export async function sendMessage(
   content: string,
 ): Promise<ChatMessage> {
   return isTauri
-    ? unwrap(rosterBindings.sendMessage(sessionId, content))
+    ? unwrap(commands.sendMessage(sessionId, content))
     : mock.sendMessage(sessionId, content);
 }
 
@@ -147,7 +130,7 @@ export async function cancelGeneration(sessionId: number): Promise<boolean> {
 
 export async function regenerateLast(sessionId: number): Promise<ChatMessage> {
   return isTauri
-    ? unwrap(rosterBindings.regenerateLast(sessionId))
+    ? unwrap(commands.regenerateLast(sessionId))
     : mock.regenerateLast(sessionId);
 }
 

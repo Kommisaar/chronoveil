@@ -82,8 +82,8 @@ const SESSION: SessionSummary = {
   title: '',
   updatedAt: 0,
   instances: [
-    { id: 1, name: '织星者', isUser: true, characterId: 1 },
-    { id: 2, name: '守塔人', isUser: false, characterId: 2 },
+    { id: 1, name: '织星者', isUser: true, characterId: 1, renderStyle: 'fade' },
+    { id: 2, name: '守塔人', isUser: false, characterId: 2, renderStyle: 'ink' },
   ],
 };
 
@@ -146,7 +146,7 @@ const SCENES: SceneDto[] = [
 const STATES: CharacterStateDto[] = [
   {
     id: 41,
-    characterId: 1,
+    instanceId: 1,
     scope: 'state',
     key: '伤势',
     value: '左臂脱臼',
@@ -156,7 +156,7 @@ const STATES: CharacterStateDto[] = [
   },
   {
     id: 42,
-    characterId: 1,
+    instanceId: 1,
     scope: 'relation',
     key: '对守塔人',
     value: '戒备',

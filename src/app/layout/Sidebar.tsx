@@ -283,12 +283,11 @@ export function Sidebar() {
   }, [hint]);
 
   // 条目标题：库中标题为空（新建会话尚无首条用户消息）时回退用户位实例名——
-  // 多角色第 1 步起 characterName 派生来源从会话角色改为 roster 回显的用户位
-  // 实例（方案 §2.1「侧栏读 is_user」）；instances 缺席（契约 stub 可选字段
-  // 未回显）时维持「新会话」占位。
+  // 多角色阵容制起标题派生来源从会话角色改为 instances 回显的用户位实例
+  // （方案 §2.1「侧栏读 is_user」；instances 恒回显，空阵容才落「新会话」占位）。
   const displayTitle = (session: SessionSummary): string => {
     if (session.title !== '') return session.title;
-    return session.instances?.find((i) => i.isUser)?.name ?? t('sessions.untitled');
+    return session.instances.find((i) => i.isUser)?.name ?? t('sessions.untitled');
   };
 
   // 两段式收起：宽度过渡播完再藏 inner（隐藏后内容不可聚焦），展开时立即可见
@@ -349,8 +348,9 @@ export function Sidebar() {
   };
 
   // 新建会话（验收 1 / FR-014 开局向导两步选人）：createSession（阵容制 members，
-  // opening = null 即「直接开始」降级路径，后端同样 seed 默认锚开场行）→ 全量
-  // 重拉（updated_at 倒序进列表）→ 成为当前会话（selectSession 同时保证视图切到聊天）
+  // title 恒 null——向导本切片不收集标题，后端取首条用户消息截断回填；opening =
+  // null 即「直接开始」降级路径，后端同样 seed 默认锚开场行）→ 全量重拉
+  // （updated_at 倒序进列表）→ 成为当前会话（selectSession 同时保证视图切到聊天）
   const createFromRoster = async (
     members: SessionRosterMember[],
     opening: SessionOpeningInput | null,
@@ -358,7 +358,7 @@ export function Sidebar() {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createSession(members, opening);
+      const created = await createSession(members, null, opening);
       await refreshSessions();
       selectSession(created.id);
       setNewOpen(false);

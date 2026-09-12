@@ -26,6 +26,15 @@ export type {
   CalendarConfigDto,
   /** 开局包入参（FR-014；null = 降级路径）。 */
   SessionOpeningInput,
+  /** 建会话阵容位（多角色阵容制 wire；characterId = 模板卡 id，isUser 恰好一处 true）。 */
+  RosterPickInput as SessionRosterMember,
+  /** 会话角色实例回显行（多角色阵容制；建会话快照 D1/D2，非模板卡）。 */
+  SessionInstanceDto,
+  /** 会话摘要（FR-007；instances = 建成后的阵容回显，多角色阵容制 wire）。 */
+  SessionSummary,
+  /** 聊天消息（ADR-001 终态落库形态；characterId = 说话人实例 id 真值——
+   *  assistant 携带实例 id / user 恒 null，勿当模板卡 id 用）。 */
+  ChatMessage,
   /** 应用配置（config.json wire 形态；FR-009 / ADR-012）。 */
   ConfigDto,
   /** 单套 LLM Provider（FR-009）。 */
@@ -39,53 +48,6 @@ export type {
   /** 命令错误（可判别结构；IPC 命令统一返回）。 */
   IpcError,
 } from './generated/bindings';
-
-// ==================================================================
-// 多角色第 1 步契约 stub（冻结契约先行，Rust 侧由 Task-30 并行落地）。
-//
-// 【移除条件：Task-30 合入 master 且 bindings.ts 再生成含阵容制形态后，本段
-// 整体删除，SessionSummary / ChatMessage 恢复从 ./generated/bindings 再导出，
-// 并以 bindings 实际字段名/可空性逐项对齐（形态以后端为准）。】
-//
-// 与旧 wire 的差异（冻结契约）：
-// - create_session 入参从「characterId + opening」改为阵容制 SessionRosterMember[]；
-// - SessionSummary.characterId 删除（D2 的 is_user 取代），新增 instances 回显；
-// - ChatMessage.characterId（命令层推导假值）→ instanceId（实例真值）。
-// ==================================================================
-
-/** 阵容成员（create_session 入参；D2）：characterId = 模板卡 id，isUser 恰好一处 true。 */
-export interface SessionRosterMember {
-  characterId: number;
-  isUser: boolean;
-}
-
-/** 会话角色实例回显（D1 模板/实例分离：建成后的 roster）。 */
-export interface SessionInstanceDto {
-  id: number;
-  /** 设定快照名（建会话时值拷贝自卡；改卡不回写，D1）。 */
-  name: string;
-  /** 扮演位标记，全会话恰好 1（D2）；侧栏 / 统计读它。 */
-  isUser: boolean;
-  /** 模板溯源（选卡实例化记卡 id；D6 动态人物为 null）。 */
-  characterId: number | null;
-}
-
-/** 会话摘要（FR-007；instances 回显形态以后端为准，rebase 对齐）。 */
-export type SessionSummary = {
-  id: number;
-  title: string;
-  updatedAt: number;
-  /** 建成后的 roster 回显；缺省按空阵容处理（回退文案兜底）。 */
-  instances?: SessionInstanceDto[];
-};
-
-/**
- * 聊天消息（ADR-001 终态落库形态；instanceId = 说话实例真值——user 条为用户
- * 扮演位实例，assistant 条为生成位实例；stub 以非空真值声明，rebase 对齐）。
- */
-export type ChatMessage = Omit<import('./generated/bindings').ChatMessage, 'characterId'> & {
-  instanceId: number;
-};
 
 /** 界面偏好档位（FR-009；config.json 键 ui_theme / ui_language） */
 export type ThemeSetting = 'system' | 'light' | 'dark';

@@ -8,8 +8,8 @@ import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderDto } from '../../../api/types';
 import '../../../i18n';
+import { AccentColorPicker } from './AccentColorPicker';
 import {
-  AccentColorPicker,
   OverrideSection,
   PerformanceField,
   PersonaPreviewBox,

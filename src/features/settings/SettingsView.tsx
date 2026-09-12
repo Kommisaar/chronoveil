@@ -23,8 +23,6 @@ import {
   Input,
   Radio,
   RadioGroup,
-  Slider,
-  Switch,
   Text,
   Title1,
   makeStyles,
@@ -35,9 +33,6 @@ import {
   Book20Regular,
   Color20Regular,
   Globe20Regular,
-  Pause20Regular,
-  Sparkle20Regular,
-  Timer20Regular,
 } from '@fluentui/react-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +49,7 @@ import {
   toDraft,
   withoutModel,
 } from './preferences';
+import { RhythmSettingsCard } from './RhythmSettingsCard';
 import { ProviderCard } from './ProviderCard';
 import { SettingsCard, SettingsDivider, SettingsRow } from './SettingsCard';
 
@@ -71,13 +67,10 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     gap: tokens.spacingVerticalL,
   },
-  slider: {
-    width: '240px',
-  },
   animInput: {
     width: '140px',
   },
-  // 动效基准非法时的卡片级行内提示（与底部汇总合计两处，验收 5）
+  // 近景场景数非法时的卡片级行内提示（与底部汇总合计两处，验收 5）
   rowIssue: {
     padding: '0 20px 12px',
     color: tokens.colorPaletteRedForeground1,
@@ -358,63 +351,20 @@ export function SettingsView() {
               />
             </SettingsCard>
 
-            <SettingsCard title={t('settings.rhythmCard')}>
-              <SettingsRow
-                icon={<Timer20Regular />}
-                title={t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}
-                description={t('settings.rhythmDesc')}
-                control={
-                  <Slider
-                    className={styles.slider}
-                    min={10}
-                    max={160}
-                    step={5}
-                    value={draft.rhythmMsPerChar}
-                    aria-label={t('settings.rhythm', { value: String(draft.rhythmMsPerChar) })}
-                    onChange={(_, d) => patch({ rhythmMsPerChar: d.value })}
-                  />
-                }
-              />
-              <SettingsDivider />
-              <SettingsRow
-                icon={<Pause20Regular />}
-                title={t('settings.punctPause')}
-                description={t('settings.punctPauseDesc')}
-                control={
-                  <Switch
-                    checked={draft.punctPauseEnabled}
-                    aria-label={t('settings.punctPause')}
-                    onChange={(_, d) => patch({ punctPauseEnabled: d.checked })}
-                  />
-                }
-              />
-              <SettingsDivider />
-              <SettingsRow
-                icon={<Sparkle20Regular />}
-                title={t('settings.animBaseRow')}
-                description={t('settings.animBaseDesc')}
-                control={
-                  <Input
-                    className={styles.animInput}
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={animBaseText}
-                    aria-label={t('settings.animBase')}
-                    onChange={(_, d) => {
-                      setAnimBaseText(d.value);
-                      const parsed = parseAnimBaseMs(d.value);
-                      if (parsed !== null) patch({ animDurationBase: parsed });
-                    }}
-                  />
-                }
-              />
-              {animBase === null ? (
-                <Text className={styles.rowIssue} role="alert">
-                  {t('settings.issueAnimBase')}
-                </Text>
-              ) : null}
-            </SettingsCard>
+            {/* 节奏卡（视觉件抽在 RhythmSettingsCard）：文本态与解析留在本层 */}
+            <RhythmSettingsCard
+              rhythmMsPerChar={draft.rhythmMsPerChar}
+              onRhythmChange={(value) => patch({ rhythmMsPerChar: value })}
+              punctPauseEnabled={draft.punctPauseEnabled}
+              onPunctPauseChange={(checked) => patch({ punctPauseEnabled: checked })}
+              animBaseText={animBaseText}
+              onAnimBaseTextChange={(text) => {
+                setAnimBaseText(text);
+                const parsed = parseAnimBaseMs(text);
+                if (parsed !== null) patch({ animDurationBase: parsed });
+              }}
+              animBaseInvalid={animBase === null}
+            />
 
             {/* 近景窗口可选化（ADR-004 参数化）：近景携带的已结算场景数，数字输入 */}
             <SettingsCard title={t('settings.contextCard')}>

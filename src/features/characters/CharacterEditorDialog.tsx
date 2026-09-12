@@ -50,7 +50,8 @@ import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/ty
 import { SPRING_CURVE } from '../../components/motion';
 import { CalendarDraftDialog } from './editor/CalendarDraftDialog';
 import { CalendarSection } from './editor/CalendarSection';
-import { AccentColorPicker, OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
+import { AccentColorPicker } from './editor/AccentColorPicker';
+import { OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
 
 /** FLIP 时长：进场形变 400ms 弹簧（过冲后落定，与卡片入场同一节奏），

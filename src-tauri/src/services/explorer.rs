@@ -25,6 +25,11 @@
 //!   scene_id 优先、NULL 段内容场景线兜底），超长场按近景同款字符预算截断头部
 //!   （复用 domain::context::truncate_head）。
 //!
+//! 角色指认（多角色换挂，方案 §3）：结果中的说话人前缀优先用**实例名**（消息
+//! instance_id → 会话实例名，迁移 0009 换挂后的真语义）；实例特性之前的旧数据 /
+//! 未指认消息（instance_id = NULL）回退 role 字符串（`user` / `assistant`），
+//! 旧形态可读性不丢。
+//!
 //! 注入面防御：卷宗正文与 search_history 引文在进入模型上下文 / system 注入前
 //! **换行压平**（\n 与 \r → 单空格），防携带换行的文本伪造段标题（与 Task-02
 //! 状态 value 压平同款风险面）。
@@ -34,11 +39,11 @@
 //! 已取消 → 返回 None，上游 chat_stream 会立刻看到取消并按既有语义走半条落库。
 
 use crate::domain::context;
-use crate::domain::models::{LlmCallKind, Message, Scene};
+use crate::domain::models::{CharacterInstance, LlmCallKind, Message, Scene};
 use crate::domain::ports::StoragePort;
 use crate::infra::llm::{
     ActivityPhase, CallTrace, CancelHandle, ChatMessage, ChatRole, EventSink, LlmClient, LlmEvent,
-    ToolCall, ToolLoopTurn, ToolSpec,
+    MessageIds, ToolCall, ToolLoopTurn, ToolSpec,
 };
 
 /// 工具往返上限：累计达此轮数后强制收尾（下一轮不再带 tools，让模型只输出卷宗正文）。
@@ -71,21 +76,24 @@ const RESEARCHER_SYSTEM: &str = "\
 /// 一次记忆探索：返回卷宗文本；None = 无卷宗（快车道 / 全部降级路径）。
 ///
 /// 输入半：最新用户消息（调用方过滤历史后取最后一条 user）、StoragePort 只读面
-/// （list_messages / list_scenes，读取失败降级 None）、与主对话同一个 LlmClient
-/// （不加新配置项）、活动事件 sink（Task-06，即时透出、不走生成编排终态闸门）、
-/// 事件路由键（session_id + 生成期临时负数 message_id，与主对话事件同键）、取消
-/// 信号。LLM 回路：complete_with_tools 首轮 ToolCalls → 本地执行工具 →
+/// （list_messages / list_scenes，读取失败降级 None）、会话实例阵容（工具结果的
+/// 说话人指认换实例名，多角色换挂）、与主对话同一个 LlmClient（不加新配置项）、
+/// 活动事件 sink（Task-06，即时透出、不走生成编排终态闸门）、事件路由键
+/// （session_id + 生成期临时负数 message_id，与主对话事件同键）、取消信号。
+/// LLM 回路：complete_with_tools 首轮 ToolCalls → 本地执行工具 →
 /// ChatRole::Tool 回填 → 再调用；首轮 Content 且零工具调用 = 快车道 None；
 /// Content 即终止返回卷宗（换行压平后）。
 pub async fn explore(
     storage: &dyn StoragePort,
     llm: &LlmClient,
     sink: &dyn EventSink,
-    session_id: i64,
-    message_id: i64,
+    ids: MessageIds,
     latest_user_message: &str,
+    instances: &[CharacterInstance],
     cancel: &CancelHandle,
 ) -> Option<String> {
+    let session_id = ids.session_id;
+    let message_id = ids.message_id;
     // 读取失败 → 降级无卷宗（warn 留痕，主对话不受影响；不发任何活动事件——
     // 探索从未开始，错误路径不打扰 UI）。
     let messages = match storage.list_messages(session_id) {
@@ -104,6 +112,9 @@ pub async fn explore(
     };
     // 进入探索（Task-06）：存储就绪、即将发起研究员调用。
     emit_activity(sink, session_id, message_id, ActivityPhase::ResearchStart, None);
+    // 实例名映射（多角色换挂）：工具结果的说话人前缀按实例名指认。
+    let roster: Vec<(i64, String)> =
+        instances.iter().map(|i| (i.id, i.name.clone())).collect();
 
     let mut conversation = vec![
         ChatMessage::new(ChatRole::System, RESEARCHER_SYSTEM),
@@ -183,7 +194,7 @@ pub async fn explore(
                             ACTIVITY_DETAIL_MAX_CHARS,
                         )),
                     );
-                    let result = execute_tool(call, &messages, &scenes);
+                    let result = execute_tool(call, &messages, &scenes, &roster);
                     emit_activity(
                         sink,
                         session_id,
@@ -246,7 +257,7 @@ fn tool_specs() -> Vec<ToolSpec> {
 /// 执行一次工具调用并返回回填给模型的文本。所有异常路径（非法 JSON / 缺字段 /
 /// 未知工具名）都返回人类可读的错误文本让模型自行调整，不 abort 不 panic
 /// （探索器无 panic 面：无 unwrap、无越界索引，边界全部走正常错误路径）。
-fn execute_tool(call: &ToolCall, messages: &[Message], scenes: &[Scene]) -> String {
+fn execute_tool(call: &ToolCall, messages: &[Message], scenes: &[Scene], roster: &[(i64, String)]) -> String {
     let args: serde_json::Value = match serde_json::from_str(call.arguments.trim()) {
         Ok(value) => value,
         Err(error) => return format!("参数格式错误：arguments 不是合法 JSON（{error}）"),
@@ -260,13 +271,13 @@ fn execute_tool(call: &ToolCall, messages: &[Message], scenes: &[Scene]) -> Stri
             if keyword.is_empty() {
                 return "参数格式错误：keyword 不能为空".into();
             }
-            search_history(keyword, messages, scenes)
+            search_history(keyword, messages, scenes, roster)
         }
         "read_scene" => {
             let Some(scene) = args.get("scene").and_then(serde_json::Value::as_i64) else {
                 return "参数格式错误：缺少整数字段 scene".into();
             };
-            read_scene(scene, messages, scenes)
+            read_scene(scene, messages, scenes, roster)
         }
         other => format!("未知工具：{other}（可用工具：search_history / read_scene）"),
     }
@@ -274,10 +285,16 @@ fn execute_tool(call: &ToolCall, messages: &[Message], scenes: &[Scene]) -> Stri
 
 /// search_history：对全部历史做内存包含匹配（取舍见模块注释）。**大小写不敏感**
 /// （case-fold：两侧 to_lowercase 后比较——英文关键词不受形态影响，中文
-/// to_lowercase 为恒等映射不受影响）。命中 = 场定位 + 角色前缀 + 引文截断（换行
-/// 压平后注入，防伪造段标题）；场定位与 read_scene 同一命名空间（库内归属优先，
-/// NULL 回退内容序临时标签，见实现内注释）；无命中回「未命中」让模型换关键词或收手。
-fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> String {
+/// to_lowercase 为恒等映射不受影响）。命中 = 场定位 + 说话人前缀（实例名优先，
+/// 未指认回退 role 字符串）+ 引文截断（换行压平后注入，防伪造段标题）；场定位与
+/// read_scene 同一命名空间（库内归属优先，NULL 回退内容序临时标签，见实现内注释）；
+/// 无命中回「未命中」让模型换关键词或收手。
+fn search_history(
+    keyword: &str,
+    messages: &[Message],
+    scenes: &[Scene],
+    roster: &[(i64, String)],
+) -> String {
     let keyword_folded = keyword.to_lowercase();
     let mut hits: Vec<String> = Vec::new();
     // 场号标签两档取法（与 read_scene 按 id 命中同一命名空间，都是 scene.idx）：
@@ -308,7 +325,7 @@ fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> Stri
         // 引文换行压平后截断（注入面防御，见模块注释）。
         let quote =
             truncate_chars(&flatten_newlines(message.content.trim()), HIT_QUOTE_MAX_CHARS);
-        hits.push(format!("[场{}] [{}] {}", label, message.role.as_str(), quote));
+        hits.push(format!("[场{}] [{}] {}", label, speaker_label(message, roster), quote));
     }
     if hits.is_empty() {
         return format!("未命中包含「{keyword}」的消息。");
@@ -326,7 +343,12 @@ fn search_history(keyword: &str, messages: &[Message], scenes: &[Scene]) -> Stri
 /// 不再错位）。行不是任何盖章段、也非末行（进行中 header → ongoing）时回退现行
 /// 内容切分位置对齐（closed[i] 归第 i 行）——覆盖无盖章的旧数据 / 纯内容切分形态，
 /// 回退路径保留既有「场景 N 无消息记录」提示语义（空段 / 越界定位）。
-fn read_scene(scene_idx: i64, messages: &[Message], scenes: &[Scene]) -> String {
+fn read_scene(
+    scene_idx: i64,
+    messages: &[Message],
+    scenes: &[Scene],
+    roster: &[(i64, String)],
+) -> String {
     // 场号 → 行（idx 单调但墓碑行留空洞，按值查找而非下标直取）。
     let Some(position) = scenes.iter().position(|scene| scene.idx == scene_idx) else {
         let available: Vec<String> = scenes.iter().map(|scene| scene.idx.to_string()).collect();
@@ -357,9 +379,19 @@ fn read_scene(scene_idx: i64, messages: &[Message], scenes: &[Scene]) -> String 
         out.push_str("（超长，已从最旧处截断）");
     }
     for message in kept {
-        out.push_str(&format!("\n[{}] {}", message.role.as_str(), message.content));
+        out.push_str(&format!("\n[{}] {}", speaker_label(message, roster), message.content));
     }
     out
+}
+
+/// 说话人指认（多角色换挂）：消息带 instance_id → 会话实例名（模型可读的人名）；
+/// 未指认（旧数据 / NULL）回退 role 字符串，保持旧形态可读。
+fn speaker_label(message: &Message, roster: &[(i64, String)]) -> String {
+    message
+        .instance_id
+        .and_then(|id| roster.iter().find(|(rid, _)| *rid == id))
+        .map(|(_, name)| name.clone())
+        .unwrap_or_else(|| message.role.as_str().to_string())
 }
 
 /// 内容切分场序 → **临时**场号标签（仅 NULL 消息与孤儿盖章的回退档使用）：正常态
@@ -406,7 +438,7 @@ fn flatten_newlines(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::{MessageRole, NewCharacter, NewMessage, NewSession};
+    use crate::domain::models::{CharacterInstance, MessageRole, NewCharacter, NewMessage, NewSession, RosterPick};
     use crate::infra::llm::mock::{json_raw_body, status_head, MockServer};
     use crate::infra::llm::{cancel_channel, LlmConfig, RetryPolicy};
     use crate::infra::storage::test_support::temp_storage;
@@ -501,22 +533,30 @@ mod tests {
         (server, counter)
     }
 
-    /// 临时库 + 角色 + 会话（create_session 已 seed 开场锚行，FR-014）。
-    fn storage_with_session(tag: &str) -> (Arc<Storage>, i64) {
+    /// 临时库 + 阵容（旅人用户位 + 苏鸢 LLM 位）+ 会话（create_session 已 seed 开场
+    /// 锚行，FR-014），返回 (storage, session_id, 实例列表) 供 explore 的指认入参。
+    fn storage_with_session(tag: &str) -> (Arc<Storage>, i64, Vec<CharacterInstance>) {
         let (raw, _dir) = temp_storage(tag);
         let storage = Arc::new(raw);
-        let character = storage
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap();
+        let llm_card = storage
             .create_character(&NewCharacter { name: "苏鸢".into(), ..Default::default() })
             .unwrap();
         let session_id = storage
             .create_session(&NewSession {
-                character_id: character.id,
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
                 title: String::new(),
                 opening: None,
             })
             .unwrap()
             .id;
-        (storage, session_id)
+        let instances = storage.list_instances(session_id).unwrap();
+        (storage, session_id, instances)
     }
 
     /// 纯内存消息构造（盖章形态测试用，与库读出的 Message 同构）。
@@ -532,6 +572,7 @@ mod tests {
             created_at: id,
             interrupt_flag: None,
             scene_id,
+            instance_id: None,
             deleted_at: None,
         }
     }
@@ -557,7 +598,7 @@ mod tests {
     /// 快车道：研究员首轮直接 Content（零工具调用）→ None，且只发一次请求。
     #[tokio::test]
     async fn fast_path_content_without_tools_returns_none() {
-        let (storage, sid) = storage_with_session("exp_fast");
+        let (storage, sid, instances) = storage_with_session("exp_fast");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "今天天气如何"))
             .unwrap();
@@ -568,9 +609,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "今天天气如何",
+            &instances,
             &cancel,
         )
         .await;
@@ -583,7 +624,7 @@ mod tests {
     /// 卷宗 Some；第二轮请求的 wire 形态（assistant tool_calls 原样回传 + tool 结果）。
     #[tokio::test]
     async fn single_tool_roundtrip_returns_dossier() {
-        let (storage, sid) = storage_with_session("exp_round");
+        let (storage, sid, instances) = storage_with_session("exp_round");
         storage
             .insert_message(&NewMessage::new(
                 sid,
@@ -609,9 +650,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "埋下的信物还在吗？",
+            &instances,
             &cancel,
         )
         .await;
@@ -637,7 +678,7 @@ mod tests {
     /// 3 轮工具上限：第 4 轮强制收尾（请求不再带 tools 键），Content 即卷宗。
     #[tokio::test]
     async fn tool_round_cap_forces_wrap_up_without_tools() {
-        let (storage, sid) = storage_with_session("exp_cap");
+        let (storage, sid, instances) = storage_with_session("exp_cap");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "那天的事你还记得吗"))
             .unwrap();
@@ -658,9 +699,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "那天的事",
+            &instances,
             &cancel,
         )
         .await;
@@ -683,7 +724,7 @@ mod tests {
     /// 未知工具名：回错误文本不 abort，回路继续，最终 Content 卷宗照常产出。
     #[tokio::test]
     async fn unknown_tool_name_returns_error_text_and_continues() {
-        let (storage, sid) = storage_with_session("exp_unknown");
+        let (storage, sid, instances) = storage_with_session("exp_unknown");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "还记得吗"))
             .unwrap();
@@ -701,9 +742,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "还记得吗",
+            &instances,
             &cancel,
         )
         .await;
@@ -720,7 +761,7 @@ mod tests {
     /// 非法 JSON arguments：回「参数格式错误」文本，不 abort 不 panic，回路继续。
     #[tokio::test]
     async fn invalid_json_arguments_tolerated() {
-        let (storage, sid) = storage_with_session("exp_badargs");
+        let (storage, sid, instances) = storage_with_session("exp_badargs");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "还记得吗"))
             .unwrap();
@@ -738,9 +779,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "还记得吗",
+            &instances,
             &cancel,
         )
         .await;
@@ -754,7 +795,7 @@ mod tests {
     /// LLM 失败降级（硬约束）：持续 5xx + retry(1) 重试耗尽 → None，共 2 次连接。
     #[tokio::test]
     async fn llm_failure_degrades_to_none() {
-        let (storage, sid) = storage_with_session("exp_5xx");
+        let (storage, sid, instances) = storage_with_session("exp_5xx");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "上次说的那件事"))
             .unwrap();
@@ -777,7 +818,7 @@ mod tests {
         .unwrap();
         let (_signal, cancel) = cancel_channel();
 
-        let out = explore(storage.as_ref(), &llm, &NoopSink, sid, -1, "上次说的那件事", &cancel).await;
+        let out = explore(storage.as_ref(), &llm, &NoopSink, MessageIds { session_id: sid, message_id: -1 }, "上次说的那件事", &instances, &cancel).await;
 
         assert_eq!(out, None, "探索失败降级无卷宗，不向上抛错");
         assert_eq!(server.connection_count(), 2, "重试一次后耗尽");
@@ -786,7 +827,7 @@ mod tests {
     /// 取消：每轮往返间的检查点命中 → None 且不再发起调用。
     #[tokio::test]
     async fn cancelled_explore_returns_none_without_calling() {
-        let (storage, sid) = storage_with_session("exp_cancel");
+        let (storage, sid, instances) = storage_with_session("exp_cancel");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "还记得吗"))
             .unwrap();
@@ -798,9 +839,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "还记得吗",
+            &instances,
             &cancel,
         )
         .await;
@@ -812,7 +853,7 @@ mod tests {
     /// 检索面封顶：总命中 ≤ 8 条、单条引文截断（纯函数路径，LLM 回路不参与）。
     #[test]
     fn search_history_caps_hits_and_truncates_quotes() {
-        let (storage, sid) = storage_with_session("exp_caps");
+        let (storage, sid, _instances) = storage_with_session("exp_caps");
         // 10 条含关键词的消息（第 3 条超长验证截断）。
         for i in 0..10 {
             let content = if i == 2 {
@@ -827,7 +868,7 @@ mod tests {
         let messages = storage.list_messages(sid).unwrap();
         let scenes = storage.list_scenes(sid).unwrap();
 
-        let out = search_history("灯塔", &messages, &scenes);
+        let out = search_history("灯塔", &messages, &scenes, &[]);
 
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 1 + HIT_LIMIT, "标题行 + 恰好 8 条命中：{out}");
@@ -842,7 +883,7 @@ mod tests {
     /// 越界场号回可用清单。
     #[test]
     fn read_scene_returns_whole_scene_and_rejects_unknown() {
-        let (storage, sid) = storage_with_session("exp_read");
+        let (storage, sid, _instances) = storage_with_session("exp_read");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "场一问"))
             .unwrap();
@@ -876,17 +917,17 @@ mod tests {
         assert_eq!(scenes.len(), 2, "锚行 + 场一行（场二线未结算 = 进行中）");
 
         // 场0（锚行）= 收束段整场：触发行原文在内，归收束场。
-        let first = read_scene(0, &messages, &scenes);
+        let first = read_scene(0, &messages, &scenes, &[]);
         assert!(first.starts_with("【场0】共 2 条消息"), "锚行整场：{first}");
         assert!(first.contains("[user] 场一问"));
         assert!(first.contains("[assistant] 场一答\n\n---\n\n场二开场"), "触发行原文在内");
 
         // 场1（末行）= 进行中场：场景线之后的全量。
-        let second = read_scene(1, &messages, &scenes);
+        let second = read_scene(1, &messages, &scenes, &[]);
         assert!(second.starts_with("【场1】共 1 条消息"), "末行归进行中场：{second}");
         assert!(second.contains("[user] 场二问"));
 
-        let missing = read_scene(7, &messages, &scenes);
+        let missing = read_scene(7, &messages, &scenes, &[]);
         assert!(missing.contains("未找到场景 7"), "越界场号回可用清单：{missing}");
         assert!(missing.contains('0') && missing.contains('1'), "清单含可用场号：{missing}");
     }
@@ -910,19 +951,19 @@ mod tests {
         ];
 
         // 场0（锚行 id 1）→ 盖章段 m1-m2 原文（触发行在内）。
-        let zero = read_scene(0, &messages, &scenes);
+        let zero = read_scene(0, &messages, &scenes, &[]);
         assert!(zero.starts_with("【场0】共 2 条消息"), "锚行整场：{zero}");
         assert!(zero.contains("[user] 场零问") && zero.contains("场零答"));
 
         // 场1（行 id 2）→ 盖章段 m5-m6；欠账消息 m3/m4 不被误归（旧版位置对齐
         // 会取到 closed[1] = 欠账段）。
-        let first = read_scene(1, &messages, &scenes);
+        let first = read_scene(1, &messages, &scenes, &[]);
         assert!(first.starts_with("【场1】共 2 条消息"), "按 id 命中盖章段：{first}");
         assert!(first.contains("真场问") && first.contains("真场答"), "真场原文在内：{first}");
         assert!(!first.contains("欠账"), "欠账段不误归给行 2：{first}");
 
         // 场2（末行）→ 进行中场（NULL 尾）。
-        let ongoing = read_scene(2, &messages, &scenes);
+        let ongoing = read_scene(2, &messages, &scenes, &[]);
         assert!(ongoing.starts_with("【场2】共 1 条消息"), "末行归进行中场：{ongoing}");
         assert!(ongoing.contains("[user] 进行中问"));
     }
@@ -940,25 +981,25 @@ mod tests {
             stamped_message(3, MessageRole::User, "进行中问", None),
         ];
 
-        let zero = read_scene(0, &messages, &scenes);
+        let zero = read_scene(0, &messages, &scenes, &[]);
         assert!(zero.starts_with("【场0】共 2 条消息"), "回退内容位置对齐：{zero}");
         assert!(zero.contains("[assistant] 场一答"), "触发行原文在内：{zero}");
 
         // 行 2：无盖章段、非末行、closed 仅 1 段 → 既有「无消息记录」语义保留。
-        let empty = read_scene(1, &messages, &scenes);
+        let empty = read_scene(1, &messages, &scenes, &[]);
         assert!(
             empty.contains("场景 1 无消息记录"),
             "空段 / 越界定位回提示文本：{empty}"
         );
 
-        let ongoing = read_scene(2, &messages, &scenes);
+        let ongoing = read_scene(2, &messages, &scenes, &[]);
         assert!(ongoing.contains("[user] 进行中问"), "末行归进行中场：{ongoing}");
     }
 
     /// 卷宗正文为空白（查证后模型输出空内容）→ 视为无效卷宗返回 None，不注入空段。
     #[tokio::test]
     async fn blank_dossier_content_treated_as_none() {
-        let (storage, sid) = storage_with_session("exp_blank");
+        let (storage, sid, instances) = storage_with_session("exp_blank");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "上次的事"))
             .unwrap();
@@ -972,7 +1013,7 @@ mod tests {
         let (_signal, cancel) = cancel_channel();
 
         let out =
-            explore(storage.as_ref(), &client(&server.url()), &NoopSink, sid, -1, "上次的事", &cancel)
+            explore(storage.as_ref(), &client(&server.url()), &NoopSink, MessageIds { session_id: sid, message_id: -1 }, "上次的事", &instances, &cancel)
                 .await;
 
         assert_eq!(out, None, "空白卷宗不注入");
@@ -984,7 +1025,7 @@ mod tests {
     /// dossier_ready，顺序单调、字段（路由键 + detail 技术摘要）逐项断言。
     #[tokio::test]
     async fn activity_events_sequence_for_tool_roundtrip() {
-        let (storage, sid) = storage_with_session("exp_actseq");
+        let (storage, sid, instances) = storage_with_session("exp_actseq");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "灯塔的旧事"))
             .unwrap();
@@ -1003,9 +1044,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &recorder,
-            sid,
-            -7,
+            MessageIds { session_id: sid, message_id: -7 },
             "还记得灯塔吗",
+            &instances,
             &cancel,
         )
         .await;
@@ -1046,7 +1087,7 @@ mod tests {
     /// 快车道：research_start → research_skipped 恰好两条，无工具与卷宗事件。
     #[tokio::test]
     async fn fast_path_emits_research_skipped() {
-        let (storage, sid) = storage_with_session("exp_actskip");
+        let (storage, sid, instances) = storage_with_session("exp_actskip");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "今天天气如何"))
             .unwrap();
@@ -1058,9 +1099,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &recorder,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "今天天气如何",
+            &instances,
             &cancel,
         )
         .await;
@@ -1077,7 +1118,7 @@ mod tests {
     /// （错误路径不发事件打扰 UI，主对话流式随即开始）。
     #[tokio::test]
     async fn llm_failure_degrades_without_dossier_event() {
-        let (storage, sid) = storage_with_session("exp_actfail");
+        let (storage, sid, instances) = storage_with_session("exp_actfail");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "上次说的那件事"))
             .unwrap();
@@ -1087,7 +1128,7 @@ mod tests {
         let (_signal, cancel) = cancel_channel();
         let recorder = RecordingSink(Mutex::new(Vec::new()));
 
-        let out = explore(storage.as_ref(), &client(&server.url()), &recorder, sid, -1, "上次说的那件事", &cancel).await;
+        let out = explore(storage.as_ref(), &client(&server.url()), &recorder, MessageIds { session_id: sid, message_id: -1 }, "上次说的那件事", &instances, &cancel).await;
 
         assert_eq!(out, None, "失败降级无卷宗");
         assert_eq!(
@@ -1101,7 +1142,7 @@ mod tests {
     /// （注入面防御，与 Task-02 状态 value 同款风险）；dossier_ready detail 同样压平。
     #[tokio::test]
     async fn dossier_newlines_flattened() {
-        let (storage, sid) = storage_with_session("exp_flat_dossier");
+        let (storage, sid, instances) = storage_with_session("exp_flat_dossier");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "灯塔的旧事"))
             .unwrap();
@@ -1120,9 +1161,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &recorder,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "还记得灯塔吗",
+            &instances,
             &cancel,
         )
         .await;
@@ -1146,7 +1187,7 @@ mod tests {
     /// 不破坏命中列表的行结构（标题行 + 每命中一行）。
     #[test]
     fn search_history_flattens_newlines_in_quotes() {
-        let (storage, sid) = storage_with_session("exp_flat_quote");
+        let (storage, sid, _instances) = storage_with_session("exp_flat_quote");
         storage
             .insert_message(&NewMessage::new(
                 sid,
@@ -1157,7 +1198,7 @@ mod tests {
         let messages = storage.list_messages(sid).unwrap();
         let scenes = storage.list_scenes(sid).unwrap();
 
-        let out = search_history("灯塔", &messages, &scenes);
+        let out = search_history("灯塔", &messages, &scenes, &[]);
 
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 2, "标题行 + 恰好一条命中（引文内部不再拆行）：{out}");
@@ -1173,7 +1214,7 @@ mod tests {
     /// 中文关键词行为不变。
     #[test]
     fn search_history_matches_case_insensitively() {
-        let (storage, sid) = storage_with_session("exp_fold");
+        let (storage, sid, _instances) = storage_with_session("exp_fold");
         storage
             .insert_message(&NewMessage::new(
                 sid,
@@ -1185,15 +1226,15 @@ mod tests {
         let scenes = storage.list_scenes(sid).unwrap();
 
         assert!(
-            search_history("LIGHTHOUSE", &messages, &scenes).starts_with("命中 1 条"),
+            search_history("LIGHTHOUSE", &messages, &scenes, &[]).starts_with("命中 1 条"),
             "大写关键词命中混合大小写原文"
         );
         assert!(
-            search_history("lighthouse", &messages, &scenes).starts_with("命中 1 条"),
+            search_history("lighthouse", &messages, &scenes, &[]).starts_with("命中 1 条"),
             "小写关键词同样命中"
         );
         assert!(
-            search_history("灯塔", &messages, &scenes).starts_with("命中 1 条"),
+            search_history("灯塔", &messages, &scenes, &[]).starts_with("命中 1 条"),
             "中文关键词不受 case-fold 影响"
         );
     }
@@ -1215,7 +1256,7 @@ mod tests {
             stamped_message(6, MessageRole::User, "孤儿旧事", Some(99)),
         ];
 
-        let out = search_history("旧事", &messages, &scenes);
+        let out = search_history("旧事", &messages, &scenes, &[]);
 
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 5, "标题行 + 四条命中：{out}");
@@ -1228,11 +1269,43 @@ mod tests {
         assert!(lines[4].starts_with("[场2] ") && lines[4].contains("孤儿旧事"), "孤儿盖章回退内容序标签：{}", lines[4]);
     }
 
+    /// 角色指认换实例名（多角色换挂，方案 §3）：消息带 instance_id → 前缀为实例名；
+    /// 未指认消息回退 role 字符串（旧形态可读性不丢）。
+    #[test]
+    fn speaker_labels_use_instance_names_with_role_fallback() {
+        let (storage, sid, instances) = storage_with_session("exp_inst_name");
+        let llm_instance = instances.iter().find(|i| !i.is_user).unwrap().id;
+        storage
+            .insert_message(&NewMessage {
+                instance_id: Some(llm_instance),
+                ..NewMessage::new(sid, MessageRole::Assistant, "灯塔的旧事由苏鸢说起。")
+            })
+            .unwrap();
+        storage
+            .insert_message(&NewMessage::new(sid, MessageRole::User, "未指认的旧消息"))
+            .unwrap();
+        let messages = storage.list_messages(sid).unwrap();
+        let scenes = storage.list_scenes(sid).unwrap();
+        let roster: Vec<(i64, String)> =
+            instances.iter().map(|i| (i.id, i.name.clone())).collect();
+
+        let out = search_history("旧", &messages, &scenes, &roster);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 1 + 2, "两条命中：{out}");
+        assert!(lines[1].contains("[苏鸢] "), "已指认消息以实例名作前缀：{}", lines[1]);
+        assert!(lines[2].contains("[user] "), "未指认消息回退 role 前缀：{}", lines[2]);
+
+        // read_scene 同语义：整场原文带实例名前缀。
+        let scene_text = read_scene(0, &messages, &scenes, &roster);
+        assert!(scene_text.contains("[苏鸢] 灯塔的旧事"), "read_scene 指认实例名：{scene_text}");
+        assert!(scene_text.contains("[user] 未指认的旧消息"), "未指认回退 role：{scene_text}");
+    }
+
     /// 收尾轮再收 ToolCalls 的降级退出：3 轮 tool_calls 后第 4 轮（未带 tools 的
     /// 收尾轮）服务端仍回 tool_calls → None，且恰好 4 次请求（防死循环）。
     #[tokio::test]
     async fn wrap_up_round_tool_calls_degrades_to_none() {
-        let (storage, sid) = storage_with_session("exp_wrapup");
+        let (storage, sid, instances) = storage_with_session("exp_wrapup");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "那天的事"))
             .unwrap();
@@ -1245,9 +1318,9 @@ mod tests {
             storage.as_ref(),
             &client(&server.url()),
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "那天的事",
+            &instances,
             &cancel,
         )
         .await;
@@ -1269,7 +1342,7 @@ mod tests {
     #[tokio::test]
     async fn explore_records_one_trace_per_tool_round() {
         use crate::domain::models::LlmCallKind;
-        let (storage, sid) = storage_with_session("exp_trace");
+        let (storage, sid, instances) = storage_with_session("exp_trace");
         storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "灯塔的旧事"))
             .unwrap();
@@ -1288,9 +1361,9 @@ mod tests {
             storage.as_ref(),
             &llm,
             &NoopSink,
-            sid,
-            -1,
+            MessageIds { session_id: sid, message_id: -1 },
             "还记得灯塔吗",
+            &instances,
             &cancel,
         )
         .await;

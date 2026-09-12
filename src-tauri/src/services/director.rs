@@ -16,8 +16,8 @@ use serde::Deserialize;
 use crate::domain::error::StorageError;
 use crate::domain::fiction_time;
 use crate::domain::models::{
-    Character, CharacterState, CharacterStateScope, LlmCallKind, Message, NewCharacterState,
-    NewScene, Scene, Session,
+    CharacterInstance, CharacterState, CharacterStateScope, LlmCallKind, Message,
+    NewCharacterState, NewScene, Scene, Session,
 };
 use crate::domain::ports::{AttachRange, SettlementWrite};
 use crate::domain::state_expiry;
@@ -80,12 +80,14 @@ pub struct DirectorVerdict {
 }
 
 /// 状态操作二态（INT-003）：upsert 写值 / clear 软删同名键。
-/// untagged 按序匹配：含 scope/key/value 判 upsert；只含 character_id + clear 判清除。
+/// untagged 按序匹配：含 scope/key/value 判 upsert；只含 instance_id + clear 判清除。
+/// 多角色换挂（迁移 0009 / 方案 §2.2）：模型经结算 prompt 的【在场名单】用**实例 id**
+/// 指认状态归属（名单即 id ↔ 实例名映射，Q5/D9 的「对XX」歧义由 key 文本承载）。
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum StateOp {
     Upsert {
-        character_id: i64,
+        instance_id: i64,
         scope: String,
         key: String,
         value: String,
@@ -93,16 +95,16 @@ pub enum StateOp {
         expiry: Option<String>,
     },
     Clear {
-        character_id: i64,
-        /// 要清除的状态键名（wire 形态 `{"character_id": 1, "clear": "别扭"}`）。
+        instance_id: i64,
+        /// 要清除的状态键名（wire 形态 `{"instance_id": 1, "clear": "别扭"}`）。
         clear: String,
     },
 }
 
-/// 归一后的状态写入（字段级容错完成；session_id 由编排层补齐成 `NewCharacterState`）。
+/// 归一后的状态写入（字段级容错完成；落库形态 `NewCharacterState` 挂实例）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateUpsert {
-    pub character_id: i64,
+    pub instance_id: i64,
     pub scope: CharacterStateScope,
     pub key: String,
     pub value: String,
@@ -121,7 +123,7 @@ pub struct SettlementVerdict {
     pub recap: Option<String>,
     pub present: Vec<i64>,
     pub upserts: Vec<StateUpsert>,
-    /// (character_id, key)：编排层映射到在世状态行 id 后走 soft_delete。
+    /// (instance_id, key)：编排层映射到在世状态行 id 后走 soft_delete。
     pub clears: Vec<(i64, String)>,
 }
 
@@ -129,12 +131,12 @@ pub struct SettlementVerdict {
 /// - location / time_note / summary / recap：缺失或空白 → None（列可空）；
 /// - fic_day：缺失 → 沿用 latest.fic_day（不推进）；小于账本位 → 钳到账本位（BR-003 单调）；
 /// - fic_part：不在六值 → None；
-/// - present / states 引用 roster 外 character_id、scope 非法 → 丢弃该条继续（配合
-///   system 指令与 roster 输入，发生概率低，不值得整次重试烧一次调用）；
+/// - present / states 引用 roster 外 instance_id、scope 非法 → 丢弃该条继续（配合
+///   system 指令与名单输入，发生概率低，不值得整次重试烧一次调用）；
 /// - expiry：非三义 → None（形态由结算层定，见 state_expiry；语义等价「无过期信息」）。
 ///
-/// present 按 §7-7 v1 收窄：多角色 roster 数据模型未落地，在场恒为 roster
-/// （即 `[session.character_id]`）；模型输出的 present 仅作 schema 占位，校验不扩展。
+/// present 恒为 roster（全部实例 id，§7-7 的多角色化收窄）：模型输出的 present 仅作
+/// schema 占位，校验不扩展（离场清算 D4 由后续步骤的状态历史化承接）。
 pub fn normalize(raw: &DirectorVerdict, roster: &[i64], latest: Option<&Scene>) -> SettlementVerdict {
     // 文本字段统一 trim；空白视为缺失。
     let clean = |value: &Option<String>| {
@@ -156,8 +158,8 @@ pub fn normalize(raw: &DirectorVerdict, roster: &[i64], latest: Option<&Scene>) 
     let mut clears = Vec::new();
     for op in &raw.states {
         match op {
-            StateOp::Upsert { character_id, scope, key, value, expiry } => {
-                if !roster.contains(character_id) {
+            StateOp::Upsert { instance_id, scope, key, value, expiry } => {
+                if !roster.contains(instance_id) {
                     continue;
                 }
                 // scope 非法（三态之外）→ 丢条；键值空白 → 同为模型噪声，丢条。
@@ -174,22 +176,22 @@ pub fn normalize(raw: &DirectorVerdict, roster: &[i64], latest: Option<&Scene>) 
                     .filter(|expiry| !expiry.is_empty() && state_expiry::is_valid(expiry))
                     .map(str::to_string);
                 upserts.push(StateUpsert {
-                    character_id: *character_id,
+                    instance_id: *instance_id,
                     scope,
                     key: key.to_string(),
                     value: value.to_string(),
                     expiry,
                 });
             }
-            StateOp::Clear { character_id, clear } => {
-                if !roster.contains(character_id) {
+            StateOp::Clear { instance_id, clear } => {
+                if !roster.contains(instance_id) {
                     continue;
                 }
                 let key = clear.trim();
                 if key.is_empty() {
                     continue;
                 }
-                clears.push((*character_id, key.to_string()));
+                clears.push((*instance_id, key.to_string()));
             }
         }
     }
@@ -272,11 +274,11 @@ fn system_prompt() -> &'static str {
 你的职责（四件事）：
 1. 新场景定稿：给出边界之后新场景的 location（地点）与 time_note（叙事时间原文，如「次日清晨」）。
 2. 收束段两档摘要：对 --- 之前刚收束的整段剧情同时产出两档——summary 用一句远景概括（供久远回看），recap 用两三句加厚回顾（保留关键对话与转折，供刚滑出叙事窗口时回顾）。两档内容一致但详略不同，不是重复同一句。
-3. 状态清算：维护 states。增改状态用 {\"character_id\":…,\"scope\":\"state|relation\",\"key\":…,\"value\":…,\"expiry\":…}；清除状态用 {\"character_id\":…,\"clear\":\"键名\"}。硬规则：value 用叙事语言、绝不用数字；在册总条数保持 10 条以内，超出时合并或清除最陈旧的；expiry 三义取其一：scene_end（下次场景收束失效）/ event:事件名 / manual（仅手动清除）。
+3. 状态清算：维护 states。状态归属用【在场名单】中的**实例 id**（同一角色卡在不同会话是不同实例）指认：增改状态用 {\"instance_id\":…,\"scope\":\"state|relation\",\"key\":…,\"value\":…,\"expiry\":…}；清除状态用 {\"instance_id\":…,\"clear\":\"键名\"}。硬规则：value 用叙事语言、绝不用数字；在册总条数保持 10 条以内，超出时合并或清除最陈旧的；expiry 三义取其一：scene_end（下次场景收束失效）/ event:事件名 / manual（仅手动清除）。
 4. 时间换算：给出 fic_day（第几天，整数）与 fic_part（六值之一：清晨/上午/午后/黄昏/夜/深夜）。模糊时间（「次日」「片刻后」）取最小合理值，并把准确的叙事时间写进 time_note。虚时只被叙事推进，绝不倒流：fic_day 不得小于当前账本位。
 
 输出格式（缺失字段用 null）：
-{\"location\":\"…\",\"time_note\":\"…\",\"fic_day\":2,\"fic_part\":\"夜\",\"summary\":\"…\",\"recap\":\"…\",\"present\":[角色id],\"states\":[{\"character_id\":1,\"scope\":\"state\",\"key\":\"情绪\",\"value\":\"释然\",\"expiry\":\"scene_end\"}]}"
+{\"location\":\"…\",\"time_note\":\"…\",\"fic_day\":2,\"fic_part\":\"夜\",\"summary\":\"…\",\"recap\":\"…\",\"present\":[实例id],\"states\":[{\"instance_id\":1,\"scope\":\"state\",\"key\":\"情绪\",\"value\":\"释然\",\"expiry\":\"scene_end\"}]}"
 }
 
 /// user payload（§2 五段）：上一场快照 / 当前状态集 / 在场名单 / 日历提示 / 本回合叙事。
@@ -315,7 +317,7 @@ fn user_payload(input: &SettlementInput<'_>) -> String {
             .map(|state| {
                 format!(
                     "[{}] {} {} = {} ({})",
-                    state.character_id,
+                    state.instance_id,
                     state.scope.as_str(),
                     state.key,
                     state.value,
@@ -327,7 +329,8 @@ fn user_payload(input: &SettlementInput<'_>) -> String {
     };
     sections.push(format!("【当前状态集】\n{states}"));
 
-    // 3) 在场名单（§7-7：v1 恒为会话角色）。
+    // 3) 在场名单（§7-7 多角色化：全部会话实例；名单即「实例 id ↔ 实例名」映射，
+    //    模型用它指认 states 归属，Q5/D9「对XX」关系歧义由 key 文本承载）。
     let roster = input
         .roster
         .iter()
@@ -436,8 +439,7 @@ fn build_write(
         .upserts
         .iter()
         .map(|upsert| NewCharacterState {
-            character_id: upsert.character_id,
-            session_id,
+            instance_id: upsert.instance_id,
             scope: upsert.scope,
             key: upsert.key.clone(),
             value: upsert.value.clone(),
@@ -449,10 +451,10 @@ fn build_write(
     let state_clears = verdict
         .clears
         .iter()
-        .filter_map(|(character_id, key)| {
+        .filter_map(|(instance_id, key)| {
             states
                 .iter()
-                .find(|state| state.character_id == *character_id && state.key == *key)
+                .find(|state| state.instance_id == *instance_id && state.key == *key)
                 .map(|state| state.id)
         })
         .collect();
@@ -471,16 +473,16 @@ fn build_write(
     }
 }
 
-/// 结算输入的库侧收集结果：会话 / 角色 / 消息史 / 状态集 / 最后场景。
-type GatheredInput = (Session, Character, Vec<Message>, Vec<CharacterState>, Option<Scene>);
+/// 结算输入的库侧收集结果：会话 / 实例阵容 / 消息史 / 状态集 / 最后场景。
+type GatheredInput = (Session, Vec<CharacterInstance>, Vec<Message>, Vec<CharacterState>, Option<Scene>);
 
 fn gather_input(deps: &GenerationDeps, session_id: i64) -> Result<GatheredInput, StorageError> {
     let session = deps.storage.get_session(session_id)?;
-    let character = deps.storage.get_character(session.character_id)?;
+    let instances = deps.storage.list_instances(session_id)?;
     let history = deps.storage.list_messages(session_id)?;
     let states = deps.storage.list_character_states(session_id)?;
     let latest = deps.storage.latest_scene(session_id)?;
-    Ok((session, character, history, states, latest))
+    Ok((session, instances, history, states, latest))
 }
 
 /// 一次结算编排（FR-011 / ADR-005）：由生成闭环在 assistant 落库成功后、done 放行前调用。
@@ -501,13 +503,18 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
         return;
     }
     let session_id = ticket.session_id;
-    let Ok((session, character, history, states, latest)) = gather_input(deps, session_id) else {
+    let Ok((session, instances, history, states, latest)) = gather_input(deps, session_id) else {
         log::warn!("会话 #{session_id} 结算输入读取失败，本轮放弃（欠账由下次结算自愈）");
         return;
     };
     let calendar = fiction_time::parse(session.calendar_config.as_deref());
-    // §7-7：v1 在场名单恒为 [会话角色]（多角色 roster 数据模型未落地）。
-    let roster = vec![(character.id, character.name.clone())];
+    // §7-7 多角色化：在场名单 = 全部会话实例，roster 序 = 实例创建序（id ASC，
+    // 与开场锚行 present 同序；list_instances 的用户位在前的展示序只属 UI 侧）。
+    // 裁决的 present 恒回填名单（迁移 0009 起在场语义 = 实例）。
+    let mut ordered = instances;
+    ordered.sort_by_key(|i| i.id);
+    let roster: Vec<(i64, String)> =
+        ordered.iter().map(|i| (i.id, i.name.clone())).collect();
     let roster_ids: Vec<i64> = roster.iter().map(|(id, _)| *id).collect();
     // §7-4：单条消息多道 `---` 只结算一次（取最后一道）——触发消息即边界，
     // 归属起点取上一道场景线所在消息。
@@ -637,8 +644,8 @@ mod tests {
               "summary": "昨夜争执后两人无言告别",
               "present": [1],
               "states": [
-                { "character_id": 1, "scope": "state", "key": "情绪", "value": "释然", "expiry": "scene_end" },
-                { "character_id": 1, "clear": "别扭" }
+                { "instance_id": 1, "scope": "state", "key": "情绪", "value": "释然", "expiry": "scene_end" },
+                { "instance_id": 1, "clear": "别扭" }
               ]
             }"#,
         )
@@ -660,7 +667,7 @@ mod tests {
     #[test]
     fn verdict_rejects_structural_garbage() {
         // states 元素两种形态都不满足 → serde 拒绝 → 结构级失败（调用方整次重试）。
-        assert!(serde_json::from_str::<DirectorVerdict>(r#"{"states": [{"character_id": 1}]}"#).is_err());
+        assert!(serde_json::from_str::<DirectorVerdict>(r#"{"states": [{"instance_id": 1}]}"#).is_err());
         // fic_day 类型不符 → 结构级失败。
         assert!(serde_json::from_str::<DirectorVerdict>(r#"{"fic_day": "第二天"}"#).is_err());
     }
@@ -700,9 +707,9 @@ mod tests {
                 "summary": "争执后告别",
                 "present": [1, 999],
                 "states": [
-                    {"character_id": 1, "scope": "state", "key": "情绪", "value": "释然", "expiry": "event:亮灯"},
-                    {"character_id": 1, "scope": "relation", "key": "对店主", "value": "信任"},
-                    {"character_id": 1, "clear": "别扭"}
+                    {"instance_id": 1, "scope": "state", "key": "情绪", "value": "释然", "expiry": "event:亮灯"},
+                    {"instance_id": 1, "scope": "relation", "key": "对店主", "value": "信任"},
+                    {"instance_id": 1, "clear": "别扭"}
                 ]
             }"#,
             Some(&scene(Some(1))),
@@ -729,11 +736,11 @@ mod tests {
                 "fic_part": "半夜三更",
                 "summary": "  带空白的摘要  ",
                 "states": [
-                    {"character_id": 1, "scope": "mood", "key": "情绪", "value": "释然"},
-                    {"character_id": 1, "scope": "state", "key": "  ", "value": "释然"},
-                    {"character_id": 1, "scope": "state", "key": "持有", "value": " "},
-                    {"character_id": 1, "scope": "state", "key": "情绪", "value": "平静", "expiry": "明天"},
-                    {"character_id": 1, "scope": "state", "key": "衣着", "value": "斗篷", "expiry": "  "}
+                    {"instance_id": 1, "scope": "mood", "key": "情绪", "value": "释然"},
+                    {"instance_id": 1, "scope": "state", "key": "  ", "value": "释然"},
+                    {"instance_id": 1, "scope": "state", "key": "持有", "value": " "},
+                    {"instance_id": 1, "scope": "state", "key": "情绪", "value": "平静", "expiry": "明天"},
+                    {"instance_id": 1, "scope": "state", "key": "衣着", "value": "斗篷", "expiry": "  "}
                 ]
             }"#,
             None,
@@ -758,9 +765,9 @@ mod tests {
             r#"{
                 "present": [999],
                 "states": [
-                    {"character_id": 999, "scope": "state", "key": "情绪", "value": "串场"},
-                    {"character_id": 999, "clear": "别扭"},
-                    {"character_id": 1, "scope": "state", "key": "情绪", "value": "守场"}
+                    {"instance_id": 999, "scope": "state", "key": "情绪", "value": "串场"},
+                    {"instance_id": 999, "clear": "别扭"},
+                    {"instance_id": 1, "scope": "state", "key": "情绪", "value": "守场"}
                 ]
             }"#,
             None,
@@ -901,7 +908,7 @@ mod tests {
             .map(|i| {
                 let role =
                     if i % 2 == 0 { crate::domain::models::MessageRole::User } else { crate::domain::models::MessageRole::Assistant };
-                Message { id: i + 1, session_id: 1, role, content: format!("m{i}"), reasoning: None, think_ms: None, tokens: None, created_at: i, interrupt_flag: None, scene_id: None, deleted_at: None }
+                Message { id: i + 1, session_id: 1, role, content: format!("m{i}"), reasoning: None, think_ms: None, tokens: None, created_at: i, interrupt_flag: None, scene_id: None, instance_id: None, deleted_at: None }
             })
             .collect();
         let window = narrative_window(&history, 6_000);
@@ -923,6 +930,7 @@ mod tests {
                 created_at: i,
                 interrupt_flag: None,
                 scene_id: None,
+                instance_id: None,
                 deleted_at: None,
             })
             .collect();
@@ -943,6 +951,7 @@ mod tests {
             created_at: id,
             interrupt_flag: None,
             scene_id: None,
+            instance_id: None,
             deleted_at: None,
         };
         let history = vec![
@@ -1004,7 +1013,7 @@ mod tests {
 
     // ---- 编排集成（Mock HTTP 网关：成功 / Json 失败重试 / cancel 退出） ----
 
-    use crate::domain::models::{NewCharacter, NewMessage, NewSession};
+    use crate::domain::models::{NewCharacter, NewMessage, NewSession, RosterPick};
     use crate::domain::ports::StoragePort;
     use crate::infra::llm::mock::{json_body, MockServer};
     use crate::infra::llm::{EventSink, LlmEvent, RetryPolicy};
@@ -1037,17 +1046,36 @@ mod tests {
         .unwrap()
     }
 
-    /// 结算集成夹具：角色「苏鸢」+ 会话 + user / assistant（含 ---）两条消息，
-    /// 返回 (storage, dir, session_id, char_id, trigger_id)。
+    /// 结算集成夹具：阵容「旅人（用户位）+ 苏鸢（LLM 位，roster 首位 → 实例 id 1）」
+    /// 加会话与 user / assistant（含 ---）两条消息，
+    /// 返回 (storage, dir, session_id, llm_instance_id, trigger_id)。
     fn settlement_setup(tag: &str) -> (Arc<Storage>, PathBuf, i64, i64, i64) {
         let (raw, dir) = temp_storage(tag);
         let storage = Arc::new(raw);
-        let char_id = storage
+        let llm_card = storage
             .create_character(&NewCharacter { name: "苏鸢".into(), ..Default::default() })
             .unwrap()
             .id;
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap()
+            .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card, is_user: false },
+                    RosterPick { character_id: user_card, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
+            .unwrap()
+            .id;
+        let char_id = storage
+            .list_instances(session_id)
+            .unwrap()
+            .into_iter()
+            .find(|i| !i.is_user)
             .unwrap()
             .id;
         storage
@@ -1106,8 +1134,7 @@ mod tests {
             .unwrap();
         let stale = storage
             .upsert_character_state(&NewCharacterState {
-                character_id: char_id,
-                session_id,
+                instance_id: char_id,
                 scope: CharacterStateScope::State,
                 key: "别扭".into(),
                 value: "欲言又止".into(),
@@ -1122,7 +1149,7 @@ mod tests {
             cap.lock().unwrap().push(req.json());
             let _ = json_body(
                 stream,
-                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人在钟楼下的巷口对望。最后她转身走进夜色。","present":[1],"states":[{"character_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"},{"character_id":1,"clear":"别扭"}]}"#,
+                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","recap":"对峙从一句口信误会开始。两人在钟楼下的巷口对望。最后她转身走进夜色。","present":[1],"states":[{"instance_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"},{"instance_id":1,"clear":"别扭"}]}"#,
             );
         });
 
@@ -1145,7 +1172,18 @@ mod tests {
         assert_eq!(newest.fic_part.as_deref(), Some("清晨"));
         assert_eq!(newest.date_label.as_deref(), Some("第2日·清晨"), "date_label 由日历派生");
         assert_eq!(newest.summary, None, "新行不再预填 summary");
-        assert_eq!(newest.present, vec![char_id], "§7-7：在场恒为会话角色");
+        let mut expected_present: Vec<i64> = storage
+            .list_instances(session_id)
+            .unwrap()
+            .iter()
+            .map(|i| i.id)
+            .collect();
+        expected_present.sort_unstable();
+        assert_eq!(
+            newest.present,
+            expected_present,
+            "§7-7 多角色化：在场恒为全部实例（创建序 id ASC，与锚行同序）"
+        );
         // 上一行 summary / recap 回写（边界快照：上一行与其归属消息自洽；Task-03 recap
         // 随 summary 同路径）。
         assert_eq!(scenes[1].summary.as_deref(), Some("钟楼下的对峙无果而终"));

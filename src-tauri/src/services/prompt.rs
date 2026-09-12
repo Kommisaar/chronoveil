@@ -2,19 +2,26 @@
 //!
 //! ADR-004 场景对齐装配（§7.8 近景/远景，替换 ADR-002 条数滑窗）：
 //! - system = 常驻核心五段（各段空态自然省略；全空时不产生 system 回合）：
-//!   1. 人设卡 persona（BR-001「在场完整人设」的 v1 单角色形态）；
+//!   1. 人设段（多角色群像，方案 §2 第 1 步 / D1-D3）：每个 LLM 位实例的 persona
+//!      作为该角色的自我人设——**LLM 位唯一时保持 v1 单角色裸 persona 形态（等价
+//!      改造）**，多 LLM 位时逐个分节（【角色名】+ persona）并附群像语境声明
+//!      （v1.5 简化：多角色按 roster 序单次生成，尚未逐拍独立调用——见 generation.rs）；
+//!      随后注入用户位 persona 作为「对话对手设定」段（措辞「用户扮演的角色：{name}
+//!      ——{persona}」，D2 扮演位；persona 空白时只报名字或整段省略）；
 //!   2. 当前虚时行「当前时间：…」（BR-003 记账层的读者侧投影）：最新场景行的
 //!      记账位 + 会话日历快照（FR-013），让角色知道「现在是什么时间」；
 //!   3. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
-//!      一句话摘要中可用的字段），拼在 persona 之后；persona 为空时 system 只含
+//!      一句话摘要中可用的字段），拼在人设段之后；人设段为空时 system 只含
 //!      其余四段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
 //!      recap（两三句加厚回顾）时追加一行缩进回顾，无 recap 回退单行，更古老的
 //!      场恒一行；
 //!   4. 相关回忆（卷宗，Task-05 记忆探索器产出）：探索器查证出的与本回合直接
 //!      相关的往事引文与事实（services/explorer.rs）；None / 空白省略；
-//!   5. 人物状态快照（FR-012）：character_state 按 scope 分「当前状态」/「关系」
-//!      两组渲染，让角色知道自己当前的状态；expiry 是给结算的清算线索，不进
-//!      叙事快照（给模型的永远是「现在成立的事实」）；
+//!   5. 人物状态快照（FR-012，迁移 0009 起挂实例）：状态按**实例**分组渲染——
+//!      恰一个持有状态的实例时保持 v1 两小组形态（【当前状态】/【关系】，等价
+//!      改造），多实例时逐实例分节（【实例名 · 组名】），让每个角色知道自己当前
+//!      的状态；expiry 是给结算的清算线索，不进叙事快照（给模型的永远是「现在
+//!      成立的事实」）；
 //! - 近景 = 最近 N 个已结算场景的整场逐字消息 + 进行中场景全量（窗口数学见
 //!   [`crate::domain::context`]），只取原始正文——reasoning 不进上下文：它是给
 //!   用户看的思考，不是对话内容。N 可配（config.json `near_scenes`，1–6，缺省
@@ -39,7 +46,7 @@
 use crate::domain::context::{self, SceneSpan, SceneSpans};
 use crate::domain::fiction_time::{self, CalendarConfig};
 use crate::domain::models::{
-    Character, CharacterState, CharacterStateScope, Message, MessageRole, Scene,
+    CharacterInstance, CharacterState, CharacterStateScope, Message, MessageRole, Scene,
 };
 use crate::infra::llm::{ChatMessage, ChatRole};
 
@@ -47,8 +54,10 @@ use crate::infra::llm::{ChatMessage, ChatRole};
 /// 状态），收拢成 struct 免得参数列继续变长。`calendar` 为会话快照
 /// （session.calendar_config 经 [`fiction_time::parse`] 解析后的形态）——解析在
 /// 调用方（services/generation.rs）完成，装配本体保持零 IO、纯函数。
+/// `instances` 为全会话角色实例阵容（多角色群像，D1/D2）：装配按 is_user 分位——
+/// LLM 位出自我人设段、用户位出对手设定段；组内保持调用方传入序（roster 序）。
 pub struct AssembleInputs<'a> {
-    pub character: &'a Character,
+    pub instances: &'a [CharacterInstance],
     pub scenes: &'a [Scene],
     pub history: &'a [Message],
     pub calendar: &'a CalendarConfig,
@@ -63,12 +72,12 @@ pub struct AssembleInputs<'a> {
     pub near_scenes: usize,
 }
 
-/// 装配一次聊天的完整 messages：system(persona + 当前虚时 + 远景编年史 + 相关回忆
-/// 卷宗 + 人物状态快照) + 近景上下文。persona 为空白时跳过 persona（角色卡允许空
+/// 装配一次聊天的完整 messages：system(人设段 + 当前虚时 + 远景编年史 + 相关回忆
+/// 卷宗 + 人物状态快照) + 近景上下文。persona 为空白时跳过对应段（角色卡允许空
 /// 人设）；五段全空时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前
 /// 的旧数据会话）时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
 pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
-    let AssembleInputs { character, scenes, history, calendar, states, dossier, near_scenes } =
+    let AssembleInputs { instances, scenes, history, calendar, states, dossier, near_scenes } =
         input;
     // 无场景行 = 旧数据：不做场景切分，整段历史视为进行中场走预算兜底。
     let spans = if scenes.is_empty() {
@@ -86,13 +95,10 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     );
 
     let mut out = Vec::new();
-    // system 常驻核心五段（顺序固定）：persona → 当前虚时行 → 远景编年史 →
+    // system 常驻核心五段（顺序固定）：人设段 → 当前虚时行 → 远景编年史 →
     // 相关回忆（卷宗）→ 人物状态快照；各段空态自然省略，段间空行分隔。
     let mut sections: Vec<String> = Vec::new();
-    let persona = character.persona.trim();
-    if !persona.is_empty() {
-        sections.push(persona.to_string());
-    }
+    sections.extend(persona_sections(instances));
     if let Some(time) = current_time_line(calendar, scenes) {
         sections.push(time);
     }
@@ -105,7 +111,7 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     if let Some(dossier) = dossier.map(str::trim).filter(|text| !text.is_empty()) {
         sections.push(format!("【相关回忆】\n{dossier}"));
     }
-    sections.extend(state_snapshot_sections(states));
+    sections.extend(state_snapshot_sections(instances, states));
     if !sections.is_empty() {
         out.push(ChatMessage::new(ChatRole::System, sections.join("\n\n")));
     }
@@ -117,6 +123,57 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
         out.push(ChatMessage::new(role, message.content.clone()));
     }
     out
+}
+
+/// 人设段（多角色群像，方案 §3 装配语义 / D1-D3）：
+/// - 每个 LLM 位实例一段自我人设——**LLM 位唯一时裸 persona**（v1 单角色形态的
+///   等价改造，不带角色名标头）；多 LLM 位时逐个分节「【角色名】\n persona」
+///   （空 persona 也出标头：多角色语境下名字即身份），并附一段群像语境声明
+///   （v1.5 简化的诚实标注：单次生成、roster 序登场，逐拍独立调用属第 2 步后能力）；
+/// - 用户位实例（恰一，D2）注入「对话对手设定」段，措辞「用户扮演的角色：{name}
+///   ——{persona}」；persona 空白时只报名字。
+///
+/// 人设全空且无用户位段时返回空 Vec（五段空态自然省略不变）。
+fn persona_sections(instances: &[CharacterInstance]) -> Vec<String> {
+    let llm: Vec<&CharacterInstance> = instances.iter().filter(|i| !i.is_user).collect();
+    let user = instances.iter().find(|i| i.is_user);
+    let mut sections = Vec::new();
+    if llm.len() == 1 {
+        // 等价形态：单 LLM 位保持裸 persona（BR-001 v1 形态），空白省略。
+        let persona = llm[0].persona.trim();
+        if !persona.is_empty() {
+            sections.push(persona.to_string());
+        }
+    } else if llm.len() > 1 {
+        for instance in &llm {
+            let mut section = format!("【{}】", instance.name);
+            let persona = instance.persona.trim();
+            if !persona.is_empty() {
+                section.push('\n');
+                section.push_str(persona);
+            }
+            sections.push(section);
+        }
+        let names = llm
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect::<Vec<_>>()
+            .join("、");
+        sections.push(format!(
+            "【群像语境】本会话有 {count} 位由模型扮演的角色：{names}。当前版本对整段对话单次生成，\
+             请让各角色在回复中按名单顺序依次登场、以角色名区分发言。",
+            count = llm.len(),
+        ));
+    }
+    if let Some(user) = user {
+        let persona = user.persona.trim();
+        if persona.is_empty() {
+            sections.push(format!("用户扮演的角色：{}", user.name));
+        } else {
+            sections.push(format!("用户扮演的角色：{}——{}", user.name, persona));
+        }
+    }
+    sections
 }
 
 /// 把历史切成场景分段（模块注释：库内归属优先，与结算同一归属语义）。
@@ -244,49 +301,99 @@ fn current_time_line(calendar: &CalendarConfig, scenes: &[Scene]) -> Option<Stri
     Some(format!("当前时间：{label}"))
 }
 
-/// 人物状态快照段（FR-012）：按 scope 分「当前状态」（state）/「关系」（relation）
-/// 两组，每组标题 + 每条一行 `- key：value`（中文冒号，与编年史的「·」分隔风格同系）。
-/// 空组省略标题，全空省略整段（返回空 Vec）；expiry 不渲染——那是结算的清算线索，
-/// 叙事快照只给「现在成立的事实」。组内顺序保持库序（id ASC，即状态建立的先后）。
-fn state_snapshot_sections(states: &[CharacterState]) -> Vec<String> {
+/// 人物状态快照段（FR-012，迁移 0009 起状态挂实例）：状态按**实例**分组。
+/// - 恰一个持有状态的实例（单角色等价形态的主力分支）：保持 v1 两小组形态
+///   【当前状态】/【关系】，每组标题 + 每条一行 `- key：value`；
+/// - 多个实例持有状态：逐实例分节「【实例名 · 组名】」，节内每条一行同上——
+///   多角色语境下每条状态的身份靠节标题（实例名）承载。
+///
+/// 组内顺序保持库序（id ASC，即状态建立的先后）；实例分组序 = roster 序（调用方
+/// 传入序）；空组省略标题，全空省略整段（返回空 Vec）；expiry 不渲染——那是结算
+/// 的清算线索，叙事快照只给「现在成立的事实」。状态指向未知实例（数据错位的不
+/// 可达形态）时以「实例#{id}」兜底命名，不丢行。
+fn state_snapshot_sections(
+    instances: &[CharacterInstance],
+    states: &[CharacterState],
+) -> Vec<String> {
     let groups = [
         (CharacterStateScope::State, "当前状态"),
         (CharacterStateScope::Relation, "关系"),
     ];
-    groups
+    let name_of = |instance_id: i64| {
+        instances
+            .iter()
+            .find(|i| i.id == instance_id)
+            .map(|i| i.name.clone())
+            .unwrap_or_else(|| format!("实例#{instance_id}"))
+    };
+    // 持有者按 roster 序去重，未入册的实例 id 按首现序追加在后。
+    let mut owners: Vec<i64> = instances
         .iter()
-        .filter_map(|(scope, title)| {
-            let rows: Vec<&CharacterState> =
-                states.iter().filter(|state| state.scope == *scope).collect();
+        .map(|i| i.id)
+        .filter(|id| states.iter().any(|s| s.instance_id == *id))
+        .collect();
+    for state in states {
+        if !owners.contains(&state.instance_id) {
+            owners.push(state.instance_id);
+        }
+    }
+    if owners.len() == 1 {
+        // 等价形态：唯一持有者 → v1 两小组（v1 会话只有一个角色实例，语义一致）。
+        return groups
+            .iter()
+            .filter_map(|(scope, title)| {
+                let rows: Vec<&CharacterState> = states
+                    .iter()
+                    .filter(|state| state.instance_id == owners[0] && state.scope == *scope)
+                    .collect();
+                if rows.is_empty() {
+                    return None;
+                }
+                let mut block = format!("【{title}】");
+                for row in rows {
+                    block.push_str(&format!("\n- {}：{}", row.key, row.value));
+                }
+                Some(block)
+            })
+            .collect();
+    }
+    let mut sections = Vec::new();
+    for owner in owners {
+        let name = name_of(owner);
+        for (scope, title) in groups {
+            let rows: Vec<&CharacterState> = states
+                .iter()
+                .filter(|state| state.instance_id == owner && state.scope == scope)
+                .collect();
             if rows.is_empty() {
-                return None;
+                continue;
             }
-            let mut block = format!("【{title}】");
+            let mut block = format!("【{name} · {title}】");
             for row in rows {
                 block.push_str(&format!("\n- {}：{}", row.key, row.value));
             }
-            Some(block)
-        })
-        .collect()
+            sections.push(block);
+        }
+    }
+    sections
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::NewCharacter;
-
+    
     /// 默认历（无命名皮肤）单例：既有用例的「无日历注入」对照基线。
     static DEFAULT_CALENDAR: std::sync::LazyLock<CalendarConfig> =
         std::sync::LazyLock::new(CalendarConfig::default);
 
     /// Task-01 三参形态的等价包装（默认历 + 无状态）：供迁移用例与「无注入」对照。
     fn assemble_base(
-        character: &Character,
+        instances: &[CharacterInstance],
         scenes: &[Scene],
         history: &[Message],
     ) -> Vec<ChatMessage> {
         assemble(&AssembleInputs {
-            character,
+            instances,
             scenes,
             history,
             calendar: &DEFAULT_CALENDAR,
@@ -296,28 +403,40 @@ mod tests {
         })
     }
 
-    fn character(persona: &str) -> Character {
-        let new = NewCharacter {
-            name: "苏鸢".into(),
+    /// LLM 位实例夹具（id 由调用方指定；roster 序 = 传入序）。
+    fn llm_instance(id: i64, name: &str, persona: &str) -> CharacterInstance {
+        CharacterInstance {
+            id,
+            session_id: 1,
+            character_id: Some(100 + id),
+            name: name.into(),
             persona: persona.into(),
-            ..Default::default()
-        };
-        Character {
-            id: 1,
-            name: new.name,
-            avatar: None,
-            persona: new.persona,
-            gender: new.gender,
-            age: new.age,
-            render_style: new.render_style,
-            model_config: None,
-            accent_color: new.accent_color,
-            voice_config: None,
-            calendar_config: None,
+            render_style: "type".into(),
+            is_user: false,
             created_at: 0,
-            updated_at: 0,
             deleted_at: None,
         }
+    }
+
+    /// 用户位实例夹具（D2：全会话恰一；人设默认空白以保持既有用例的
+    /// 「persona 之外零注入」断言基线，用户位段语义另测）。
+    fn user_instance(id: i64, name: &str, persona: &str) -> CharacterInstance {
+        CharacterInstance {
+            id,
+            session_id: 1,
+            character_id: Some(100 + id),
+            name: name.into(),
+            persona: persona.into(),
+            render_style: "type".into(),
+            is_user: true,
+            created_at: 0,
+            deleted_at: None,
+        }
+    }
+
+    /// 单 LLM 位等价基线阵容：苏鸢（LLM 位）+ 旅人（用户位，人设空白）。
+    fn solo_roster(persona: &str) -> Vec<CharacterInstance> {
+        vec![llm_instance(1, "苏鸢", persona), user_instance(2, "旅人", "")]
     }
 
     fn message(id: i64, role: MessageRole, content: &str) -> Message {
@@ -332,6 +451,7 @@ mod tests {
             created_at: id,
             interrupt_flag: None,
             scene_id: None,
+            instance_id: None,
             deleted_at: None,
         }
     }
@@ -379,12 +499,12 @@ mod tests {
         }
     }
 
-    /// 人物状态行（FR-012）：expiry 可选（快照渲染不消费，用于断言「不渲染」）。
+    /// 人物状态行（FR-012）：expiry 可选（快照渲染不消费，用于断言「不渲染」）；
+    /// 迁移 0009 起状态挂实例（instance_id = 夹具中的 LLM 位实例 1）。
     fn state(scope: CharacterStateScope, key: &str, value: &str, expiry: Option<&str>) -> CharacterState {
         CharacterState {
             id: 1,
-            character_id: 1,
-            session_id: 1,
+            instance_id: 1,
             scope,
             key: key.into(),
             value: value.into(),
@@ -444,16 +564,22 @@ mod tests {
     /// FR-001 / UC-001 / ADR-004：system(persona) + 近景上下文（无场景时全量）。
     #[test]
     fn assembles_persona_and_history_without_scenes() {
-        let c = character("雨夜电话亭的守夜人。");
+        let roster = solo_roster("雨夜电话亭的守夜人。");
         let history = vec![
             message(1, MessageRole::User, "在吗？"),
             message(2, MessageRole::Assistant, "在。"),
         ];
-        let messages = assemble_base(&c, &[], &history);
+        let messages = assemble_base(&roster, &[], &history);
 
         assert_eq!(messages.len(), 3, "system + 2 条上下文");
         assert_eq!(messages[0].role, ChatRole::System);
-        assert_eq!(messages[0].content, "雨夜电话亭的守夜人。");
+        // 语义变化（多角色 D2）：用户位段为新注入——「对手设定」恒报名字。
+        assert_eq!(
+            messages[0].content,
+            "雨夜电话亭的守夜人。\n\n用户扮演的角色：旅人",
+            "persona + 用户位段，实际：{}",
+            messages[0].content
+        );
         assert_eq!(messages[1].role, ChatRole::User);
         assert_eq!(messages[2].role, ChatRole::Assistant);
     }
@@ -464,8 +590,8 @@ mod tests {
     /// 亦由缓存渲染，Task-02 后 system 含「当前时间」）。
     #[test]
     fn multi_scene_near_view_verbatim_and_chronicle_one_line_each() {
-        let c = character("人设");
-        let messages = assemble_base(&c, &multi_scene_rows(), &multi_scene_history());
+        let roster = solo_roster("人设");
+        let messages = assemble_base(&roster, &multi_scene_rows(), &multi_scene_history());
 
         assert_eq!(
             messages.len(),
@@ -502,14 +628,16 @@ mod tests {
         );
 
         // system = persona + 虚时行 + 编年史；远景 = 锚行 + 场二行（更近的场与进行中
-        // 行不入），每场恰好一行（skip(5) 跳过 persona、虚时与两处段间空行、编年史
-        // 标题行）。
+        // 行不入），每场恰好一行（skip(7) 跳过 persona、用户位段、虚时与三处段间
+        // 空行、编年史标题行）。
         let system = &messages[0].content;
         assert!(
-            system.starts_with("人设\n\n当前时间：第4日·清晨\n\n【往事编年史】"),
-            "persona → 虚时行（最新场景行 date_label 缓存）→ 编年史，实际：{system}"
+            system.starts_with(
+                "人设\n\n用户扮演的角色：旅人\n\n当前时间：第4日·清晨\n\n【往事编年史】"
+            ),
+            "persona → 用户位段 → 虚时行（最新场景行 date_label 缓存）→ 编年史，实际：{system}"
         );
-        let lines: Vec<&str> = system.lines().skip(5).collect();
+        let lines: Vec<&str> = system.lines().skip(7).collect();
         assert_eq!(
             lines.len(),
             2,
@@ -540,10 +668,10 @@ mod tests {
     /// 锁定，本用例只验证参数确实改变窗口。
     #[test]
     fn assemble_near_scenes_parameter_changes_window() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let make = |near_scenes: usize| {
             let messages = assemble(&AssembleInputs {
-                character: &c,
+                instances: &roster,
                 scenes: &multi_scene_rows(),
                 history: &multi_scene_history(),
                 calendar: &DEFAULT_CALENDAR,
@@ -575,11 +703,11 @@ mod tests {
     /// 超预算丢最旧，顺序不变、不 panic。
     #[test]
     fn no_scenes_degrades_to_char_budget_window() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let history: Vec<Message> = (0..30)
             .map(|i| message(i, MessageRole::User, &format!("行{i}{}", "字".repeat(996))))
             .collect();
-        let messages = assemble_base(&c, &[], &history);
+        let messages = assemble_base(&roster, &[], &history);
         assert_eq!(
             messages.len(),
             1 + 24,
@@ -591,14 +719,18 @@ mod tests {
             messages[1].content
         );
         assert!(messages.last().unwrap().content.starts_with("行29"));
-        assert_eq!(messages[0].content, "人设", "远景为空，system 只含 persona");
+        assert_eq!(
+            messages[0].content,
+            "人设\n\n用户扮演的角色：旅人",
+            "远景为空，system 只含 persona 与用户位段"
+        );
     }
 
     /// 字符预算触发整场淘汰：最旧的入选场**整场**出局，其场景行自动落入远景编年史
     /// （远景行数随淘汰增长），入选场仍整场保留。
     #[test]
     fn char_budget_evicts_whole_scene_into_chronicle() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         // 三场各 13000 字（每场 2 条 × 6500），进行中场很小：场 B+场 C = 26000 > 24000
         // → 淘汰 B → 近景 = 场 C + 进行中（13000+小额 ≤ 24000）。
         let history = vec![
@@ -627,7 +759,7 @@ mod tests {
             scene(3, "（进行中）"),
         ];
 
-        let messages = assemble_base(&c, &scenes, &history);
+        let messages = assemble_base(&roster, &scenes, &history);
         let chat_contents: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
         assert_eq!(
             chat_contents.len(),
@@ -654,14 +786,14 @@ mod tests {
             !system.contains("场C摘要"),
             "仍在近景的场不进编年史（去重）"
         );
-        let lines: Vec<&str> = system.lines().skip(5).collect();
+        let lines: Vec<&str> = system.lines().skip(7).collect();
         assert_eq!(lines.len(), 2, "远景行数随整场淘汰增长（1 → 2）");
     }
 
     /// 超长进行中场：头截断（丢最旧消息），已结算场全数让位并落入编年史。
     #[test]
     fn oversized_ongoing_scene_head_truncates() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let mut history = vec![
             message(1, MessageRole::User, "场一问"),
             message(2, MessageRole::Assistant, "场一答\n\n---\n\n场二开场"), // 唯一已结算场
@@ -675,7 +807,7 @@ mod tests {
         }
         let scenes = vec![anchor_scene("场一摘要"), scene(1, "（进行中）")];
 
-        let messages = assemble_base(&c, &scenes, &history);
+        let messages = assemble_base(&roster, &scenes, &history);
         let chat: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
         assert_eq!(
             chat.len(),
@@ -696,7 +828,7 @@ mod tests {
     /// 切分按剔除后的内容重算——不残留幻影边界，也不丢仍在场内的消息。
     #[test]
     fn regenerate_filtered_history_recomputes_spans() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let scenes = vec![anchor_scene("")];
         let full = vec![
             message(1, MessageRole::User, "问1"),
@@ -705,7 +837,7 @@ mod tests {
         ];
 
         // 对照：剔除前 = 已结算场（问1 + 答1）+ 进行中场（问2）。
-        let before = assemble_base(&c, &scenes, &full);
+        let before = assemble_base(&roster, &scenes, &full);
         assert_eq!(before.len(), 4);
         assert_eq!(before[2].content, "答1\n\n---\n\n新场");
 
@@ -715,7 +847,7 @@ mod tests {
             message(1, MessageRole::User, "问1"),
             message(3, MessageRole::User, "问2"),
         ];
-        let messages = assemble_base(&c, &scenes, &filtered);
+        let messages = assemble_base(&roster, &scenes, &filtered);
         assert_eq!(messages.len(), 3, "system + 2 条（无幻影边界拆分）");
         assert_eq!(messages[1].content, "问1");
         assert_eq!(messages[2].role, ChatRole::User);
@@ -727,14 +859,14 @@ mod tests {
     /// 在新注入下保持（见 [`skips_blank_persona_without_scenes`]）。
     #[test]
     fn blank_persona_system_combines_time_chronicle_and_states() {
-        let c = character("   ");
+        let roster = solo_roster("   ");
         let states = vec![
             state(CharacterStateScope::State, "情绪", "释然", Some("scene_end")),
             state(CharacterStateScope::Relation, "对旅人", "警惕", None),
         ];
         let calendar = CalendarConfig::default();
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &multi_scene_rows(),
             history: &multi_scene_history(),
             calendar: &calendar,
@@ -746,8 +878,8 @@ mod tests {
         assert_eq!(messages[0].role, ChatRole::System);
         let system = &messages[0].content;
         assert!(
-            system.starts_with("当前时间：第4日·清晨\n\n【往事编年史】"),
-            "persona 空白不残留，虚时行直接开头：{system}"
+            system.starts_with("用户扮演的角色：旅人\n\n当前时间：第4日·清晨\n\n【往事编年史】"),
+            "persona 空白不残留，用户位段 → 虚时行：{system}"
         );
         // 三段顺序（Task-02 装配序）：虚时 → 编年史 → 状态，位置单调递增。
         let chronicle_at = system.find("【往事编年史】").unwrap();
@@ -767,13 +899,22 @@ mod tests {
     }
 
     /// 空 persona 且无任何注入（无场景 / 无状态）：不产生 system 回合（沿用 v1 不变量）。
+    /// 语义变化（多角色 D2）：阵容含用户位时「对手设定」段恒报名字，system 不再可能
+    /// 为空——全空形态只存在于纯函数的无用户位防御分支（存储层已保证恰一用户位）。
     #[test]
     fn skips_blank_persona_without_scenes() {
-        let c = character("  ");
         let history = vec![message(1, MessageRole::User, "你好")];
-        let messages = assemble_base(&c, &[], &history);
+        // 防御分支：无用户位阵容 + LLM 位空白 → 无 system。
+        let bare = vec![llm_instance(1, "苏鸢", "  ")];
+        let messages = assemble_base(&bare, &[], &history);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, ChatRole::User);
+
+        // 常规阵容：LLM 位空白，system 只含用户位段（名字兜底）。
+        let roster = solo_roster("  ");
+        let messages = assemble_base(&roster, &[], &history);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, "用户扮演的角色：旅人");
     }
 
     // ---- Task-02：当前虚时行（三态）----
@@ -782,14 +923,14 @@ mod tests {
     /// 与缓存来源不同（缓存与 fic_day 同源派生，复用零重算）。
     #[test]
     fn time_line_prefers_cached_date_label() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let mut rows = multi_scene_rows();
         let last = rows.last_mut().unwrap();
         last.date_label = Some("白蜡月·晨露日·夜（灯节）".into());
         // 会话日历故意为空皮肤：若走现算会得到「第4日·清晨」，断言必须命中缓存。
         let calendar = CalendarConfig::default();
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &rows,
             history: &multi_scene_history(),
             calendar: &calendar,
@@ -810,14 +951,14 @@ mod tests {
     /// （fiction_time::date_label 的双射换算，含节日括注等结果）。
     #[test]
     fn time_line_computes_from_calendar_when_cache_missing() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let history = vec![message(1, MessageRole::User, "在吗？")];
         // 锚行（FR-014）：fic_day=1 / fic_part=夜 / date_label=None → 现算路径。
         let scenes = vec![anchor_scene("")];
         let calendar = crate::domain::fiction_time::presets::fantasy();
 
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &scenes,
             history: &history,
             calendar: &calendar,
@@ -827,7 +968,7 @@ mod tests {
         });
         assert_eq!(
             messages[0].content,
-            "人设\n\n当前时间：霜月·晨露日·夜",
+            "人设\n\n用户扮演的角色：旅人\n\n当前时间：霜月·晨露日·夜",
             "缓存缺失时按会话快照日历现算命名形式：{}",
             messages[0].content
         );
@@ -837,12 +978,12 @@ mod tests {
     /// 「第N日·时段」（date_label 自带回退，与缓存路径形态归一）。
     #[test]
     fn time_line_falls_back_to_numeric_without_skin_or_cache() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let history = vec![message(1, MessageRole::User, "在吗？")];
         let scenes = vec![anchor_scene("")];
 
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &scenes,
             history: &history,
             calendar: &DEFAULT_CALENDAR,
@@ -852,7 +993,7 @@ mod tests {
         });
         assert_eq!(
             messages[0].content,
-            "人设\n\n当前时间：第1日·夜",
+            "人设\n\n用户扮演的角色：旅人\n\n当前时间：第1日·夜",
             "无皮肤回退「第N日·时段」：{}",
             messages[0].content
         );
@@ -862,13 +1003,13 @@ mod tests {
     /// 整行省略，不猜测时间。
     #[test]
     fn time_line_omitted_without_scene_or_ledger() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let history = vec![message(1, MessageRole::User, "在吗？")];
         let calendar = crate::domain::fiction_time::presets::fantasy();
 
         // 无场景（场景特性之前的旧数据会话）：无虚时行。
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &[],
             history: &history,
             calendar: &calendar,
@@ -877,7 +1018,7 @@ mod tests {
             near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(
-            messages[0].content, "人设",
+            messages[0].content, "人设\n\n用户扮演的角色：旅人",
             "无最新场景整行省略：{}",
             messages[0].content
         );
@@ -889,7 +1030,7 @@ mod tests {
             row.date_label = None;
         }
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &rows,
             history: &multi_scene_history(),
             calendar: &calendar,
@@ -910,7 +1051,7 @@ mod tests {
     /// 全空时整段省略；组内顺序保持库序（id ASC）。
     #[test]
     fn state_snapshot_omits_empty_group_or_whole_section() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let history = vec![message(1, MessageRole::User, "在吗？")];
         let calendar = CalendarConfig::default();
 
@@ -920,7 +1061,7 @@ mod tests {
             state(CharacterStateScope::Relation, "与守夜人的约定", "保守秘密", Some("event:告别")),
         ];
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &[],
             history: &history,
             calendar: &calendar,
@@ -930,14 +1071,14 @@ mod tests {
         });
         assert_eq!(
             messages[0].content,
-            "人设\n\n【关系】\n- 对旅人：好奇\n- 与守夜人的约定：保守秘密",
+            "人设\n\n用户扮演的角色：旅人\n\n【关系】\n- 对旅人：好奇\n- 与守夜人的约定：保守秘密",
             "空 state 组省略标题，组内保持库序，expiry 不渲染：{}",
             messages[0].content
         );
 
-        // 全空：整段省略。
+        // 全空：整段省略（system = persona + 用户位段）。
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &[],
             history: &history,
             calendar: &calendar,
@@ -945,7 +1086,11 @@ mod tests {
             dossier: None,
             near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
-        assert_eq!(messages[0].content, "人设", "状态全空整段省略");
+        assert_eq!(
+            messages[0].content,
+            "人设\n\n用户扮演的角色：旅人",
+            "状态全空整段省略"
+        );
     }
 
     // ---- Task-03：桥场加厚（远景两档渲染） ----
@@ -954,12 +1099,12 @@ mod tests {
     /// 树形前缀「└」与 header 行区分；header 行自身形态不变（summary 仍在行末）。
     #[test]
     fn bridge_scene_renders_recap_as_indented_review_line() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let mut rows = multi_scene_rows();
         // 远景 = 锚行 + 场二行（idx1）；桥场 = 场二行。
         rows[1].recap = Some("巷口初遇时她提灯替我照了一段路。后来我们在钟楼下分食了一块饼。分别时她说明天见。".into());
 
-        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        let messages = assemble_base(&roster, &rows, &multi_scene_history());
         let system = &messages[0].content;
         assert!(
             system.contains("\n    └ 回顾：巷口初遇时她提灯替我照了一段路。后来我们在钟楼下分食了一块饼。分别时她说明天见。"),
@@ -976,30 +1121,30 @@ mod tests {
     /// 桥场无 recap（旧数据 / 模型未产出）→ 回退现有单行形态，不产生回顾行。
     #[test]
     fn bridge_scene_without_recap_falls_back_to_single_line() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         // multi_scene_rows 全部 recap = None：远景 = 锚行 + 场二行，每场恰好一行。
-        let messages = assemble_base(&c, &multi_scene_rows(), &multi_scene_history());
+        let messages = assemble_base(&roster, &multi_scene_rows(), &multi_scene_history());
         let system = &messages[0].content;
         assert!(!system.contains("└ 回顾"), "无 recap 不输出回顾行：{system}");
-        let lines: Vec<&str> = system.lines().skip(5).collect();
+        let lines: Vec<&str> = system.lines().skip(7).collect();
         assert_eq!(lines.len(), 2, "远景每场恰好一行（回退 Task-01 形态）");
         // 空白 recap 同为 None 路径：trim 后空 → 不渲染。
         let mut rows = multi_scene_rows();
         rows[1].recap = Some("   ".into());
-        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        let messages = assemble_base(&roster, &rows, &multi_scene_history());
         assert!(!messages[0].content.contains("└ 回顾"), "空白 recap 视为无：跳过");
     }
 
     /// 更早的场（桥场之前的远景行）即使有 recap 也保持单行——加厚只给桥场。
     #[test]
     fn older_scenes_stay_single_line_even_with_recap() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let mut rows = multi_scene_rows();
         // 更早的锚行也塞了 recap：只有桥场（场二行 idx1）的 recap 被渲染。
         rows[0].recap = Some("锚行不该出现的回顾。".into());
         rows[1].recap = Some("桥场回顾：一句。两句。三句。".into());
 
-        let messages = assemble_base(&c, &rows, &multi_scene_history());
+        let messages = assemble_base(&roster, &rows, &multi_scene_history());
         let system = &messages[0].content;
         assert!(
             system.contains("\n    └ 回顾：桥场回顾：一句。两句。三句。"),
@@ -1018,9 +1163,9 @@ mod tests {
     /// 段标题措辞与既有【往事编年史】/【当前状态】同系；卷宗正文原样进入段落。
     #[test]
     fn dossier_renders_between_chronicle_and_states() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let messages = assemble(&AssembleInputs {
-            character: &c,
+            instances: &roster,
             scenes: &multi_scene_rows(),
             history: &multi_scene_history(),
             calendar: &DEFAULT_CALENDAR,
@@ -1052,11 +1197,11 @@ mod tests {
     /// Task-02 及之前的既有测试全部走 None 路径，语义不变）。
     #[test]
     fn blank_or_missing_dossier_omits_section() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let states = vec![state(CharacterStateScope::State, "情绪", "释然", None)];
         for dossier in [None, Some("   \n\t  ")] {
             let messages = assemble(&AssembleInputs {
-                character: &c,
+                instances: &roster,
                 scenes: &multi_scene_rows(),
                 history: &multi_scene_history(),
                 calendar: &DEFAULT_CALENDAR,
@@ -1177,7 +1322,7 @@ mod tests {
     /// 保留 2 段」当作覆盖前 2 行 → 远景为空，锚行信息丢失；id 对应下锚行照常出行。
     #[test]
     fn chronicle_maps_rows_by_kept_anchors_with_debt() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let scenes = vec![
             anchor_scene("场零摘要"),
             scene(1, "场二摘要"),
@@ -1194,7 +1339,7 @@ mod tests {
             message(7, MessageRole::User, "进行中问"),
         ];
 
-        let messages = assemble_base(&c, &scenes, &history);
+        let messages = assemble_base(&roster, &scenes, &history);
 
         // 近景 = 欠账段 + 场二段 + 进行中（窗口 2 取最新两段；场零段被默认窗口淘汰）。
         assert_eq!(messages.len(), 6, "system + 近景 5 条");
@@ -1216,7 +1361,7 @@ mod tests {
     /// 推断在此形态会把已在近景的锚行挤进远景、漏掉空段行。
     #[test]
     fn chronicle_emits_line_for_empty_regenerated_scene() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let scenes = vec![
             anchor_scene("场零摘要"),
             scene(1, "被清空的场"),
@@ -1229,7 +1374,7 @@ mod tests {
             message(3, MessageRole::User, "进行中问"),
         ];
 
-        let messages = assemble_base(&c, &scenes, &history);
+        let messages = assemble_base(&roster, &scenes, &history);
 
         let system = &messages[0].content;
         assert!(system.contains("被清空的场"), "空段（行在消息无）仍出编年史行：{system}");
@@ -1242,7 +1387,7 @@ mod tests {
     /// 近景（丢叙事有预算理由）也无编年史行对冲（无场景行，模块注释已记）。
     #[test]
     fn evicted_debt_span_leaves_no_chronicle_row() {
-        let c = character("人设");
+        let roster = solo_roster("人设");
         let scenes = vec![
             anchor_scene("场零摘要"),
             scene(1, "场二摘要"),
@@ -1259,7 +1404,7 @@ mod tests {
             message(7, MessageRole::User, "进行中问"),
         ];
 
-        let messages = assemble_base(&c, &scenes, &history);
+        let messages = assemble_base(&roster, &scenes, &history);
 
         // 近景 = 场二段 + 进行中（欠账段整场出局，无「巨」残留）。
         let near: Vec<&str> = messages[1..].iter().map(|m| m.content.as_str()).collect();
@@ -1271,5 +1416,124 @@ mod tests {
         assert!(!system.contains("场二摘要"), "近景段不进编年史：{system}");
         let rows = system.lines().filter(|l| l.starts_with("场")).count();
         assert_eq!(rows, 1, "欠账段滑出近景即丢，无行可接：{system}");
+    }
+
+    // ---- 多角色群像：多实例装配（方案 §3 第 1 步，D1/D2/D3）----
+
+    /// 多 LLM 位 + 用户位带人设的完整 system 形态：LLM 位逐个分节（【角色名】+
+    /// persona）→ 群像语境声明（v1.5 简化的诚实标注：单次生成、roster 序登场）→
+    /// 用户位「对话对手设定」段（「用户扮演的角色：{name}——{persona}」）。
+    #[test]
+    fn multi_llm_roster_sections_with_user_position() {
+        let roster = vec![
+            llm_instance(1, "苏鸢", "守夜人，沉默寡言。"),
+            llm_instance(2, "阿烬", "灯匠学徒，性子急。"),
+            user_instance(3, "旅人", "老练的旅人"),
+        ];
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let messages = assemble_base(&roster, &[], &history);
+        let system = &messages[0].content;
+
+        let expected_head = "【苏鸢】\n守夜人，沉默寡言。\n\n【阿烬】\n灯匠学徒，性子急。\n\n【群像语境】本会话有 2 位由模型扮演的角色：苏鸢、阿烬。当前版本对整段对话单次生成，请让各角色在回复中按名单顺序依次登场、以角色名区分发言。\n\n用户扮演的角色：旅人——老练的旅人";
+        assert!(
+            system.starts_with(expected_head),
+            "多实例 system 头部形态，实际：{system}"
+        );
+        // 分节顺序：苏鸢 < 阿烬 < 群像声明 < 用户位（无场景行 → 无虚时行）。
+        let suyuan = system.find("【苏鸢】").unwrap();
+        let aji = system.find("【阿烬】").unwrap();
+        let ensemble = system.find("【群像语境】").unwrap();
+        let user_at = system.find("用户扮演的角色：旅人").unwrap();
+        assert!(suyuan < aji && aji < ensemble && ensemble < user_at);
+    }
+
+    /// 多 LLM 位下空 persona 的实例仍出【角色名】标头（多角色语境中名字即身份）；
+    /// 用户位 persona 空白时只报名字不带破折号。
+    #[test]
+    fn multi_llm_blank_persona_keeps_name_header() {
+        let roster = vec![
+            llm_instance(1, "苏鸢", ""),
+            llm_instance(2, "阿烬", "灯匠学徒。"),
+            user_instance(3, "旅人", "  "),
+        ];
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let messages = assemble_base(&roster, &[], &history);
+        let system = &messages[0].content;
+        assert!(
+            system.starts_with("【苏鸢】\n\n【阿烬】\n灯匠学徒。"),
+            "空 persona 出裸标头：{system}"
+        );
+        assert!(
+            system.ends_with("用户扮演的角色：旅人"),
+            "用户位 persona 空白只报名字（段尾）：{system}"
+        );
+        assert!(!system.contains("——"), "无 persona 不产生悬空破折号：{system}");
+    }
+
+    /// 状态快照多实例分组：多实例持有状态时逐实例分节「【实例名 · 组名】」,
+    /// 实例分组序 = roster 序；单实例持有状态时保持 v1 两小组形态（等价改造）。
+    #[test]
+    fn state_snapshot_groups_by_instance_when_multiple_owners() {
+        let roster = vec![
+            llm_instance(1, "苏鸢", "守夜人"),
+            llm_instance(2, "阿烬", "灯匠学徒"),
+            user_instance(3, "旅人", ""),
+        ];
+        let states = vec![
+            CharacterState {
+                id: 1,
+                instance_id: 2,
+                scope: CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "焦躁".into(),
+                expiry: None,
+                source_scene: None,
+                updated_at: 0,
+                deleted_at: None,
+            },
+            CharacterState {
+                id: 2,
+                instance_id: 1,
+                scope: CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "释然".into(),
+                expiry: None,
+                source_scene: None,
+                updated_at: 0,
+                deleted_at: None,
+            },
+            CharacterState {
+                id: 3,
+                instance_id: 3,
+                scope: CharacterStateScope::Relation,
+                key: "对苏鸢".into(),
+                value: "信任".into(),
+                expiry: None,
+                source_scene: None,
+                updated_at: 0,
+                deleted_at: None,
+            },
+        ];
+        let history = vec![message(1, MessageRole::User, "在吗？")];
+        let messages = assemble(&AssembleInputs {
+            instances: &roster,
+            scenes: &[],
+            history: &history,
+            calendar: &DEFAULT_CALENDAR,
+            states: &states,
+            dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
+        });
+        let system = &messages[0].content;
+        // roster 序（苏鸢 → 阿烬 → 旅人）分组，空组（阿烬 · 关系）省略。
+        let expected = "【苏鸢 · 当前状态】\n- 情绪：释然\n\n【阿烬 · 当前状态】\n- 情绪：焦躁\n\n【旅人 · 关系】\n- 对苏鸢：信任";
+        assert!(
+            system.contains(expected),
+            "多实例状态分组形态，实际：{system}"
+        );
+        assert!(
+            !system.contains("【当前状态】\n-"),
+            "多实例形态不再出无主【当前状态】组：{system}"
+        );
     }
 }

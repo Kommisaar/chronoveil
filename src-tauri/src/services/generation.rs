@@ -164,11 +164,13 @@ struct ModelConfigOverride {
 
 /// 解析生效的 LLM 连接配置：全局默认 (provider, model) 二元组（双层级
 /// 2026-09-09，见 Config::active_selection）为底，Character.model_config 逐字段
-/// 覆写（两级配置，INT-002 / 验收 4）。未配置 Provider/模型、字段为空或
+/// 覆写（两级配置，INT-002 / 验收 4）。多角色裁量：覆写源 = 调用方选定的模板卡
+/// （命令层取「主持实例」的卡，见 ipc::resolve_llm）；None = 无卡可覆写（动态造人
+/// 主持 / 畸形阵容），跟随全局默认。未配置 Provider/模型、字段为空或
 /// model_config 非法 JSON → 人类可读错误（快速失败）。
 pub fn resolve_effective_llm(
     config: &FileConfig,
-    character: &Character,
+    character: Option<&Character>,
 ) -> Result<LlmConfig, String> {
     let (provider, active_model): (&ProviderConfig, &str) = config
         .active_selection()
@@ -177,7 +179,7 @@ pub fn resolve_effective_llm(
     let mut api_key = provider.api_key.clone();
     let mut model = active_model.to_string();
 
-    if let Some(raw) = character.model_config.as_deref() {
+    if let Some(raw) = character.and_then(|c| c.model_config.as_deref()) {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
             let over: ModelConfigOverride = serde_json::from_str(trimmed)
@@ -373,14 +375,21 @@ async fn generate_once(
     let message_id = ticket.message_id;
 
     let session = deps.storage.get_session(session_id)?;
-    let character = deps.storage.get_character(session.character_id)?;
+    // 多角色阵容（方案 §3 第 1 步）：装配人设 / 消息归属 / 探索器指认都以实例为准。
+    // 会话必然带阵容（create_session 单事务实例化，恰一用户位 + ≥1 LLM 位），
+    // 空阵容 = 数据损坏，按读取失败上报而非静默续跑。
+    let instances = deps.storage.list_instances(session_id)?;
+    if instances.is_empty() {
+        return Err(StorageError::Backend(format!("会话 #{session_id} 没有角色实例")));
+    }
+    let host = host_instance(&instances);
     let history = deps.storage.list_messages(session_id)?;
     // ADR-004 场景对齐装配的输入半：场景行供远景编年史 + 近景切分参照（无行为空，
     // 旧数据会话自动退化为纯字符预算窗口）。
     let scenes = deps.storage.list_scenes(session_id)?;
-    // Task-02 常驻核心注入的读取半：人物状态（FR-012）+ 会话日历快照（FR-013，
-    // 建会话时从角色卡复制）。日历解析在此完成，装配本体保持纯函数——坏 JSON 由
-    // parse 降级默认历（皮肤坏了退默认不阻塞主对话，与结算同语义）。
+    // Task-02 常驻核心注入的读取半：人物状态（FR-012，挂实例）+ 会话日历快照
+    // （FR-013，建会话时从用户位卡复制）。日历解析在此完成，装配本体保持纯函数
+    // ——坏 JSON 由 parse 降级默认历（皮肤坏了退默认不阻塞主对话，与结算同语义）。
     let states = deps.storage.list_character_states(session_id)?;
     let calendar = crate::domain::fiction_time::parse(session.calendar_config.as_deref());
     // OQ-006 / FR-008「以相同上文重新发起生成」+ SEQ-001「重发 = 整条重来」：
@@ -412,9 +421,9 @@ async fn generate_once(
                 deps.storage.as_ref(),
                 deps.llm.as_ref(),
                 deps.sink.as_ref(),
-                session_id,
-                message_id,
+                MessageIds { session_id, message_id },
                 &latest_user.content,
+                &instances,
                 ticket.cancel_handle(),
             )
             .await
@@ -422,7 +431,7 @@ async fn generate_once(
         None => None,
     };
     let messages = super::prompt::assemble(&super::prompt::AssembleInputs {
-        character: &character,
+        instances: &instances,
         scenes: &scenes,
         history: &history,
         calendar: &calendar,
@@ -454,6 +463,7 @@ async fn generate_once(
                 think_ms,
                 tokens: None,
                 interrupt_flag: TerminalState::Done.interrupt_flag().map(str::to_string),
+                instance_id: Some(host.id),
             };
             match persist_terminal(deps, regenerate, &new) {
                 Ok(inserted) => {
@@ -486,6 +496,7 @@ async fn generate_once(
                     think_ms: sink.think_ms(),
                     tokens: None,
                     interrupt_flag: TerminalState::Cancelled.interrupt_flag().map(str::to_string),
+                    instance_id: Some(host.id),
                 };
                 if let Err(e) = persist_terminal(deps, regenerate, &new) {
                     log::error!("取消半条落库失败：{e}");
@@ -511,6 +522,7 @@ async fn generate_once(
                     think_ms: sink.think_ms(),
                     tokens: None,
                     interrupt_flag: TerminalState::Error.interrupt_flag().map(str::to_string),
+                    instance_id: Some(host.id),
                 };
                 if let Err(e) = persist_terminal(deps, regenerate, &new) {
                     log::error!("失败半条落库失败：{e}");
@@ -520,6 +532,18 @@ async fn generate_once(
         }
     }
     Ok(())
+}
+
+/// 主持实例（v1.5 归属语义，方案 §3 的最小选择）：本切片多 LLM 位按 roster 序
+/// **单次生成**（逐拍独立调用属第 2 步后能力），单条 assistant 消息无法按句拆分
+/// 归属多个实例——归属「主持实例」= 首个 LLM 位实例（id 最小）。无 LLM 位的畸形
+/// 阵容（存储层已拒绝，防御分支）回退首个实例，不 panic。
+/// 用户消息归属用户位实例（命令层插入时挂）。
+pub fn host_instance(instances: &[crate::domain::models::CharacterInstance]) -> &crate::domain::models::CharacterInstance {
+    instances
+        .iter()
+        .find(|i| !i.is_user)
+        .unwrap_or(&instances[0])
 }
 
 /// 终态落库：普通发送为插入；重新生成 / 断流重试为「整条替换」（软删旧条 + 插新条，FR-008）。
@@ -536,7 +560,7 @@ fn persist_terminal(deps: &GenerationDeps, regenerate: bool, new: &NewMessage) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::{NewCharacter, NewSession};
+    use crate::domain::models::{NewCharacter, NewSession, RosterPick};
     use crate::infra::config::ProviderConfig;
     use crate::infra::llm::mock::{delta_json, json_body, json_raw_body, status_head, MockServer, sse_data, sse_head};
     use crate::infra::storage::test_support::temp_storage;
@@ -604,7 +628,7 @@ mod tests {
 
     #[test]
     fn resolve_llm_uses_global_default_without_override() {
-        let cfg = resolve_effective_llm(&test_config(), &character_with(None)).unwrap();
+        let cfg = resolve_effective_llm(&test_config(), Some(&character_with(None))).unwrap();
         assert_eq!(cfg.base_url, "https://main.example/v1");
         assert_eq!(cfg.model, "m1b", "active_model 选中者生效");
         assert_eq!(cfg.api_key, "k1");
@@ -612,7 +636,7 @@ mod tests {
         // active_model 未选 → 回落该服务第一个模型。
         let mut fallback = test_config();
         fallback.active_model = None;
-        let cfg = resolve_effective_llm(&fallback, &character_with(None)).unwrap();
+        let cfg = resolve_effective_llm(&fallback, Some(&character_with(None))).unwrap();
         assert_eq!(cfg.model, "m1a");
     }
 
@@ -620,53 +644,56 @@ mod tests {
     fn resolve_llm_applies_character_override_two_levels() {
         // 字段级覆写（第一级：全局默认打底）
         let over = character_with(Some(r#"{"model":"custom-model","apiKey":"kk"}"#.into()));
-        let cfg = resolve_effective_llm(&test_config(), &over).unwrap();
+        let cfg = resolve_effective_llm(&test_config(), Some(&over)).unwrap();
         assert_eq!(cfg.model, "custom-model");
         assert_eq!(cfg.api_key, "kk");
         assert_eq!(cfg.base_url, "https://main.example/v1", "未覆写字段沿用全局默认");
 
         // providerId 切换整套 Provider：模型取目标服务第一个模型
         let switched = character_with(Some(r#"{"providerId":"p2"}"#.into()));
-        let cfg = resolve_effective_llm(&test_config(), &switched).unwrap();
+        let cfg = resolve_effective_llm(&test_config(), Some(&switched)).unwrap();
         assert_eq!(cfg.base_url, "https://backup.example/v1");
         assert_eq!(cfg.model, "m2a");
 
         // 直接覆写压过 providerId 切换
         let mixed = character_with(Some(r#"{"providerId":"p2","model":"m3"}"#.into()));
-        let cfg = resolve_effective_llm(&test_config(), &mixed).unwrap();
+        let cfg = resolve_effective_llm(&test_config(), Some(&mixed)).unwrap();
         assert_eq!(cfg.base_url, "https://backup.example/v1");
         assert_eq!(cfg.model, "m3");
 
         // 未知键忽略；空串不覆写
         let lenient = character_with(Some(r#"{"temperature":0.7,"providerId":""}"#.into()));
-        assert!(resolve_effective_llm(&test_config(), &lenient).is_ok());
+        assert!(resolve_effective_llm(&test_config(), Some(&lenient)).is_ok());
     }
 
     #[test]
     fn resolve_llm_fails_fast_on_bad_config() {
-        let err =
-            resolve_effective_llm(&test_config(), &character_with(Some("{bad".into()))).unwrap_err();
+        let err = resolve_effective_llm(
+            &test_config(),
+            Some(&character_with(Some("{bad".into()))),
+        )
+        .unwrap_err();
         assert!(err.contains("model_config"), "{err}");
 
         let none = FileConfig::new_with_defaults();
-        let err = resolve_effective_llm(&none, &character_with(None)).unwrap_err();
+        let err = resolve_effective_llm(&none, Some(&character_with(None))).unwrap_err();
         assert!(err.contains("未配置"), "{err}");
 
         // 目标服务没有任何模型 → 快速失败。
         let mut no_models = test_config();
         no_models.providers[0].models.clear();
         no_models.active_model = None;
-        let err = resolve_effective_llm(&no_models, &character_with(None)).unwrap_err();
+        let err = resolve_effective_llm(&no_models, Some(&character_with(None))).unwrap_err();
         assert!(err.contains("未配置"), "无模型视为未配置：{err}");
 
         let mut missing = test_config();
         missing.active_provider_id = Some("ghost".into());
-        let err = resolve_effective_llm(&missing, &character_with(None)).unwrap_err();
+        let err = resolve_effective_llm(&missing, Some(&character_with(None))).unwrap_err();
         assert!(err.contains("未配置"), "悬空 active id 视为未选择：{err}");
 
         let err = resolve_effective_llm(
             &test_config(),
-            &character_with(Some(r#"{"providerId":"ghost"}"#.into())),
+            Some(&character_with(Some(r#"{"providerId":"ghost"}"#.into()))),
         )
         .unwrap_err();
         assert!(err.contains("不存在"), "{err}");
@@ -824,16 +851,28 @@ mod tests {
         }
     }
 
+    /// 阵容夹具（roster 首位放 LLM 位卡 → 其实例 id = 1，用户位实例 id = 2，
+    /// 便于既有断言沿用实例 1 指认状态归属）。
     fn setup(storage: &Storage) -> i64 {
-        let character = storage
+        let llm_card = storage
             .create_character(&NewCharacter {
                 name: "苏鸢".into(),
                 persona: "守夜人".into(),
                 ..Default::default()
             })
             .unwrap();
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap();
         storage
-            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap()
             .id
     }
@@ -912,6 +951,43 @@ mod tests {
         assert_eq!(kinds, vec!["activity", "reasoning", "token", "token", "done"]);
         assert_eq!(events.last().unwrap().1, 1, "done 放行前 assistant 行已落库");
         assert!(!registry.is_active(session_id), "终态后注册表摘除");
+    }
+
+    /// 消息归属（多角色换挂，方案 §3）：user 消息挂用户位实例、assistant 挂主持
+    /// 实例（首个 LLM 位；v1.5 单次生成的最小归属语义）。
+    #[tokio::test]
+    async fn messages_carry_instance_attribution() {
+        let (raw, _dir) = temp_storage("gen_attribution");
+        let storage = Arc::new(raw);
+        let session_id = setup(&storage);
+        // roster 首位 = LLM 位 → 主持实例 id 1，用户位实例 id 2。
+        let instances = storage.list_instances(session_id).unwrap();
+        let host = instances.iter().find(|i| !i.is_user).unwrap().id;
+        let user_instance = instances.iter().find(|i| i.is_user).unwrap().id;
+        storage
+            .insert_message(&NewMessage {
+                instance_id: Some(user_instance),
+                ..NewMessage::new(session_id, MessageRole::User, "在吗？")
+            })
+            .unwrap();
+
+        let server = MockServer::start(|_req, stream| {
+            let _ = sse_head(stream);
+            let _ = stream.write_all(sse_data(&delta_json(Some("在"), None)).as_bytes());
+            let _ = stream.write_all(sse_data("[DONE]").as_bytes());
+        });
+
+        let log = log_for(&storage, session_id);
+        let registry = Arc::new(GenerationRegistry::new());
+        let ticket = registry.begin(session_id).unwrap();
+        let deps = deps_for(&storage, log.clone(), &server.url());
+        PendingGeneration { deps, registry: registry.clone(), ticket, regenerate: false }
+            .run()
+            .await;
+
+        let rows = storage.list_messages(session_id).unwrap();
+        assert_eq!(rows[0].instance_id, Some(user_instance), "user 消息归属用户位实例");
+        assert_eq!(rows[1].instance_id, Some(host), "assistant 归属主持实例（首个 LLM 位）");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1114,6 +1190,7 @@ mod tests {
                 think_ms: None,
                 tokens: None,
                 interrupt_flag: Some(crate::domain::chat::INTERRUPT_CANCEL.into()),
+                instance_id: None,
             })
             .unwrap();
 
@@ -1148,10 +1225,10 @@ mod tests {
         let storage = Arc::new(raw);
         let session_id = setup(&storage);
         // 预置人物状态（FR-012）：导演结算之外手工 upsert，等价结算落库形态。
+        // 状态挂 LLM 位实例（roster 首位 → 实例 id 1）。
         storage
             .upsert_character_state(&crate::domain::models::NewCharacterState {
-                character_id: 1,
-                session_id,
+                instance_id: 1,
                 scope: crate::domain::models::CharacterStateScope::State,
                 key: "情绪".into(),
                 value: "释然".into(),
@@ -1371,8 +1448,7 @@ mod tests {
         let session_id = setup(&storage);
         storage
             .upsert_character_state(&crate::domain::models::NewCharacterState {
-                character_id: 1,
-                session_id,
+                instance_id: 1,
                 scope: crate::domain::models::CharacterStateScope::State,
                 key: "情绪".into(),
                 value: "惦念".into(),
@@ -1602,7 +1678,7 @@ mod tests {
             cap.lock().unwrap().push(_req.json());
             let _ = json_body(
                 stream,
-                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"雨夜争执后无言告别","present":[1],"states":[{"character_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"}]}"#,
+                r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"雨夜争执后无言告别","present":[1,2],"states":[{"instance_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"}]}"#,
             );
         });
 
@@ -1643,7 +1719,11 @@ mod tests {
             Some("雨夜争执后无言告别"),
             "裁决 summary 回写上一行（此处上一行 = 开场锚行）"
         );
-        assert_eq!(settled.present, vec![1], "§7-7：在场恒为会话角色");
+        assert_eq!(
+            settled.present,
+            vec![1, 2],
+            "在场 = 全部实例 id（roster 两位；多角色换挂后语义为实例）"
+        );
         // 状态清算落库。
         let states = storage.list_character_states(session_id).unwrap();
         assert_eq!(states.len(), 1);

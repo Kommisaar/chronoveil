@@ -2,7 +2,7 @@
 //! 与单元测试互补；同时使包内存在 tests/ 目标（build.rs 的 rustc-link-arg-tests
 //! 才会被 cargo 接受，测试二进制因此带上 comctl32 v6 manifest）。
 
-use chronoveil_lib::domain::models::{NewCharacter, NewMessage, NewSession};
+use chronoveil_lib::domain::models::{NewCharacter, NewMessage, NewSession, RosterPick};
 use chronoveil_lib::domain::ports::StoragePort;
 use chronoveil_lib::state::AppState;
 
@@ -21,13 +21,20 @@ fn temp_home(tag: &str) -> std::path::PathBuf {
     dir
 }
 
-/// 装配 → 建角色 → 建会话 → 插消息 → 读回，全链路落在注入的临时主目录内。
+/// 装配 → 建角色 → 建会话（阵容实例化）→ 插消息 → 读回，全链路落在注入的临时主目录内。
 #[test]
 fn composition_root_end_to_end() {
     let home = temp_home("e2e");
     let app = AppState::init_with_home(Some(home.clone())).unwrap();
 
-    let character = app
+    let user_card = app
+        .storage
+        .create_character(&NewCharacter {
+            name: "旅人".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let llm_card = app
         .storage
         .create_character(&NewCharacter {
             name: "苏鸢".into(),
@@ -37,11 +44,18 @@ fn composition_root_end_to_end() {
     let session = app
         .storage
         .create_session(&NewSession {
-            character_id: character.id,
+            roster: vec![
+                RosterPick { character_id: user_card.id, is_user: true },
+                RosterPick { character_id: llm_card.id, is_user: false },
+            ],
             title: "雨夜来电".into(),
             opening: None,
         })
         .unwrap();
+    // 建会话阵容实例化（多角色换挂）：两卡两实例，用户位恰一。
+    let instances = app.storage.list_instances(session.id).unwrap();
+    assert_eq!(instances.len(), 2, "阵容逐卡实例化");
+    assert_eq!(instances.iter().filter(|i| i.is_user).count(), 1, "is_user 恰一（D2）");
     let message = app
         .storage
         .insert_message(&NewMessage::new(session.id, chronoveil_lib::domain::models::MessageRole::User, "是我。"))

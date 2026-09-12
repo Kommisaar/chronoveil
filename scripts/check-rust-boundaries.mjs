@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 校验 Rust 四层边界（ADR-010）：interfaces → services → domain ← infra；domain/services 禁 tauri/rusqlite/reqwest。 */
+/** 校验 Rust 四层边界（ADR-010）：interfaces → services → domain ← infra；domain/services 禁 tauri/rusqlite/reqwest（含 tauri_plugin_* 等下划线子 crate）。 */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -43,7 +43,9 @@ for (const file of walk(SRC)) {
     }
   }
   if (layer === 'domain' || layer === 'services') {
-    for (const m of code.matchAll(/^\s*(?:use\s+)?(tauri|rusqlite|reqwest)\b/gm)) {
+    // 下划线子 crate 同族同禁（如 tauri_plugin_log / tauri_plugin_dialog）：`\b` 在
+    // tauri 后遇 `_` 不构成边界会漏网，故捕获完整 crate 名并以前瞻拒绝后续字母数字。
+    for (const m of code.matchAll(/^\s*(?:use\s+)?((?:tauri|rusqlite|reqwest)(?:_\w+)?)(?![A-Za-z0-9])/gm)) {
       violations.push(`${rel}: ${layer} 层禁依赖 ${m[1]}（ADR-010）`);
     }
   }

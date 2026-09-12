@@ -27,6 +27,18 @@ pub const RHYTHM_MS_MAX: u32 = 160;
 
 /// 打字节奏默认值（FR-009）。
 pub const DEFAULT_RHYTHM_MS_PER_CHAR: u32 = 45;
+
+/// 近景场景数允许范围（ADR-004 近景窗口可选化：1 场省 token – 6 场更多逐字上下文）。
+pub const NEAR_SCENES_MIN: u32 = 1;
+pub const NEAR_SCENES_MAX: u32 = 6;
+
+/// 近景场景数默认值（ADR-004 §7.8 原窗口：最近 2 个已结算场整场）。
+pub const DEFAULT_NEAR_SCENES: u32 = 2;
+
+/// serde 缺键回落（`#[serde(default = ...)]` 入口；与 [`DEFAULT_NEAR_SCENES`] 同源）。
+fn default_near_scenes() -> u32 {
+    DEFAULT_NEAR_SCENES
+}
 /// 动效时长基准默认值（FR-009）。
 pub const DEFAULT_ANIM_DURATION_BASE_MS: u32 = 450;
 
@@ -97,6 +109,11 @@ pub struct Config {
     pub ui_theme: String,
     /// 导演专用模型（ADR-012 键清单含；空 = 跟随主模型，INT-003）。
     pub director_model: Option<String>,
+    /// 近景场景数（ADR-004 近景窗口可选化：最近 N 个已结算场整场进近景，
+    /// 1–6，默认 2；旧 config.json 无此键零迁移兼容）。装配消费点：
+    /// services/prompt::AssembleInputs（经 generation 穿参）。
+    #[serde(default = "default_near_scenes")]
+    pub near_scenes: u32,
 }
 
 impl Default for Config {
@@ -119,15 +136,23 @@ impl Config {
             ui_language: "zh".into(),
             ui_theme: "system".into(),
             director_model: None,
+            near_scenes: DEFAULT_NEAR_SCENES,
         }
     }
 
-    /// 值域校验：目前仅 rhythm_ms_per_char 有设计规定的范围（FR-009：10–160）。
+    /// 值域校验：rhythm_ms_per_char（FR-009：10–160）与 near_scenes（1–6）
+    /// 有设计规定的范围；越界快速失败（ConfigError::Invalid），不做静默钳边。
     pub fn validate(&self) -> Result<(), ConfigError> {
         if !(RHYTHM_MS_MIN..=RHYTHM_MS_MAX).contains(&self.rhythm_ms_per_char) {
             return Err(ConfigError::Invalid(format!(
                 "rhythm_ms_per_char = {} 越界（允许 {}–{}）",
                 self.rhythm_ms_per_char, RHYTHM_MS_MIN, RHYTHM_MS_MAX
+            )));
+        }
+        if !(NEAR_SCENES_MIN..=NEAR_SCENES_MAX).contains(&self.near_scenes) {
+            return Err(ConfigError::Invalid(format!(
+                "near_scenes = {} 越界（允许 {}–{}）",
+                self.near_scenes, NEAR_SCENES_MIN, NEAR_SCENES_MAX
             )));
         }
         Ok(())
@@ -350,6 +375,7 @@ mod tests {
         assert_eq!(config.ui_language, "zh");
         assert_eq!(config.ui_theme, "system");
         assert_eq!(config.director_model, None);
+        assert_eq!(config.near_scenes, 2, "近景场景数默认 2（ADR-004 原窗口）");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -414,6 +440,7 @@ mod tests {
             ui_language: "zh".into(),
             ui_theme: "light".into(),
             director_model: Some("director-model".into()),
+            near_scenes: 4,
         };
         store.save(&config).unwrap();
 
@@ -610,6 +637,43 @@ mod tests {
         assert_eq!(store.load().unwrap().ui_theme, "system");
         std::fs::write(store.path(), r#"{"ui_theme": "dark"}"#).unwrap();
         assert_eq!(store.load().unwrap().ui_theme, "dark", "外部手改立即生效");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 近景场景数（ADR-004 窗口可选化）：旧 config.json 无此键 → serde 缺省 2
+    /// （零迁移兼容）；越界（0 / 7）读取与保存都拒绝（从众 rhythm 的校验风格，
+    /// 不静默钳边）；边界值 1 / 6 放行。
+    #[test]
+    fn near_scenes_defaults_and_range_rejected() {
+        let dir = temp_dir("near");
+        let store = store_in(&dir);
+        // 缺键 → 默认 2（旧 config.json 兼容）。
+        std::fs::write(store.path(), r#"{"ui_theme": "dark"}"#).unwrap();
+        assert_eq!(store.load().unwrap().near_scenes, 2, "缺键补默认");
+        // 边界值放行。
+        for good in [1u32, 6] {
+            std::fs::write(store.path(), format!(r#"{{"near_scenes": {good}}}"#)).unwrap();
+            assert_eq!(store.load().unwrap().near_scenes, good);
+        }
+        // 越界读取拒绝（快速失败，不静默归一）。
+        for bad in [0u32, 7, 999] {
+            std::fs::write(store.path(), format!(r#"{{"near_scenes": {bad}}}"#)).unwrap();
+            let err = store.load().unwrap_err();
+            assert!(
+                matches!(err, ConfigError::Invalid(_)),
+                "{bad} 应越界拒绝，实际：{err:?}"
+            );
+            assert!(err.to_string().contains("near_scenes"), "错误可读：{err}");
+        }
+        // 越界保存同样拒绝（save 前先 validate），文件保持上次内容（上轮写入的
+        // 999 仍是坏值 → 再读仍是 Invalid，证明 7 未被落盘）。
+        let bad = Config {
+            near_scenes: 7,
+            ..Config::new_with_defaults()
+        };
+        let err = store.save(&bad).unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
+        assert!(matches!(store.load().unwrap_err(), ConfigError::Invalid(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

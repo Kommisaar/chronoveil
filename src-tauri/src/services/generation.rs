@@ -320,6 +320,11 @@ pub struct GenerationDeps {
     /// （跟随主模型、不做角色级覆写，§7-5），命令层在 PendingGeneration 构造时解析；
     /// None = 未配置 → 生成闭环跳过结算（导演是可选能力，不阻塞正文生成）。
     pub director_llm: Option<Arc<LlmClient>>,
+    /// 近景场景数（近景窗口可选化）：config.json `near_scenes`（1–6，缺省
+    /// ADR-004 的 2），命令层构造 deps 时取当次值穿入——config 不进 services
+    /// 编排本体，装配所需的单值经依赖包传递（与 director_llm 同一穿透方式），
+    /// generate_once → prompt::AssembleInputs 消费。
+    pub near_scenes: usize,
 }
 
 /// 已登记、待驱动的一次生成。命令层构造后交给异步运行时 spawn。
@@ -423,6 +428,7 @@ async fn generate_once(
         calendar: &calendar,
         states: &states,
         dossier: dossier.as_deref(),
+        near_scenes: deps.near_scenes,
     });
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));
@@ -832,6 +838,7 @@ mod tests {
             sink: log,
             llm: Arc::new(client(url)),
             director_llm: None,
+            near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
         }
     }
 
@@ -1601,6 +1608,7 @@ mod tests {
             sink: log.clone(),
             llm: Arc::new(client(&chat.url())),
             director_llm: Some(Arc::new(client(&director_server.url()))),
+            near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
         };
         PendingGeneration { deps, registry: registry.clone(), ticket, regenerate: false }
             .run()
@@ -1677,6 +1685,7 @@ mod tests {
             sink: log.clone(),
             llm: Arc::new(client(&chat.url())),
             director_llm: Some(Arc::new(client(&director_server.url()))),
+            near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
         };
         PendingGeneration { deps, registry, ticket, regenerate: false }.run().await;
 

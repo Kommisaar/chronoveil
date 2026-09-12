@@ -303,6 +303,8 @@ pub struct ConfigDto {
     pub ui_theme: String,
     /// 导演专用模型；null / 空 = 跟随主模型（INT-003）。
     pub director_model: Option<String>,
+    /// 近景场景数（近景窗口可选化：最近 N 个已结算场整场进近景，1–6，默认 2）。
+    pub near_scenes: u32,
 }
 
 impl From<&FileConfig> for ConfigDto {
@@ -327,6 +329,7 @@ impl From<&FileConfig> for ConfigDto {
             ui_language: c.ui_language.clone(),
             ui_theme: c.ui_theme.clone(),
             director_model: c.director_model.clone(),
+            near_scenes: c.near_scenes,
         }
     }
 }
@@ -354,6 +357,7 @@ impl From<ConfigDto> for FileConfig {
             ui_language: d.ui_language,
             ui_theme: d.ui_theme,
             director_model: d.director_model,
+            near_scenes: d.near_scenes,
         }
     }
 }
@@ -789,19 +793,27 @@ fn tauri_spawner() -> GenerationSpawner {
 }
 
 fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> GenerationDeps {
-    // 导演模型解析（FR-011 / INT-003）：跟随主模型、不做角色级覆写（§7-5）。
-    // 解析失败 = 未配置 → None，生成闭环跳过结算（导演是可选能力，不阻塞生成）。
-    let director_llm = app
-        .config
-        .load()
-        .ok()
-        .and_then(|config| director::resolve_director_llm(&config).ok())
+    // 配置读取一次（读当次值不缓存，ADR-012），派生两个装配期参数：
+    // - 导演模型解析（FR-011 / INT-003）：跟随主模型、不做角色级覆写（§7-5）。
+    //   解析失败 = 未配置 → None，生成闭环跳过结算（导演是可选能力，不阻塞生成）。
+    // - 近景场景数（近景窗口可选化）：1–6，缺省 2；config 读取失败（坏文件等）
+    //   回落 ADR-004 默认值，不阻塞正文生成。
+    let config = app.config.load().ok();
+    let director_llm = config
+        .as_ref()
+        .and_then(|config| director::resolve_director_llm(config).ok())
         .map(Arc::new);
+    let near_scenes = config
+        .map_or(
+            crate::domain::context::SETTLED_SCENES_IN_NEAR,
+            |config| config.near_scenes as usize,
+        );
     GenerationDeps {
         storage: app.storage.clone(),
         sink,
         llm: Arc::new(llm),
         director_llm,
+        near_scenes,
     }
 }
 
@@ -1365,6 +1377,7 @@ mod tests {
             ui_language: "zh".into(),
             ui_theme: "dark".into(),
             director_model: None,
+            near_scenes: 4,
         };
         let wire = serde_json::to_value(&dto).unwrap();
         assert_eq!(wire["activeProviderId"], "p1", "wire camelCase");
@@ -1372,11 +1385,13 @@ mod tests {
         assert_eq!(wire["providers"][0]["baseUrl"], "https://example.invalid/v1");
         assert_eq!(wire["providers"][0]["models"], serde_json::json!(["m1", "m2"]));
         assert_eq!(wire["rhythmMsPerChar"], 90);
+        assert_eq!(wire["nearScenes"], 4, "近景场景数 camelCase 透传");
 
         let file: FileConfig = dto.clone().into();
         let back: ConfigDto = (&file).into();
         assert_eq!(dto, back, "DTO ↔ 落盘结构往返无损");
         assert_eq!(file.rhythm_ms_per_char, 90);
+        assert_eq!(file.near_scenes, 4);
         assert_eq!(file.providers[0].models, vec!["m1".to_string(), "m2".to_string()]);
     }
 

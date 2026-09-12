@@ -13,8 +13,10 @@
 
 use crate::domain::models::Message;
 
-/// 近景携带的已结算场景数（ADR-004 / §7.8：旧场景压成一行编年史，只有最近
-/// 几场吃全量上下文——聊一百场不糊）。
+/// 近景携带的已结算场景数**默认值**（ADR-004 / §7.8：旧场景压成一行编年史，只有
+/// 最近几场吃全量上下文——聊一百场不糊）。窗口可选化后此值 = config.json 缺键时
+/// 的回落值（infra::config::near_scenes，用户可配 1–6），经装配层穿入
+/// [`near_view`]，常量本身仍是窗口数学的单一默认出处。
 pub const SETTLED_SCENES_IN_NEAR: usize = 2;
 
 /// 近景字符预算。无 tokenizer 下的粗近似：中文一字 ≈ 一 token 量级，宁可量级
@@ -194,6 +196,49 @@ mod tests {
         let view = near_view(spans, SETTLED_SCENES_IN_NEAR, NEAR_VIEW_CHAR_BUDGET);
         assert_eq!(contents(&view), vec!["m0", "m1", "m2"]);
         assert_eq!(view.kept.len(), 0);
+    }
+
+    /// 窗口可选化（近景场景数 1–6）：同一 6 场历史下请求 1 / 3 / 6 场的窗口数学
+    /// ——取的是**最新** N 场整场，请求超出存量时退化为全部存量。
+    #[test]
+    fn near_view_honors_configurable_settled_scene_counts() {
+        fn build<'a>(
+            closed: &[&'a [Message]],
+            ongoing: &'a [Message],
+        ) -> SceneSpans<'a> {
+            SceneSpans {
+                closed: closed.iter().map(|ms| span(ms)).collect(),
+                ongoing,
+            }
+        }
+        let all: Vec<Message> = (0..14).map(|i| msg(i, &format!("m{i}"))).collect();
+        // 6 个已收束场（各 2 条）+ 进行中场（2 条）。
+        let closed: Vec<&[Message]> = (0..6).map(|s| &all[s * 2..s * 2 + 2]).collect();
+
+        // 请求 1 场：只带最新一场（场六）+ 进行中，最省 token 形态。
+        let view = near_view(build(&closed, &all[12..]), 1, NEAR_VIEW_CHAR_BUDGET);
+        assert_eq!(contents(&view), vec!["m10", "m11", "m12", "m13"]);
+        assert_eq!(view.kept.len(), 1);
+
+        // 请求 3 场：场四 + 场五 + 场六 + 进行中。
+        let view = near_view(build(&closed, &all[12..]), 3, NEAR_VIEW_CHAR_BUDGET);
+        assert_eq!(
+            contents(&view),
+            vec!["m6", "m7", "m8", "m9", "m10", "m11", "m12", "m13"]
+        );
+        assert_eq!(view.kept.len(), 3);
+
+        // 请求 6 场：存量恰好 6 场 → 全部整场 + 进行中。
+        let view = near_view(build(&closed, &all[12..]), 6, NEAR_VIEW_CHAR_BUDGET);
+        assert_eq!(
+            contents(&view),
+            all.iter().map(|m| m.content.as_str()).collect::<Vec<_>>()
+        );
+        assert_eq!(view.kept.len(), 6);
+
+        // 请求超出存量（9 > 6）→ 退化为全部存量，不 panic。
+        let view = near_view(build(&closed, &all[12..]), 9, NEAR_VIEW_CHAR_BUDGET);
+        assert_eq!(view.kept.len(), 6);
     }
 
     /// 预算触发**整场**淘汰：最旧的入选场整体出局（场内消息要么全在要么全不在），

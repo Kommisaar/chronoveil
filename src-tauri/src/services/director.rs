@@ -1075,6 +1075,7 @@ mod tests {
             sink: Arc::new(NoopSink),
             llm: client.clone(),
             director_llm: Some(client),
+            near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
         }
     }
 

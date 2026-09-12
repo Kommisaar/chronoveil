@@ -368,7 +368,11 @@ uiTheme: string;
 /**
  * 导演专用模型；null / 空 = 跟随主模型（INT-003）。
  */
-directorModel: string | null }
+directorModel: string | null; 
+/**
+ * 近景场景数（近景窗口可选化：最近 N 个已结算场整场进近景，1–6，默认 2）。
+ */
+nearScenes: number }
 /**
  * 命令错误的统一 wire 形态。`kind` 是判别字段（camelCase），前端可 switch 分型。
  */

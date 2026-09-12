@@ -17,7 +17,9 @@
 //!      叙事快照（给模型的永远是「现在成立的事实」）；
 //! - 近景 = 最近 N 个已结算场景的整场逐字消息 + 进行中场景全量（窗口数学见
 //!   [`crate::domain::context`]），只取原始正文——reasoning 不进上下文：它是给
-//!   用户看的思考，不是对话内容。
+//!   用户看的思考，不是对话内容。N 可配（config.json `near_scenes`，1–6，缺省
+//!   [`crate::domain::context::SETTLED_SCENES_IN_NEAR`]）＝近景窗口可选化：
+//!   经 [`AssembleInputs::near_scenes`] 由调用方穿入，装配语义本身不变。
 //!
 //! 场景边界与结算归属同源：结算把「上一道场景线所在消息（不含）到触发行（含）」
 //! 整段挂到上一场景行（ports::AttachRange），因此切分**优先按库内 scene_id 归属
@@ -55,6 +57,10 @@ pub struct AssembleInputs<'a> {
     /// 事实时产出的一段引文/事实，注入 system 第四段；None / 空白 = 无卷宗，段落
     /// 自然省略（system 退回四段形态，Task-02 行为不变）。
     pub dossier: Option<&'a str>,
+    /// 近景携带的已结算场景数（近景窗口可选化）：config.json `near_scenes`
+    /// （1–6，缺省 [`crate::domain::context::SETTLED_SCENES_IN_NEAR`]）由调用方
+    /// 穿入；仅改窗口大小，装配/编年史语义不变（窗口数学见 context::near_view）。
+    pub near_scenes: usize,
 }
 
 /// 装配一次聊天的完整 messages：system(persona + 当前虚时 + 远景编年史 + 相关回忆
@@ -62,7 +68,8 @@ pub struct AssembleInputs<'a> {
 /// 人设）；五段全空时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前
 /// 的旧数据会话）时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
 pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
-    let AssembleInputs { character, scenes, history, calendar, states, dossier } = input;
+    let AssembleInputs { character, scenes, history, calendar, states, dossier, near_scenes } =
+        input;
     // 无场景行 = 旧数据：不做场景切分，整段历史视为进行中场走预算兜底。
     let spans = if scenes.is_empty() {
         SceneSpans {
@@ -74,7 +81,7 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     };
     let near = context::near_view(
         spans,
-        context::SETTLED_SCENES_IN_NEAR,
+        *near_scenes,
         context::NEAR_VIEW_CHAR_BUDGET,
     );
 
@@ -285,6 +292,7 @@ mod tests {
             calendar: &DEFAULT_CALENDAR,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         })
     }
 
@@ -526,6 +534,43 @@ mod tests {
         );
     }
 
+    /// 近景窗口可选化（装配层穿参）：同一场历史下 near_scenes=3 把默认窗口外的
+    /// 场二拉回近景（编年史随之少一行）；near_scenes=1 把场三挤出近景（落编年史）。
+    /// 默认 2 的行为由 [`multi_scene_near_view_verbatim_and_chronicle_one_line_each`]
+    /// 锁定，本用例只验证参数确实改变窗口。
+    #[test]
+    fn assemble_near_scenes_parameter_changes_window() {
+        let c = character("人设");
+        let make = |near_scenes: usize| {
+            let messages = assemble(&AssembleInputs {
+                character: &c,
+                scenes: &multi_scene_rows(),
+                history: &multi_scene_history(),
+                calendar: &DEFAULT_CALENDAR,
+                states: &[],
+                dossier: None,
+                near_scenes,
+            });
+            let chat: Vec<String> =
+                messages[1..].iter().map(|m| m.content.clone()).collect();
+            let system = &messages[0].content;
+            let chronicle_rows = system.lines().filter(|l| l.starts_with("场")).count();
+            (chat, chronicle_rows)
+        };
+
+        // 3 场（取最新 3 个）：场二（默认窗口外）回近景 → 近景 8 条；远景只剩锚行。
+        let (chat, rows) = make(3);
+        assert_eq!(chat.len(), 8, "三场各 2 条 + 进行中 2 条");
+        assert!(chat[0] == "场二问", "场二整场回近景：{chat:?}");
+        assert_eq!(rows, 1, "远景只剩锚行一行");
+
+        // 1 场：只带场四 + 进行中 → 近景 4 条；场三挤出到编年史（3 行）。
+        let (chat, rows) = make(1);
+        assert_eq!(chat.len(), 4, "场四 2 条 + 进行中 2 条：{chat:?}");
+        assert!(chat[0] == "场四问", "最新已结算场整场保留：{chat:?}");
+        assert_eq!(rows, 3, "场一/场二/场三各一行（含锚行）");
+    }
+
     /// 无场景会话（旧数据/场景特性之前）：远景为空，全部消息按字符预算兜底；
     /// 超预算丢最旧，顺序不变、不 panic。
     #[test]
@@ -695,6 +740,7 @@ mod tests {
             calendar: &calendar,
             states: &states,
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
 
         assert_eq!(messages[0].role, ChatRole::System);
@@ -749,6 +795,7 @@ mod tests {
             calendar: &calendar,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
 
         let system = &messages[0].content;
@@ -776,6 +823,7 @@ mod tests {
             calendar: &calendar,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(
             messages[0].content,
@@ -800,6 +848,7 @@ mod tests {
             calendar: &DEFAULT_CALENDAR,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(
             messages[0].content,
@@ -825,6 +874,7 @@ mod tests {
             calendar: &calendar,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(
             messages[0].content, "人设",
@@ -845,6 +895,7 @@ mod tests {
             calendar: &calendar,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert!(
             !messages[0].content.contains("当前时间"),
@@ -875,6 +926,7 @@ mod tests {
             calendar: &calendar,
             states: &states,
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(
             messages[0].content,
@@ -891,6 +943,7 @@ mod tests {
             calendar: &calendar,
             states: &[],
             dossier: None,
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
         assert_eq!(messages[0].content, "人设", "状态全空整段省略");
     }
@@ -973,6 +1026,7 @@ mod tests {
             calendar: &DEFAULT_CALENDAR,
             states: &[state(CharacterStateScope::State, "情绪", "释然", None)],
             dossier: Some("场0：两人曾在钟楼下分食一块饼，并把信物埋在树下。"),
+            near_scenes: context::SETTLED_SCENES_IN_NEAR,
         });
 
         let system = &messages[0].content;
@@ -1008,6 +1062,7 @@ mod tests {
                 calendar: &DEFAULT_CALENDAR,
                 states: &states,
                 dossier,
+                near_scenes: context::SETTLED_SCENES_IN_NEAR,
             });
             let system = &messages[0].content;
             assert!(!system.contains("【相关回忆】"), "无卷宗不产生空段：{system}");

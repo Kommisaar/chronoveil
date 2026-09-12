@@ -71,6 +71,8 @@ const SESSION: SessionSummary = {
     { id: 10, name: '旅人', isUser: true, characterId: 2, renderStyle: 'fade' },
     { id: 11, name: '织星者', isUser: false, characterId: 1, renderStyle: 'ink' },
   ],
+  forkedFromSessionId: null,
+  forkAnchorSceneIdx: null,
 };
 
 const USER_MESSAGE: ChatMessage = {

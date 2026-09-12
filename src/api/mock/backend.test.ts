@@ -901,6 +901,77 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
   });
 });
 
+describe('forkSession（时间线分叉第 3 步：Task-44 冻结契约，mock 完整实现 / Rust Task-43）', () => {
+  /** 源会话 1（种子）：双实例（1 用户位 / 2 LLM 位）+ 4 条消息（含 1 中断条）。 */
+  it('分叉产生新会话：溯源回显、阵容逐实例再实例化（新 id）、消息拷贝换新 id 且源不受影响', async () => {
+    const { backend, data } = await loadMock();
+    const source = data.sessions[0]!;
+    const sourceMessages = data.messagesBySession[1]!.slice();
+    expect(sourceMessages.length).toBeGreaterThan(0);
+
+    const created = await backend.forkSession(1, 2, '雨夜来电（分叉）');
+    // 溯源回显（wire 契约：forkedFromSessionId / forkAnchorSceneIdx）
+    expect(created.forkedFromSessionId).toBe(1);
+    expect(created.forkAnchorSceneIdx).toBe(2);
+    expect(created.title).toBe('雨夜来电（分叉）');
+    // 阵容快照逐实例再实例化：实例 id 全局自增（种子最大 6 → 7/8），快照值原样拷贝
+    expect(created.instances.map((i) => i.id)).toEqual([7, 8]);
+    expect(created.instances.map((i) => [i.name, i.isUser, i.characterId])).toEqual([
+      [source.instances[0]!.name, true, source.instances[0]!.characterId],
+      [source.instances[1]!.name, false, source.instances[1]!.characterId],
+    ]);
+    // 进入清单读数（updatedAt = 冻结当下，倒序居首）
+    const listed = await backend.listSessions();
+    expect(listed[0]!.id).toBe(created.id);
+    expect(listed.find((s) => s.id === created.id)?.forkedFromSessionId).toBe(1);
+
+    // 消息拷贝：换新 id / 新 sessionId，内容逐条同构；源会话原条不动
+    const copied = data.messagesBySession[created.id]!;
+    expect(copied).toHaveLength(sourceMessages.length);
+    copied.forEach((message, index) => {
+      const origin = sourceMessages[index]!;
+      expect(message.id).not.toBe(origin.id);
+      expect(message.sessionId).toBe(created.id);
+      expect(message.content).toBe(origin.content);
+      expect(message.role).toBe(origin.role);
+      expect(message.characterId).toBe(origin.characterId);
+    });
+    expect(data.messagesBySession[1]).toEqual(sourceMessages);
+
+    // 分叉会话独立演化：在源会话发消息不波及分叉副本
+    // （mock sendMessage 追加用户条 + 占位回复两条，源会话 4 → 6）
+    await backend.sendMessage(1, '新的一句');
+    expect((data.messagesBySession[1] ?? []).length).toBe(sourceMessages.length + 2);
+    expect((data.messagesBySession[created.id] ?? []).length).toBe(sourceMessages.length);
+  });
+
+  it('源会话不存在 / 已删 → NotFound(session)；非法锚点（负数 / 非整数）→ NotFound(scene)', async () => {
+    const { backend } = await loadMock();
+    expect(await apiErrorOf(backend.forkSession(999, 0, '分叉'))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 999,
+    });
+    await backend.deleteSession(1);
+    expect(await apiErrorOf(backend.forkSession(1, 0, '分叉'))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 1,
+    });
+    // 锚点契约（mock 无场表，存在性界内校验以 Rust 为准）：必然非法的形态同落
+    // NotFound scene——用仍在本册的会话 2，保证先过会话校验、落在锚点校验上
+    expect(await apiErrorOf(backend.forkSession(2, -1, '分叉'))).toEqual({
+      kind: 'notFound',
+      entity: 'scene',
+      id: -1,
+    });
+    expect((await apiErrorOf(backend.forkSession(2, 1.5, '分叉'))) as { id: number }).toMatchObject({
+      kind: 'notFound',
+      entity: 'scene',
+    });
+  });
+});
+
 describe('mock/data.ts 种子（结构完整性）', () => {
   it('引用完整：阵容 is_user 恰好一、实例溯源在世角色、消息 characterId 属本会话阵容（user 条恒 null）、interrupted 只在 assistant 条', async () => {
     const { data } = await loadMock();

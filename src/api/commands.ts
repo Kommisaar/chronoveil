@@ -68,6 +68,24 @@ export async function deleteSession(sessionId: number): Promise<void> {
 }
 
 /**
+ * 分叉会话（时间线分叉，Task-44 冻结契约）：从源会话 `anchorSceneIdx` 场分叉新
+ * 会话（含锚点场及其之前的消息 / 状态），返回新会话摘要（含分叉溯源回显字段）。
+ * 调用方成功后走 `refreshSessions` 单点重拉并选中新会话（会话清单纪律）。
+ * 锚点场号不存在 → NotFound(scene)；源会话不存在 / 已删 → NotFound(session)。
+ * 桌面壳当前处于 stub 阶段（Rust 侧 Task-43 接线，返回 Unavailable），纯浏览器
+ * mock 为完整实现。
+ */
+export async function forkSession(
+  sessionId: number,
+  anchorSceneIdx: number,
+  title: string,
+): Promise<SessionSummary> {
+  return isTauri
+    ? unwrap(commands.forkSession(sessionId, anchorSceneIdx, title))
+    : mock.forkSession(sessionId, anchorSceneIdx, title);
+}
+
+/**
  * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给调用方审阅后
  * 由用户走既有保存路径——本命令不做持久化、不自动应用。空白 / 超长（> 4000 字符）
  * 描述报 conflict；provider 未配置报 config；LLM 调用失败报 unavailable。

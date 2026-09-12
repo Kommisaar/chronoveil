@@ -85,6 +85,8 @@ const SESSION: SessionSummary = {
     { id: 1, name: '织星者', isUser: true, characterId: 1, renderStyle: 'fade' },
     { id: 2, name: '守塔人', isUser: false, characterId: 2, renderStyle: 'ink' },
   ],
+  forkedFromSessionId: null,
+  forkAnchorSceneIdx: null,
 };
 
 const SCENES: SceneDto[] = [

@@ -53,6 +53,13 @@ pub struct SessionSummary {
     /// 建成后的阵容回显（在世实例，创建序 = 用户位在前）；本切片无实例增删，
     /// 空数组仅出现在异常数据（正常建会话至少一个用户位）。
     pub instances: Vec<SessionInstanceDto>,
+    /// 分叉溯源（时间线分叉 wire，Task-44 契约冻结）：源会话 id；非分叉会话 =
+    /// null。侧栏分叉标识经 list_sessions 回显读。当前恒 None（分叉落库由
+    /// Task-43 接线，见 ipc/fork.rs stub 说明）。
+    pub forked_from_session_id: Option<i64>,
+    /// 分叉锚点场号（含锚点场及其之前的消息 / 状态复制进新会话）；非分叉会话
+    /// = null。与上一字段同批由 Task-43 接线。
+    pub fork_anchor_scene_idx: Option<i64>,
 }
 
 // ---- 会话（FR-007）+ 开局包（FR-014）----
@@ -170,6 +177,10 @@ fn session_summary_with_roster(
         title: session.title,
         updated_at: session.updated_at,
         instances,
+        // 分叉溯源字段位先占（恒 null = 非分叉）；取数由 Task-43 分叉服务落库后
+        // 接入，stub 边界见 ipc/fork.rs 头注。
+        forked_from_session_id: None,
+        fork_anchor_scene_idx: None,
     })
 }
 
@@ -262,6 +273,8 @@ mod tests {
                 character_id: Some(9),
                 render_style: "type".into(),
             }],
+            forked_from_session_id: None,
+            fork_anchor_scene_idx: None,
         })
         .unwrap();
         assert_eq!(
@@ -272,7 +285,10 @@ mod tests {
                 "updatedAt": 1234,
                 "instances": [
                     { "id": 1, "name": "旅人", "isUser": true, "characterId": 9, "renderStyle": "type" }
-                ]
+                ],
+                // 分叉溯源（Task-44）：非分叉会话两字段 wire null；分叉取值契约见 fork.rs 测试
+                "forkedFromSessionId": null,
+                "forkAnchorSceneIdx": null
             })
         );
     }
@@ -469,30 +485,5 @@ mod tests {
         assert!(list_sessions_impl(&app).unwrap().is_empty());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // ---- 会话日历 wire 契约（FR-014；起草历法命令复用同一 DTO）----
-
-    /// wire 形态：camelCase + festivals 数字字符串键；与 domain 往返无损。
-    #[test]
-    fn calendar_config_dto_serializes_camel_case_with_numeric_festival_keys() {
-        let domain = fiction_time::presets::fantasy();
-        let dto = CalendarConfigDto::from(&domain);
-        let json = serde_json::to_value(&dto).unwrap();
-        assert_eq!(json["name"], "旧都历");
-        assert_eq!(json["daysPerMonth"], 30);
-        assert_eq!(
-            json["festivals"]["45"], "灯节",
-            "节日键 = 数字字符串（BTreeMap<i64, String> 的 JSON 形态）"
-        );
-        assert_eq!(json["festivals"]["360"], "守夜");
-        // domain → DTO → domain 往返无损。
-        assert_eq!(fiction_time::CalendarConfig::from(&dto), domain);
-        // 空节日表 → wire null（None = 无节日的规范形态，与反向 From 对称）。
-        let mut bare = domain.clone();
-        bare.festivals.clear();
-        assert!(
-            serde_json::to_value(CalendarConfigDto::from(&bare)).unwrap()["festivals"].is_null()
-        );
     }
 }

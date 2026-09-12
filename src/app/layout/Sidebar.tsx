@@ -284,6 +284,17 @@ export function Sidebar() {
     return session.instances.find((i) => i.isUser)?.name ?? t('sessions.untitled');
   };
 
+  // 分叉标识（时间线分叉，Task-44）：meta 行前缀「⑂ 源会话名」；源已不在清单
+  // （软删 / mock 无墓碑差异）时回退「源会话 #id」，非分叉会话不出标识（克制）。
+  const forkLabelOf = (session: SessionSummary): string | null => {
+    const sourceId = session.forkedFromSessionId;
+    if (sourceId === null) return null;
+    const source = sessions.find((s) => s.id === sourceId);
+    return source !== undefined
+      ? t('sessions.forkedFrom', { title: displayTitle(source) })
+      : t('sessions.forkedFromUnknown', { id: sourceId });
+  };
+
   // 两段式收起：宽度过渡播完再藏 inner（隐藏后内容不可聚焦），展开时立即可见
   useEffect(() => {
     if (collapsed) {
@@ -414,6 +425,7 @@ export function Sidebar() {
         ) : (
           sessions.map((session) => {
             const active = session.id === activeSessionId;
+            const forkLabel = forkLabelOf(session);
             return (
               <div
                 key={session.id}
@@ -433,6 +445,7 @@ export function Sidebar() {
                   <span className={styles.label}>
                     <span className={styles.title}>{displayTitle(session)}</span>
                     <span className={styles.meta}>
+                      {forkLabel !== null && `${forkLabel} · `}
                       {formatRelative(session.updatedAt, i18n.language)}
                     </span>
                   </span>

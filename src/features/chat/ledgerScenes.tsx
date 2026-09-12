@@ -10,17 +10,20 @@
  * 场（桥场）出「展开回顾」折叠块，默认收起。
  *
  * 数据由面板壳拉取后经 props 下发（在场实例名映射同样由壳从 ui store 派生），
- * 本组件只管渲染。
+ * 本组件只管渲染；每行附「从此分叉」入口（时间线分叉，Task-44），点击经
+ * onFork 上抛，对话框与执行在面板壳。
  */
 import {
   Accordion,
   AccordionHeader,
   AccordionItem,
   AccordionPanel,
+  Button,
   Text,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
+import { BranchFork16Regular } from '@fluentui/react-icons';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import type { SceneDto } from '../../api/types';
@@ -49,6 +52,15 @@ const useStyles = makeStyles({
   sceneMeta: {
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
+  },
+  // 分叉入口钮：头行右缘（对齐该文件克制的小件交互），图标钮带完整 aria 标注
+  forkBtn: {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    alignSelf: 'center',
+    minWidth: '24px',
+    height: '24px',
+    padding: '0px',
   },
   sceneSummary: {
     fontSize: tokens.fontSizeBase300,
@@ -84,9 +96,12 @@ export interface LedgerScenesSectionProps {
   /** 在场实例 id → 名（多角色第 1 步），由面板壳从 ui store 会话清单的
    * roster 回显派生；清单未覆盖到的 id 在此回退「角色#id」兜底。 */
   instanceNames: Map<number, string>;
+  /** 「从此分叉」回调（时间线分叉，Task-44）：携带锚点场上抛，对话框与
+   * 分叉执行在面板壳（本组件只管渲染）。 */
+  onFork: (scene: SceneDto) => void;
 }
 
-export function LedgerScenesSection({ scenes, instanceNames }: LedgerScenesSectionProps) {
+export function LedgerScenesSection({ scenes, instanceNames, onFork }: LedgerScenesSectionProps) {
   const styles = useStyles();
   const chrome = useLedgerSectionStyles();
   const { t } = useTranslation();
@@ -101,16 +116,26 @@ export function LedgerScenesSection({ scenes, instanceNames }: LedgerScenesSecti
         sceneRows.map((scene) => {
           const timeLabel = timeLabelOf(scene, t);
           return (
-            <div key={scene.id} className={styles.sceneRow}>
-              <div className={styles.sceneHead}>
-                <Text className={styles.sceneNo}>
-                  {t('chat.ledger.sceneNo', { index: scene.idx })}
-                </Text>
-                {timeLabel !== null && <span className={styles.sceneMeta}>{timeLabel}</span>}
-                {scene.location !== null && scene.location !== '' && (
-                  <span className={styles.sceneMeta}>{scene.location}</span>
-                )}
-              </div>
+              <div key={scene.id} className={styles.sceneRow}>
+                <div className={styles.sceneHead}>
+                  <Text className={styles.sceneNo}>
+                    {t('chat.ledger.sceneNo', { index: scene.idx })}
+                  </Text>
+                  {timeLabel !== null && <span className={styles.sceneMeta}>{timeLabel}</span>}
+                  {scene.location !== null && scene.location !== '' && (
+                    <span className={styles.sceneMeta}>{scene.location}</span>
+                  )}
+                  {/* 分叉锚点候选（Task-44）：以本场为锚分叉新会话，执行在面板壳 */}
+                  <Button
+                    className={styles.forkBtn}
+                    size="small"
+                    appearance="transparent"
+                    icon={<BranchFork16Regular />}
+                    aria-label={`${t('chat.ledger.forkHere')}：${t('chat.ledger.sceneNo', { index: scene.idx })}`}
+                    title={t('chat.ledger.forkHere')}
+                    onClick={() => onFork(scene)}
+                  />
+                </div>
               {scene.present.length > 0 && (
                 // 在场实例：次要小字行（从众 sceneMeta 层级，不抢 summary）；
                 // 未知实例 id 回退「角色#id」；名字拼接从众 CalendarSection 的「、」

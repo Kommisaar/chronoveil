@@ -31,6 +31,20 @@ async deleteSession(sessionId: number) : Promise<Result<null, IpcError>> {
 }
 },
 /**
+ * 分叉命令（时间线分叉，Task-44）：`session_id` = 源会话；`anchor_scene_idx` =
+ * 锚点场号（同会话内单调叙事序，SceneDto.idx 同源）；`title` = 新会话标题
+ * （UI 默认「原标题（分叉）」，后端不截断回填——与 create_session 的缺省标题
+ * 路径不同，分叉标题恒显式传入）。
+ */
+async forkSession(sessionId: number, anchorSceneIdx: number, title: string) : Promise<Result<SessionSummary, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fork_session", { sessionId, anchorSceneIdx, title }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给前端审阅后
  * 由用户走既有保存路径（本命令**不做持久化、不自动应用**）。单次调用、前端
  * 弹窗等待——不走生成注册表（无会话互斥语义）也不流式；cancel 通道本切片
@@ -572,7 +586,18 @@ export type SessionSummary = { id: number; title: string; updatedAt: number;
  * 建成后的阵容回显（在世实例，创建序 = 用户位在前）；本切片无实例增删，
  * 空数组仅出现在异常数据（正常建会话至少一个用户位）。
  */
-instances: SessionInstanceDto[] }
+instances: SessionInstanceDto[]; 
+/**
+ * 分叉溯源（时间线分叉 wire，Task-44 契约冻结）：源会话 id；非分叉会话 =
+ * null。侧栏分叉标识经 list_sessions 回显读。当前恒 None（分叉落库由
+ * Task-43 接线，见 ipc/fork.rs stub 说明）。
+ */
+forkedFromSessionId: number | null; 
+/**
+ * 分叉锚点场号（含锚点场及其之前的消息 / 状态复制进新会话）；非分叉会话
+ * = null。与上一字段同批由 Task-43 接线。
+ */
+forkAnchorSceneIdx: number | null }
 /**
  * 流式事件（INT-001 v1 四态）。Rust 侧由 [`TauriEventSink`] 发射，
  * TS 侧类型经 tauri-specta 同源生成于 `src/api/generated/bindings.ts`。

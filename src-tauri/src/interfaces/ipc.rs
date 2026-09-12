@@ -18,7 +18,8 @@
 //! 经生成注册表取消，无活跃生成时为幂等 no-op（返回 false）。
 //!
 //! 本模块是命令域子模块的注册壳（500 行规范拆分，纯搬移）：按命令域分驻
-//! `ipc/` 子模块——sessions（会话/开局包/会话日历）、draft_calendar（AI 起草历法）、
+//! `ipc/` 子模块——sessions（会话/开局包/会话日历）、fork（时间线分叉，Task-44
+//! 契约冻结 stub）、draft_calendar（AI 起草历法）、
 //! messages（消息）、scenes（场景与人物状态）、llm_calls（调用轨迹）、
 //! generation（生成闭环）、characters（角色 CRUD）、character_cards（卡文件导出/导入）、
 //! config（配置）、error（统一错误）、test_support（测试夹具）。全部 pub 项经下方
@@ -30,6 +31,7 @@ mod characters;
 mod config;
 mod draft_calendar;
 mod error;
+mod fork;
 mod generation;
 mod llm_calls;
 mod messages;
@@ -50,6 +52,9 @@ pub use sessions::{
 };
 
 pub use draft_calendar::draft_calendar;
+
+// 分叉域（时间线分叉，Task-44 契约冻结 stub；独立成文件因 sessions.rs 500 行纪律）
+pub use fork::fork_session;
 
 pub use messages::{list_messages, ChatMessage, MessageRole};
 
@@ -88,6 +93,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             sessions::list_sessions,
             sessions::create_session,
             sessions::delete_session,
+            fork::fork_session,
             draft_calendar::draft_calendar,
             messages::list_messages,
             scenes::list_scenes,
@@ -135,7 +141,8 @@ mod tests {
             .expect("导出 TS bindings 失败");
         let content = std::fs::read_to_string(&out).unwrap();
         for cmd in [
-            "listSessions", "createSession", "deleteSession", "draftCalendar", "listMessages",
+            "listSessions", "createSession", "deleteSession", "forkSession", "draftCalendar",
+            "listMessages",
             "listScenes", "listCharacterStates",
             "sendMessage", "cancelGeneration", "regenerateLast",
             "listCharacters", "createCharacter", "updateCharacter", "deleteCharacter",

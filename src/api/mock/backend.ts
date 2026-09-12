@@ -15,7 +15,6 @@ import type {
   CharacterStateDto,
   CharacterSummary,
   ChatMessage,
-  ConfigDto,
   LlmCallDto,
   MessageRole,
   SceneDto,
@@ -28,21 +27,9 @@ import type {
 import { ApiError } from '../errors';
 import { characters, messagesBySession, sessions } from './data';
 
-/** 与 Rust `Config::new_with_defaults`（FR-009；双层级 provider→models）一致的默认配置。 */
-export const DEFAULT_CONFIG: ConfigDto = {
-  providers: [],
-  activeProviderId: null,
-  activeModel: null,
-  rhythmMsPerChar: 45,
-  punctPauseEnabled: true,
-  animDurationBase: 450,
-  uiLanguage: 'zh',
-  uiTheme: 'system',
-  directorModel: null,
-  nearScenes: 2, // ADR-004 默认近景窗口（config.near_scenes 缺键回落值）
-};
-
-let config: ConfigDto = { ...DEFAULT_CONFIG };
+// 配置域 mock 分驻 ./config（backend.ts 500 行纪律拆分）；原路径再导出保持
+// `import * as mock from './mock/backend'` 命令面完整，调用方零改动。
+export { DEFAULT_CONFIG, getConfig, saveConfig } from './config';
 
 let nextSessionId = Math.max(...sessions.map((s) => s.id)) + 1;
 let nextCharacterId = Math.max(...characters.map((c) => c.id)) + 1;
@@ -52,7 +39,7 @@ let nextMessageId =
   Math.max(...Object.values(messagesBySession).flat().map((m) => m.id)) + 1;
 
 /** 与 Rust NotFound 等价（ADR-009：不存在 / 已软删对调用方等价）；entity 取 storage 层常量。 */
-function notFound(entity: 'session' | 'character', id: number): ApiError {
+function notFound(entity: 'session' | 'character' | 'scene', id: number): ApiError {
   return new ApiError({ kind: 'notFound', entity, id });
 }
 
@@ -155,11 +142,14 @@ export async function createSession(
   });
   // opening 本身不入存储（mock 无 scenes 表），校验通过即视为建会话成功，保演示不破。
   // title 缺省（null）→ 空串，与 Rust create_session_impl 一致（首条用户消息后回填）。
+  // 分叉溯源恒 null（新建非分叉；分叉走 forkSession，Task-44）。
   const session: SessionSummary = {
     id: nextSessionId++,
     title: title ?? '',
     updatedAt: Date.now(),
     instances,
+    forkedFromSessionId: null,
+    forkAnchorSceneIdx: null,
   };
   sessions.push(session);
   return session;
@@ -170,6 +160,47 @@ export async function deleteSession(sessionId: number): Promise<void> {
   if (index < 0) throw notFound('session', sessionId);
   sessions.splice(index, 1);
   delete messagesBySession[sessionId];
+}
+
+// ---- 会话分叉（时间线分叉 wire，Task-44 契约冻结；Rust 真实分叉服务由 Task-43 落地）----
+
+/**
+ * 分叉会话（Task-44 冻结契约）：从源会话 `anchorSceneIdx` 场分叉新会话（含锚点场
+ * 及其之前的消息 / 状态），返回新会话摘要（溯源字段回显）；阵容快照逐实例再实例化
+ * （新实例 id 全局自增，快照值原样拷贝，D1 延续），消息拷贝换新 id 与新 sessionId。
+ *
+ * mock 简化口径（Task-43 合入后以 Rust 为准）：无 scenes 存储 → 锚点场号只校验
+ * 「非负整数」（负数 / 非整数必然不存在，NotFound scene 对齐 fork.rs 契约），消息
+ * 拷贝取源会话全量代「锚点场及其之前」前缀（Rust 按 as_of 口径）；无状态历史可拷。
+ */
+export async function forkSession(
+  sessionId: number,
+  anchorSceneIdx: number,
+  title: string,
+): Promise<SessionSummary> {
+  const source = sessionOf(sessionId);
+  if (!Number.isInteger(anchorSceneIdx) || anchorSceneIdx < 0) {
+    throw notFound('scene', anchorSceneIdx);
+  }
+  const instances: SessionInstanceDto[] = source.instances.map((instance) => ({
+    ...instance,
+    id: nextInstanceId++,
+  }));
+  const created: SessionSummary = {
+    id: nextSessionId++,
+    title,
+    updatedAt: Date.now(),
+    instances,
+    forkedFromSessionId: source.id,
+    forkAnchorSceneIdx: anchorSceneIdx,
+  };
+  sessions.push(created);
+  messagesBySession[created.id] = (messagesBySession[sessionId] ?? []).map((message) => ({
+    ...message,
+    id: nextMessageId++,
+    sessionId: created.id,
+  }));
+  return created;
 }
 
 // ---- AI 起草历法（FR-014 二期）----
@@ -464,31 +495,4 @@ export async function importCharacter(): Promise<CharacterSummary | null> {
   return createCharacter({ ...SAMPLE_IMPORT });
 }
 
-// ---- 配置（FR-009 / ADR-012；双层级 provider→models）----
-
-/** providers 逐项浅拷 + models 数组拷贝：调用方改返回值/草稿不污染内存基线。 */
-function cloneProviders(providers: ConfigDto['providers']): ConfigDto['providers'] {
-  return providers.map((p) => ({ ...p, models: [...p.models] }));
-}
-
-export async function getConfig(): Promise<ConfigDto> {
-  return { ...config, providers: cloneProviders(config.providers) };
-}
-
-export async function saveConfig(next: ConfigDto): Promise<void> {
-  // 值域对齐 infra/config.rs validate（FR-009：10–160），错误形态对齐 IpcError::Config。
-  if (next.rhythmMsPerChar < 10 || next.rhythmMsPerChar > 160) {
-    throw new ApiError({
-      kind: 'config',
-      message: `rhythm_ms_per_char = ${next.rhythmMsPerChar} 越界（允许 10–160）`,
-    });
-  }
-  // 近景场景数（近景窗口可选化）：对齐 infra/config.rs validate（1–6，拒绝不钳边）。
-  if (next.nearScenes < 1 || next.nearScenes > 6) {
-    throw new ApiError({
-      kind: 'config',
-      message: `near_scenes = ${next.nearScenes} 越界（允许 1–6）`,
-    });
-  }
-  config = { ...next, providers: cloneProviders(next.providers) };
-}
+// ---- 配置（FR-009 / ADR-012；实现分驻 ./config，见文件头再导出说明）----

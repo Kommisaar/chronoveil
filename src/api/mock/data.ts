@@ -178,6 +178,8 @@ export const sessions: SessionSummary[] = [
       { id: 1, name: '苏鸢', isUser: true, characterId: 1, renderStyle: 'type' },
       { id: 2, name: '苏鸢', isUser: false, characterId: 1, renderStyle: 'type' },
     ],
+    forkedFromSessionId: null,
+    forkAnchorSceneIdx: null,
   },
   {
     id: 2,
@@ -187,6 +189,8 @@ export const sessions: SessionSummary[] = [
       { id: 3, name: '苏鸢', isUser: true, characterId: 1, renderStyle: 'type' },
       { id: 4, name: '苏鸢', isUser: false, characterId: 1, renderStyle: 'type' },
     ],
+    forkedFromSessionId: null,
+    forkAnchorSceneIdx: null,
   },
   {
     id: 3,
@@ -196,6 +200,8 @@ export const sessions: SessionSummary[] = [
       { id: 5, name: '苏鸢', isUser: true, characterId: 1, renderStyle: 'type' },
       { id: 6, name: '林深', isUser: false, characterId: 2, renderStyle: 'ink' },
     ],
+    forkedFromSessionId: null,
+    forkAnchorSceneIdx: null,
   },
 ];
 

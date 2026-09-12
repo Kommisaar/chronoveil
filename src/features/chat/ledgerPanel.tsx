@@ -24,10 +24,11 @@
 import { Button, Spinner, Text, makeStyles, tokens } from '@fluentui/react-components';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { listCharacterStates, listLlmCalls, listScenes } from '../../api/commands';
+import { forkSession, listCharacterStates, listLlmCalls, listScenes } from '../../api/commands';
 import type { CharacterStateDto, SceneDto } from '../../api/types';
 import { useUiStore } from '../../stores/ui';
 import { streamHub, type LlmCall } from './streamHub';
+import { ForkSessionDialog } from './forkSessionDialog';
 import { LedgerScenesSection } from './ledgerScenes';
 import { LedgerStatesSection } from './ledgerStates';
 import { LedgerTraceSection } from './ledgerTrace';
@@ -76,8 +77,11 @@ interface LedgerPanelProps {
 export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const styles = useStyles();
   const { t } = useTranslation();
-  // 会话清单单一数据源（TASK-007）：在场实例名映射从 roster 回显派生
+  // 会话清单单一数据源（TASK-007）：在场实例名映射从 roster 回显派生；
+  // 分叉成功后的清单重拉与选中切换也走 store 单点（refreshSessions / selectSession）
   const sessions = useUiStore((s) => s.sessions);
+  const refreshSessions = useUiStore((s) => s.refreshSessions);
+  const selectSession = useUiStore((s) => s.selectSession);
   const [scenes, setScenes] = useState<SceneDto[] | null>(null);
   const [states, setStates] = useState<CharacterStateDto[] | null>(null);
   // 调用轨迹（会话级列表）：实时增量经 onTrace 头部插入 / 原位更新，见下
@@ -86,6 +90,11 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const [failed, setFailed] = useState(false);
   // 终态静默重拉 / 手动重试共用的时间点：bump 触发下方拉取 effect 重跑
   const [refreshTick, setRefreshTick] = useState(0);
+  // 分叉（时间线分叉，Task-44）：锚点场 + 标题输入 + 进行中标记 + 就地错误文案
+  const [forkTarget, setForkTarget] = useState<SceneDto | null>(null);
+  const [forkTitle, setForkTitle] = useState('');
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
 
   // 拉取：打开（挂载）、会话切换（sessionId 变化）、终态 / 重试（refreshTick）。
   // 场景 / 状态 / 调用轨迹按会话查询；三者同库同源，失败一并走错误态重试。
@@ -119,6 +128,36 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
     const roster = sessions.find((s) => s.id === sessionId)?.instances ?? [];
     return new Map(roster.map((instance) => [instance.id, instance.name]));
   }, [sessions, sessionId]);
+
+  // 分叉入口（Task-44）：打开对话框并预填默认标题「原标题（分叉）」——源标题
+  // 为空（尚未有首条用户消息回填）时回退「新会话」占位（与侧栏条目同一回退语义）。
+  const openForkDialog = (scene: SceneDto): void => {
+    const source = sessions.find((s) => s.id === sessionId);
+    const sourceTitle =
+      source !== undefined && source.title !== '' ? source.title : t('sessions.untitled');
+    setForkTitle(t('chat.ledger.forkDefaultTitle', { title: sourceTitle }));
+    setForkError(null);
+    setForkTarget(scene);
+  };
+
+  // 分叉执行（会话清单纪律）：forkSession → refreshSessions 单点重拉 → 选中新
+  // 会话（对齐 Sidebar 新建会话后的选中路径）。失败文案就地可见，不静默、不关
+  // 对话框（用户可修正重试）。
+  const confirmFork = async (): Promise<void> => {
+    if (forkTarget === null || forking) return;
+    setForking(true);
+    setForkError(null);
+    try {
+      const created = await forkSession(sessionId, forkTarget.idx, forkTitle.trim());
+      setForkTarget(null);
+      await refreshSessions();
+      selectSession(created.id);
+    } catch (e) {
+      setForkError(`${t('chat.ledger.forkFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
+    } finally {
+      setForking(false);
+    }
+  };
 
   // 新完成消息 → 静默重拉（FR-012）：终态事件（done / error 均已落库，ADR-001）
   // 在 done 放行前 scenes / character_state 已结算在库（ADR-005），直接重拉无竞态；
@@ -171,10 +210,21 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
       ) : (
         <>
           <LedgerStatesSection states={states} />
-          <LedgerScenesSection scenes={scenes} instanceNames={instanceNames} />
+          <LedgerScenesSection scenes={scenes} instanceNames={instanceNames} onFork={openForkDialog} />
           <LedgerTraceSection sessionId={sessionId} calls={calls} />
         </>
       )}
+
+      {/* 分叉确认（Task-44）：开关 / 标题值 / 执行留本壳，展示件只管文案与输入 */}
+      <ForkSessionDialog
+        target={forkTarget}
+        title={forkTitle}
+        onTitleChange={setForkTitle}
+        forking={forking}
+        error={forkError}
+        onCancel={() => setForkTarget(null)}
+        onConfirm={() => void confirmFork()}
+      />
     </aside>
   );
 }

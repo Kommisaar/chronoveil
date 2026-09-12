@@ -22,6 +22,8 @@ export const zh = {
     deleteBlocked: '该会话正在生成回复，暂不能删除',
     deleteFailed: '删除失败',
     createFailed: '新建会话失败',
+    forkedFrom: '⑂ {{title}}',
+    forkedFromUnknown: '⑂ 源会话 #{{id}}',
     wizard: {
       stepUser: '第一步 · 你的角色',
       pickUserHint: '选择你扮演的角色——这是你在故事中的身份',
@@ -117,6 +119,14 @@ export const zh = {
       responseText: '回复正文',
       errorText: '错误信息',
       toolCalls: '工具调用',
+      forkHere: '从此分叉',
+      forkDialogTitle: '分叉会话',
+      forkIntro: '从「{{scene}}」分叉出新会话，复制该场及其之前的消息与状态。',
+      forkTitleField: '新会话标题',
+      forkDefaultTitle: '{{title}}（分叉）',
+      forkConfirm: '分叉',
+      forking: '分叉中…',
+      forkFailed: '分叉失败',
     },
   },
   characters: {

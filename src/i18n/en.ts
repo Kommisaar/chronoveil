@@ -23,6 +23,8 @@ export const en = {
     deleteBlocked: 'This session is generating a reply and cannot be deleted right now',
     deleteFailed: 'Delete failed',
     createFailed: 'Failed to create session',
+    forkedFrom: '⑂ {{title}}',
+    forkedFromUnknown: '⑂ source #{{id}}',
     wizard: {
       stepUser: 'Step 1 · Your character',
       pickUserHint: 'Pick the character you play — your identity in the story',
@@ -119,6 +121,14 @@ export const en = {
       responseText: 'Response',
       errorText: 'Error',
       toolCalls: 'Tool calls',
+      forkHere: 'Fork from here',
+      forkDialogTitle: 'Fork session',
+      forkIntro: 'Fork a new session from "{{scene}}", copying messages and states up to and including it.',
+      forkTitleField: 'New session title',
+      forkDefaultTitle: '{{title}} (fork)',
+      forkConfirm: 'Fork',
+      forking: 'Forking…',
+      forkFailed: 'Fork failed',
     },
   },
   characters: {

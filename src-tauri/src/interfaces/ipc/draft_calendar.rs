@@ -139,4 +139,30 @@ mod tests {
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // ---- 会话日历 wire 契约（FR-014；起草历法与开局包共用同一 DTO，原在
+    // sessions.rs，Task-44 因 sessions.rs 500 行纪律迁至本域消费方）----
+
+    /// wire 形态：camelCase + festivals 数字字符串键；与 domain 往返无损。
+    #[test]
+    fn calendar_config_dto_serializes_camel_case_with_numeric_festival_keys() {
+        let domain = fiction_time::presets::fantasy();
+        let dto = CalendarConfigDto::from(&domain);
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["name"], "旧都历");
+        assert_eq!(json["daysPerMonth"], 30);
+        assert_eq!(
+            json["festivals"]["45"], "灯节",
+            "节日键 = 数字字符串（BTreeMap<i64, String> 的 JSON 形态）"
+        );
+        assert_eq!(json["festivals"]["360"], "守夜");
+        // domain → DTO → domain 往返无损。
+        assert_eq!(fiction_time::CalendarConfig::from(&dto), domain);
+        // 空节日表 → wire null（None = 无节日的规范形态，与反向 From 对称）。
+        let mut bare = domain.clone();
+        bare.festivals.clear();
+        assert!(
+            serde_json::to_value(CalendarConfigDto::from(&bare)).unwrap()["festivals"].is_null()
+        );
+    }
 }

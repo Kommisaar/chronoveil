@@ -2,8 +2,9 @@
  * 纯浏览器 mock 后端（ADR-010）：与 Rust 命令面（ipc-command-whitelist）一一对应的
  * 内存实现，仅服务 `pnpm run dev`（无 Rust 工具链的界面开发）。数据种子见 `./data`。
  *
- * 语义对齐 Rust 侧：软删 = 从列表移除（mock 无墓碑）；sendMessage 只回执用户条并
- * 追加一条占位回复（真实生成闭环由 TASK-006 接线，mock 仅保界面演示完整）。
+ * 语义对齐 Rust 侧：软删 = 从列表移除（mock 无墓碑）；createSession 阵容制
+ * （多角色第 1 步：逐卡实例化快照，D1/D2）；sendMessage 只回执用户条并追加一条
+ * 占位回复（真实生成闭环由 TASK-006 接线，mock 仅保界面演示完整）。
  * 错误形态对齐 wire 契约：统一抛 [`ApiError`]（payload 为 Rust IpcError 的可判别结构）。
  */
 
@@ -17,7 +18,9 @@ import type {
   LlmCallDto,
   MessageRole,
   SceneDto,
+  SessionInstanceDto,
   SessionOpeningInput,
+  SessionRosterMember,
   SessionSummary,
   UpdateCharacterInput,
 } from '../types';
@@ -42,6 +45,9 @@ let config: ConfigDto = { ...DEFAULT_CONFIG };
 
 let nextSessionId = Math.max(...sessions.map((s) => s.id)) + 1;
 let nextCharacterId = Math.max(...characters.map((c) => c.id)) + 1;
+// 实例 id 全局自增（对齐 character_instances.id 为全局 PK，跨会话不重复）
+let nextInstanceId =
+  Math.max(...sessions.flatMap((s) => s.instances ?? []).map((i) => i.id)) + 1;
 let nextMessageId =
   Math.max(...Object.values(messagesBySession).flat().map((m) => m.id)) + 1;
 
@@ -58,7 +64,7 @@ function sessionOf(sessionId: number): SessionSummary {
 
 function makeMessage(
   sessionId: number,
-  characterId: number | null,
+  instanceId: number,
   role: MessageRole,
   content: string,
   reasoning: string | null = null,
@@ -68,7 +74,7 @@ function makeMessage(
   return {
     id: nextMessageId++,
     sessionId,
-    characterId,
+    instanceId,
     role,
     content,
     reasoning,
@@ -89,12 +95,25 @@ export async function listSessions(): Promise<SessionSummary[]> {
 const FIC_PARTS: readonly string[] = ['清晨', '上午', '午后', '黄昏', '夜', '深夜'];
 
 export async function createSession(
-  characterId: number,
-  title?: string | null,
+  members: SessionRosterMember[],
   opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
-  if (!characters.some((c) => c.id === characterId)) {
-    throw notFound('character', characterId);
+  // 阵容校验（冻结契约）：非空 + isUser 恰好一处 true（D2）+ 逐成员卡 id 在世。
+  // ≥1 个 LLM 位由向导 FR 保证，不属 wire 不变量（单独用户位契约上合法）。
+  if (members.length === 0) {
+    throw new ApiError({ kind: 'conflict', message: '会话阵容不能为空' });
+  }
+  const userCount = members.filter((m) => m.isUser).length;
+  if (userCount !== 1) {
+    throw new ApiError({
+      kind: 'conflict',
+      message: `会话阵容需恰好一个用户扮演位，实际 ${userCount} 个`,
+    });
+  }
+  for (const member of members) {
+    if (!characters.some((c) => c.id === member.characterId)) {
+      throw notFound('character', member.characterId);
+    }
   }
   // 开局入参校验对齐 Rust create_session_impl（FR-014）：时段六值、起始日 ≥ 1、
   // 显式日历需满足命名皮肤可用性（对齐 fiction_time::validate）。
@@ -119,12 +138,24 @@ export async function createSession(
       });
     }
   }
+  // 逐卡实例化快照（D1）：name 值拷贝自卡、改卡不回写；character_id 记模板溯源
+  // （动态造人 D6 为 null，本切片阵容只来自选卡）。instances 按入参顺序回显。
+  const instances: SessionInstanceDto[] = members.map((member) => {
+    const card = characters.find((c) => c.id === member.characterId);
+    if (!card) throw notFound('character', member.characterId);
+    return {
+      id: nextInstanceId++,
+      name: card.name,
+      isUser: member.isUser,
+      characterId: card.id,
+    };
+  });
   // opening 本身不入存储（mock 无 scenes 表），校验通过即视为建会话成功，保演示不破。
   const session: SessionSummary = {
     id: nextSessionId++,
-    characterId,
-    title: title ?? '',
+    title: '',
     updatedAt: Date.now(),
+    instances,
   };
   sessions.push(session);
   return session;
@@ -235,41 +266,52 @@ export async function sendMessage(
   const session = sessionOf(sessionId);
   const trimmed = content.trim();
   if (!trimmed) throw new ApiError({ kind: 'conflict', message: '消息内容为空' });
-  const userMessage = makeMessage(sessionId, null, 'user', trimmed);
+  // 用户条以用户扮演位实例落库（D2：用户亲自输入 = 以该实例的身份说话，实例真值）。
+  const userInstance = (session.instances ?? []).find((i) => i.isUser);
+  if (!userInstance) {
+    // 会话无用户位实例 = 数据不变量被破坏（D2 恰好 1），不静默造默认值。
+    throw new ApiError({ kind: 'conflict', message: `会话 #${sessionId} 缺少用户扮演位实例` });
+  }
+  const userMessage = makeMessage(sessionId, userInstance.id, 'user', trimmed);
   ;(messagesBySession[sessionId] ??= []).push(userMessage);
-  // 占位回复：mock 无真实生成；characterId 派生规则与命令层一致（assistant → 会话角色）。
-  const reply = makeMessage(
-    sessionId,
-    session.characterId,
-    'assistant',
-    '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
-    'mock 思考：等待 TASK-006 接入真实生成闭环。',
-    800,
-  );
-  ;(messagesBySession[sessionId] ??= []).push(reply);
+  // 占位回复：mock 无真实生成；首个 LLM 位实例发声（D3 逐拍轮转属后续切片，
+  // mock 取确定性首位）。阵容仅用户位时无 LLM 可发声：诚实缺省，不造假回复、
+  // 不合成轨迹（契约上 assistant 条必有说话实例）。
+  const llmInstance = (session.instances ?? []).find((i) => !i.isUser);
+  if (llmInstance) {
+    const reply = makeMessage(
+      sessionId,
+      llmInstance.id,
+      'assistant',
+      '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
+      'mock 思考：等待 TASK-006 接入真实生成闭环。',
+      800,
+    );
+    ;(messagesBySession[sessionId] ??= []).push(reply);
+    // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
+    // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
+    // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
+    // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
+    llmCalls.push({
+      id: nextLlmCallId++,
+      sessionId,
+      kind: 'dialogue',
+      model: 'mock-model',
+      startedAt: reply.createdAt - 900,
+      durationMs: 900,
+      promptJson: JSON.stringify([{ role: 'user', content: trimmed }]),
+      responseText: reply.content,
+      reasoningText: reply.reasoning,
+      toolCallsJson: null,
+      promptTokens: 128,
+      completionTokens: 64,
+      status: 'ok',
+      errorText: null,
+    });
+  }
   // FR-007：标题缺省取首条用户消息截断（ipc.rs send_message_impl / default_title）。
   if (session.title === '') session.title = defaultTitle(trimmed);
   session.updatedAt = userMessage.createdAt;
-  // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
-  // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
-  // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
-  // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
-  llmCalls.push({
-    id: nextLlmCallId++,
-    sessionId,
-    kind: 'dialogue',
-    model: 'mock-model',
-    startedAt: reply.createdAt - 900,
-    durationMs: 900,
-    promptJson: JSON.stringify([{ role: 'user', content: trimmed }]),
-    responseText: reply.content,
-    reasoningText: reply.reasoning,
-    toolCallsJson: null,
-    promptTokens: 128,
-    completionTokens: 64,
-    status: 'ok',
-    errorText: null,
-  });
   return userMessage;
 }
 
@@ -311,10 +353,14 @@ export async function regenerateLast(sessionId: number): Promise<ChatMessage> {
 // ---- 角色 CRUD（FR-006，含 avatar）----
 
 export async function listCharacters(): Promise<CharacterSummary[]> {
+  // sessionCount 统计读 is_user（方案 §2.1：扮演位标记供侧栏/统计读）——
+  // 该卡被选为用户扮演位的在世会话数。
   return characters
     .map((c) => ({
       ...c,
-      sessionCount: sessions.filter((s) => s.characterId === c.id).length,
+      sessionCount: sessions.filter((s) =>
+        (s.instances ?? []).some((i) => i.isUser && i.characterId === c.id),
+      ).length,
     }))
     .sort((a, b) => a.id - b.id);
 }

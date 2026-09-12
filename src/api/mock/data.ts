@@ -1,6 +1,8 @@
-import type { CharacterSummary, ChatMessage } from '../types';
+import type { CharacterSummary, ChatMessage, SessionSummary } from '../types';
 
-/** mock 数据：纯浏览器开发用（ADR-010）；结构与 SQLite 三表对应（data_model）。 */
+/** mock 数据：纯浏览器开发用（ADR-010）；结构与 SQLite 各表对应（data_model）。
+ *  会话按多角色第 1 步阵容制形态（character_instances 表 + messages.instance_id）：
+ *  实例 id 全局自增（1–6），is_user 恰好一处（D2），name 为建会话时快照（D1）。 */
 
 const now = Date.now();
 const min = 60_000;
@@ -163,18 +165,46 @@ export const characters: CharacterSummary[] = [
   },
 ];
 
-export const sessions = [
-  { id: 1, characterId: 1, title: '雨夜来电', updatedAt: now - 3 * min },
-  { id: 2, characterId: 1, title: '旧书店的约定', updatedAt: now - 26 * min },
-  { id: 3, characterId: 2, title: '深巷追凶', updatedAt: now - 2 * 24 * 60 * min },
+// 种子阵容：D2 允许自己跟自己对话（自演自），会话 1/2 即此形态；会话 3 演示
+// 跨卡对话（用户扮演苏鸢、LLM 扮演林深）。实例 id 全局唯一：1–2 / 3–4 / 5–6。
+export const sessions: SessionSummary[] = [
+  {
+    id: 1,
+    title: '雨夜来电',
+    updatedAt: now - 3 * min,
+    instances: [
+      { id: 1, name: '苏鸢', isUser: true, characterId: 1 },
+      { id: 2, name: '苏鸢', isUser: false, characterId: 1 },
+    ],
+  },
+  {
+    id: 2,
+    title: '旧书店的约定',
+    updatedAt: now - 26 * min,
+    instances: [
+      { id: 3, name: '苏鸢', isUser: true, characterId: 1 },
+      { id: 4, name: '苏鸢', isUser: false, characterId: 1 },
+    ],
+  },
+  {
+    id: 3,
+    title: '深巷追凶',
+    updatedAt: now - 2 * 24 * 60 * min,
+    instances: [
+      { id: 5, name: '苏鸢', isUser: true, characterId: 1 },
+      { id: 6, name: '林深', isUser: false, characterId: 2 },
+    ],
+  },
 ];
 
+// instanceId 语义（多角色第 1 步）：user 条 = 用户扮演位实例（1/3/5），
+// assistant 条 = 发声的 LLM 位实例（2/4/6）——实例真值，不再是命令层推导假值。
 export const messagesBySession: Record<number, ChatMessage[]> = {
   1: [
     {
       id: 1,
       sessionId: 1,
-      characterId: 1,
+      instanceId: 2,
       role: 'assistant',
       content: '**雨点敲着窗棂**，我数到第七声的时候，电话响了。\n\n是你吗？这个时间打来的人，不多。',
       reasoning: '开场白：营造雨夜氛围，留下悬念钩子，等待用户回应以确定故事走向。',
@@ -185,7 +215,7 @@ export const messagesBySession: Record<number, ChatMessage[]> = {
     {
       id: 2,
       sessionId: 1,
-      characterId: null,
+      instanceId: 1,
       role: 'user',
       content: '是我。你还留着这个号码，我有点意外。',
       reasoning: null,
@@ -196,7 +226,7 @@ export const messagesBySession: Record<number, ChatMessage[]> = {
     {
       id: 3,
       sessionId: 1,
-      characterId: 1,
+      instanceId: 2,
       role: 'assistant',
       content: '有些东西我不丢，号码是其中之一。\n\n*指尖在桌沿轻轻敲了两下*——说吧，这次是什么事。',
       reasoning: '维持角色的克制与旧情愫的张力；不主动推进剧情，把话语权交回用户。',
@@ -207,7 +237,7 @@ export const messagesBySession: Record<number, ChatMessage[]> = {
     {
       id: 4,
       sessionId: 1,
-      characterId: 1,
+      instanceId: 2,
       role: 'assistant',
       content: '其实我今晚本来想……',
       reasoning: null,
@@ -220,7 +250,7 @@ export const messagesBySession: Record<number, ChatMessage[]> = {
     {
       id: 5,
       sessionId: 2,
-      characterId: 1,
+      instanceId: 4,
       role: 'assistant',
       content: '店里的旧钟停在四点二十，你来的时候，灰尘刚好落定。',
       reasoning: null,
@@ -233,7 +263,7 @@ export const messagesBySession: Record<number, ChatMessage[]> = {
     {
       id: 6,
       sessionId: 3,
-      characterId: 2,
+      instanceId: 6,
       role: 'assistant',
       content: '巷子口的灯坏了三天，没人修。案卷上不会记这个，但死者会。',
       reasoning: '侦探角色的冷开场：用环境细节暗示案情，语气克制。',

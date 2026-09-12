@@ -9,8 +9,8 @@
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, CharacterState, Message, NewCharacter, NewCharacterState, NewMessage, NewScene,
-    NewSession, Scene, Session, UpdateCharacter,
+    Character, CharacterState, LlmCall, Message, NewCharacter, NewCharacterState, NewLlmCall,
+    NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
 };
 
 /// 消息归属半开区间 `(after_message_id, upto_message_id]`（FR-011）：区间内的在世消息
@@ -113,4 +113,12 @@ pub trait StoragePort: Send + Sync {
     /// 会话内全部在世状态（不分组），按 id 升序。
     fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError>;
     fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError>;
+
+    // ---- llm_calls（透明化功能：LLM 调用轨迹，日志性质旁路数据）----
+    /// 插入一条调用轨迹（一次 HTTP 请求一条）。本表**不做软删除**（无墓碑列）：
+    /// 轨迹是日志性质数据，只插不改不删，ADR-009 在此不适用。
+    fn insert_llm_call(&self, new: &NewLlmCall) -> Result<LlmCall, StorageError>;
+    /// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。无会话的起草调用
+    /// （session_id = NULL）不进任何会话查询。
+    fn list_llm_calls(&self, session_id: i64, limit: u32) -> Result<Vec<LlmCall>, StorageError>;
 }

@@ -7,6 +7,7 @@
 
 mod character_states;
 mod characters;
+mod llm_calls;
 mod messages;
 mod migrations;
 mod scenes;
@@ -19,8 +20,8 @@ use rusqlite::Connection;
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, CharacterState, Message, MessageRole, NewCharacter, NewCharacterState, NewMessage,
-    NewScene, NewSession, Scene, Session, UpdateCharacter,
+    Character, CharacterState, LlmCall, Message, MessageRole, NewCharacter, NewCharacterState,
+    NewLlmCall, NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
 };
 use crate::domain::ports::{SettlementWrite, StoragePort};
 
@@ -287,6 +288,16 @@ impl StoragePort for Storage {
             character_states::soft_delete(conn, id, ts)
         })
     }
+
+    // ---- llm_calls（透明化功能：LLM 调用轨迹，日志性质旁路数据）----
+    // 本表不做软删除（无墓碑列，ADR-009 不适用）：只插不改不删，见 infra/storage/llm_calls.rs。
+    fn insert_llm_call(&self, new: &NewLlmCall) -> Result<LlmCall, StorageError> {
+        self.with_conn(|conn| llm_calls::insert(conn, new))
+    }
+
+    fn list_llm_calls(&self, session_id: i64, limit: u32) -> Result<Vec<LlmCall>, StorageError> {
+        self.with_conn(|conn| llm_calls::list_by_session(conn, session_id, limit))
+    }
 }
 
 #[cfg(test)]
@@ -348,13 +359,14 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7], "schema_version 各版本只记录一次");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8], "schema_version 各版本只记录一次");
 
         let tables: Vec<String> = {
             let mut stmt = conn
                 .prepare(
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN \
-                     ('characters', 'sessions', 'messages', 'scenes', 'character_state') \
+                     ('characters', 'sessions', 'messages', 'scenes', 'character_state', \
+                     'llm_calls') \
                      ORDER BY name",
                 )
                 .unwrap();
@@ -363,8 +375,15 @@ mod tests {
         };
         assert_eq!(
             tables,
-            vec!["character_state", "characters", "messages", "scenes", "sessions"],
-            "v1 三表 + 5b 两新表（迁移 0002）"
+            vec![
+                "character_state".to_string(),
+                "characters".to_string(),
+                "llm_calls".to_string(),
+                "messages".to_string(),
+                "scenes".to_string(),
+                "sessions".to_string(),
+            ],
+            "v1 三表 + 5b 两新表（迁移 0002）+ 调用轨迹表（迁移 0008）"
         );
         drop(conn);
         cleanup(&dir);

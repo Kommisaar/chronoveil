@@ -24,6 +24,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     (6, include_str!("../../../migrations/0006_render_style_type.sql")),
     // 桥场加厚（Task-03）：scenes.recap 可空扩列（两三句加厚回顾，远景编年史桥场专用）
     (7, include_str!("../../../migrations/0007_scenes_recap.sql")),
+    // LLM 调用轨迹（透明化功能）：llm_calls 新表——每次 LLM HTTP 请求一条完整
+    // 轨迹（kind 四类 / usage 可空 / status 二值），日志性质数据不做软删除
+    (8, include_str!("../../../migrations/0008_llm_calls.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。
@@ -119,7 +122,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7], "旧版本记录保留，新版本追加");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8], "旧版本记录保留，新版本追加");
 
         // 旧数据逐字段原样（验收 1：迁移不丢数据）
         let (name, persona): (String, String) = conn
@@ -276,5 +279,107 @@ mod tests {
             vec!["type".to_string(), "type".to_string(), "neon".to_string()],
             "遗留 'typewriter' 订正为 'type'，其余风格不动"
         );
+    }
+
+    /// 0008（透明化功能）：llm_calls 新表——列集、kind / status 的 CHECK 值域、
+    /// (session_id, id) 索引在位；NULL 会话（draft 调用）可插可查排除。
+    #[test]
+    fn migration_0008_creates_llm_calls_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        // 手工推进到版本 7，让 run() 只应用 0008。
+        for (version, sql) in &MIGRATIONS[..7] {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+                [version],
+            )
+            .unwrap();
+        }
+        // 预置一个会话供外键引用（0001 已在上面的循环中应用）。
+        conn.execute(
+            "INSERT INTO characters (name, persona, render_style, created_at, updated_at) \
+             VALUES ('苏鸢', '', 'type', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (character_id, title, created_at, updated_at) \
+             VALUES (1, '', 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        // 列集与可空性（PRAGMA table_info 第 4 列 notnull：1 = NOT NULL）。
+        let mut stmt = conn.prepare("PRAGMA table_info(llm_calls)").unwrap();
+        let columns: Vec<(String, bool)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)? != 0))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let column = |name: &str| {
+            columns
+                .iter()
+                .find(|(col, _)| col == name)
+                .map(|(_, not_null)| *not_null)
+        };
+        // id 是 INTEGER PRIMARY KEY（rowid 别名）：PRAGMA 的 notnull 恒报 0，
+        // 只断言其存在，NOT NULL 断言覆盖其余业务列。
+        assert!(column("id").is_some(), "id 主键列应存在");
+        for required in
+            ["kind", "model", "started_at", "duration_ms", "prompt_json", "status"]
+        {
+            assert_eq!(column(required), Some(true), "{required} 应存在且 NOT NULL");
+        }
+        for nullable in [
+            "session_id",
+            "response_text",
+            "reasoning_text",
+            "tool_calls_json",
+            "prompt_tokens",
+            "completion_tokens",
+            "error_text",
+        ] {
+            assert_eq!(column(nullable), Some(false), "{nullable} 应存在且可空");
+        }
+        assert!(!columns.iter().any(|(col, _)| col == "deleted_at"), "轨迹表不做软删除");
+
+        // (session_id, id) 索引在位。
+        let indexes: Vec<String> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' \
+                     AND name = 'idx_llm_calls_session'",
+                )
+                .unwrap();
+            let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+            rows.collect::<Result<Vec<_>, _>>().unwrap()
+        };
+        assert_eq!(indexes, vec!["idx_llm_calls_session"], "会话内按序查询的索引必须存在");
+
+        // kind / status 值域（CHECK）与 NULL 会话可插。
+        conn.execute(
+            "INSERT INTO llm_calls (session_id, kind, model, started_at, duration_ms, \
+                 prompt_json, status) \
+             VALUES (1, 'dialogue', 'm', 1, 2, '[]', 'ok')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO llm_calls (session_id, kind, model, started_at, duration_ms, \
+                 prompt_json, status) \
+             VALUES (NULL, 'draft', 'm', 3, 4, '[]', 'error')",
+            [],
+        )
+        .unwrap();
+        for bad in [
+            "UPDATE llm_calls SET kind = 'other'",
+            "UPDATE llm_calls SET status = 'pending'",
+        ] {
+            assert!(conn.execute_batch(bad).is_err(), "值域外的值必须被 CHECK 拒绝：{bad}");
+        }
     }
 }

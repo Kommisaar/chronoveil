@@ -8,12 +8,16 @@
  * 内容两段，顺序固定：
  * - 人物状态：按 scope 分「当前状态」「关系」两组，`key：value` 行；组空省标题，
  *   全空显示空态文案。expiry 不展示（那是结算清算线索，非叙事信息）。
- * - 场景史：idx 倒序（最新在上）。每行 = 场号 + 时间标签（dateLabel 优先，缺失
- *   拼 ficDay/ficPart，与后端 date_label 数字回退形态同构）+ 地点 + 一行 summary；
- *   元数据全空的场也保留行（场号可辨）。recap 非空的场（桥场）出「展开回顾」
- *   折叠块，默认收起。
+ * - 场景史：idx 倒序（最新在上）。每行 = 场号 + 时间标签 + 地点 + 一行 summary；
+ *   时间标签只出一枚（后端编年史并列链 location·timeNote·dateLabel·summary，
+ *   前端收成一段保持克制）：timeNote（叙事时间原文，如「第三日黄昏，雨」）最
+ *   有味道，优先；缺失回落 dateLabel，再缺拼 ficDay/ficPart（与后端 date_label
+ *   数字回退形态同构）。场号行下附「在场：…」次要小字行（present 角色名，已删
+ *   角色回退「角色#id」）。元数据全空的场也保留行（场号可辨）。recap 非空的场
+ *   （桥场）出「展开回顾」折叠块，默认收起。
  *
- * 数据策略：挂载（打开面板）与 sessionId 变化（会话切换）时重拉两个列表；生成
+ * 数据策略：挂载（打开面板）与 sessionId 变化（会话切换）时重拉场景 / 状态两个
+ * 会话级列表 + 角色清单（present id → 名字映射用，v1 单角色会话通常就一个）；生成
  * 终态（streamHub.onTerminal，ADR-005 保证 done 放行前 scenes / character_state
  * 已在库）且属于本会话时静默重拉，无需手动刷新按钮。
  */
@@ -31,7 +35,7 @@ import {
 import { useEffect, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { listCharacterStates, listScenes } from '../../api/commands';
+import { listCharacterStates, listCharacters, listScenes } from '../../api/commands';
 import type { CharacterStateDto, SceneDto } from '../../api/types';
 import { streamHub } from './streamHub';
 
@@ -144,8 +148,10 @@ const useStyles = makeStyles({
   },
 });
 
-/** 时间标签：dateLabel 优先；缺失拼 ficDay/ficPart（后端 date_label 数字回退同构）；再缺省略。 */
+/** 时间标签（只出一枚，不堆叠）：timeNote（叙事时间原文）优先；缺失回落
+ * dateLabel；再缺拼 ficDay/ficPart（后端 date_label 数字回退同构）；全缺省略。 */
 function timeLabelOf(scene: SceneDto, t: TFunction): string | null {
+  if (scene.timeNote !== null && scene.timeNote !== '') return scene.timeNote;
   if (scene.dateLabel !== null && scene.dateLabel !== '') return scene.dateLabel;
   const { ficDay: day, ficPart: part } = scene;
   if (day !== null && part !== null) return t('chat.ledger.dayPart', { day, part });
@@ -184,22 +190,27 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const { t } = useTranslation();
   const [scenes, setScenes] = useState<SceneDto[] | null>(null);
   const [states, setStates] = useState<CharacterStateDto[] | null>(null);
+  // present 角色名映射（id → 名字）：随角色清单一次拉全量，已删角色查不到走回退文案
+  const [characterNames, setCharacterNames] = useState<Map<number, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   // 终态静默重拉 / 手动重试共用的时间点：bump 触发下方拉取 effect 重跑
   const [refreshTick, setRefreshTick] = useState(0);
 
   // 拉取：打开（挂载）、会话切换（sessionId 变化）、终态 / 重试（refreshTick）。
+  // 场景 / 状态按会话查询，角色清单全量（present 映射用，v1 单角色会话通常就一个）；
+  // 三者同库同源，失败一并走错误态重试。
   // cancelled 标记防会话快切竞态：过期响应不落 state。
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setFailed(false);
-    void Promise.all([listScenes(sessionId), listCharacterStates(sessionId)])
-      .then(([nextScenes, nextStates]) => {
+    void Promise.all([listScenes(sessionId), listCharacterStates(sessionId), listCharacters()])
+      .then(([nextScenes, nextStates, nextCharacters]) => {
         if (cancelled) return;
         setScenes(nextScenes);
         setStates(nextStates);
+        setCharacterNames(new Map(nextCharacters.map((c) => [c.id, c.name])));
       })
       .catch(() => {
         if (cancelled) return;
@@ -284,6 +295,21 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
                         <span className={styles.sceneMeta}>{scene.location}</span>
                       )}
                     </div>
+                    {scene.present.length > 0 && (
+                      // 在场角色：次要小字行（从众 sceneMeta 层级，不抢 summary）；
+                      // 已删角色回退「角色#id」；名字拼接从众 CalendarSection 的「、」
+                      <div className={styles.sceneMeta}>
+                        {t('chat.ledger.present', {
+                          names: scene.present
+                            .map(
+                              (id) =>
+                                characterNames.get(id) ??
+                                t('chat.ledger.unknownCharacter', { id }),
+                            )
+                            .join('、'),
+                        })}
+                      </div>
+                    )}
                     {scene.summary !== null && scene.summary !== '' && (
                       <div className={styles.sceneSummary}>{scene.summary}</div>
                     )}

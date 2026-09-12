@@ -93,6 +93,8 @@ export const en = {
       dayPart: 'Day {{day}} · {{part}}',
       day: 'Day {{day}}',
       expandRecap: 'Expand recap',
+      present: 'Present: {{names}}',
+      unknownCharacter: 'Character #{{id}}',
     },
   },
   characters: {

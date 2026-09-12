@@ -92,6 +92,8 @@ export const zh = {
       dayPart: '第{{day}}日·{{part}}',
       day: '第{{day}}日',
       expandRecap: '展开回顾',
+      present: '在场：{{names}}',
+      unknownCharacter: '角色#{{id}}',
     },
   },
   characters: {

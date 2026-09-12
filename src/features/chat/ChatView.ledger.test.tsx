@@ -1,5 +1,6 @@
 // 叙事账本面板测试（FR-012）：入口开关、两段渲染（状态分组 / 场景倒序与
-// 时间标签取值链）、recap 折叠、空态、终态与换会话重拉、错误重试。
+// 时间标签取值链）、recap 折叠、空态、终态与换会话重拉、错误重试，以及场景行
+// 加分项（timeNote 优先 / 回落两态；present 在场角色名映射与未知 id 回退）。
 // api 层整体 vi.mock（同 ChatView.history.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
@@ -59,6 +60,9 @@ const CHARACTER: CharacterSummary = {
   sessionCount: 1,
 };
 
+// 第二个角色：在场角色名映射用例中覆盖 listCharacters 时启用
+const GUARDIAN: CharacterSummary = { ...CHARACTER, id: 2, name: '守塔人' };
+
 const SCENES: SceneDto[] = [
   // 第 1 场：dateLabel 在场 → 优先于 ficDay/ficPart 拼接
   {
@@ -98,6 +102,20 @@ const SCENES: SceneDto[] = [
     summary: '对峙',
     recap: '前情：旅店夜话，守塔人的警告犹在耳边。',
     present: [1, 2],
+  },
+  // 第 4 场：timeNote 在场 → 时间标签优先叙事原文（压过 dateLabel 与 ficDay/ficPart）；
+  // present 含未知 id 99 → 回退「角色#99」
+  {
+    id: 34,
+    idx: 4,
+    location: '钟楼',
+    timeNote: '第三日黄昏，雨',
+    ficDay: 4,
+    ficPart: '黄昏',
+    dateLabel: '白蜡月·收获日·黄昏',
+    summary: '雨中告白',
+    recap: null,
+    present: [1, 99],
   },
 ];
 
@@ -162,13 +180,16 @@ afterEach(() => {
   useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: false });
 });
 
-it('面板打开即拉取两列表，按当前会话查询；拉取中先见加载态', async () => {
+it('面板打开即拉取场景 / 状态 / 角色清单（present 名字映射用），场景状态按当前会话查询；拉取中先见加载态', async () => {
   renderView();
   openLedger();
   // 加载态同步可见（promise 未 resolve 前渲染 spinner + 文案）
   expect(screen.getByText('加载中…')).toBeTruthy();
   expect(mocks.listScenes).toHaveBeenCalledWith(3);
   expect(mocks.listCharacterStates).toHaveBeenCalledWith(3);
+  // ChatView 挂载自身也会拉一次角色清单，故只断言「面板链路调过」（映射正确性
+  // 由在场角色用例的 DOM 断言背书）
+  expect(mocks.listCharacters).toHaveBeenCalled();
   await screen.findByText('第3场');
 });
 
@@ -255,4 +276,35 @@ it('错误重试：拉取失败显示错误与重试入口，重试成功恢复�
   fireEvent.click(screen.getByRole('button', { name: '重试' }));
   await screen.findByText('第3场');
   expect(mocks.listScenes).toHaveBeenCalledTimes(2);
+});
+
+it('timeNote 两态：叙事时间原文在场时优先成标签（压过 dateLabel 与 ficDay 拼链），缺失回落既有链', async () => {
+  renderView();
+  openLedger();
+  await screen.findByText('第4场');
+
+  // 第 4 场：timeNote 优先 —— dateLabel 与 ficDay/ficPart 拼接都不出（一枚标签不堆叠）
+  expect(screen.getByText('第三日黄昏，雨')).toBeTruthy();
+  expect(screen.queryByText('白蜡月·收获日·黄昏')).toBeNull();
+  expect(screen.queryByText('第4日·黄昏')).toBeNull();
+
+  // 回落态：第 1 场 timeNote 缺失 → dateLabel；第 3 场再缺 → ficDay/ficPart 拼接
+  expect(screen.getByText('白蜡月·晨露日·夜')).toBeTruthy();
+  expect(screen.getByText('第3日·夜')).toBeTruthy();
+});
+
+it('在场角色：present id 按角色清单映射名字，未知 id 回退「角色#id」，空 present 不出行', async () => {
+  mocks.listCharacters.mockResolvedValue([CHARACTER, GUARDIAN]);
+  const { container } = renderView();
+  openLedger();
+  await screen.findByText('第4场');
+
+  // 第 1 场 present [1] → 织星者；第 3 场 [1, 2] → 双名字映射；第 4 场 [1, 99] → 未知 id 回退
+  expect(screen.getByText('在场：织星者')).toBeTruthy();
+  expect(screen.getByText('在场：织星者、守塔人')).toBeTruthy();
+  expect(screen.getByText('在场：织星者、角色#99')).toBeTruthy();
+
+  // 第 2 场 present [] → 不出「在场」行：全篇共 3 行
+  expect(screen.getAllByText(/^在场：/)).toHaveLength(3);
+  expect(container.textContent).not.toContain('角色#1');
 });

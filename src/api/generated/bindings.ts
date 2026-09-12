@@ -331,9 +331,11 @@ calendarConfig: string | null; updatedAt: number;
  */
 sessionCount: number }
 /**
- * 聊天消息（前端 ChatMessage；characterId 机械适配为「说话人实例 id 真值」：
- * assistant → messages.instance_id（未指认的旧行为 null），user → null。
- * 字段名与整体 wire 语义（instanceId 全量透出）的重设计属 Task-31）。
+ * 聊天消息（前端 ChatMessage；wire 定案 Task-31）：字段名沿用 `characterId`
+ * （旧 wire 相容名，避免纯改名 churn），语义已是「说话人实例 id 真值」——
+ * assistant → messages.instance_id（未指认的旧行为 null），user → null（用户条
+ * 调用方按 role 渲染，无需实例 id；实例身份的权威回显在 SessionSummary.instances
+ * 与状态 DTO 的 instanceId，消费方勿把本字段当模板卡 id 用）。
  */
 export type ChatMessage = { id: number; sessionId: number; characterId: number | null; role: MessageRole; 
 /**
@@ -508,9 +510,33 @@ summary: string | null;
  */
 recap: string | null; 
 /**
- * 在场 character id 数组。
+ * 在场**实例** id 数组（多角色换挂后语义翻转：迁移 0009 前为模板卡 id，写入端
+ * 现按实例记值——开场锚行 seed 与结算裁决 schema 均为实例 id；名字映射由
+ * 消费方经 SessionSummary.instances 回显派生）。
  */
 present: number[] }
+/**
+ * 会话角色实例回显行（多角色阵容制 wire，Task-31）：`SessionSummary.instances`
+ * 逐行——建会话时逐卡实例化的运行时身份快照（D1），非模板卡。
+ */
+export type SessionInstanceDto = { id: number; 
+/**
+ * 设定快照名（建会话时值拷贝自卡，改卡不回写，D1）。
+ */
+name: string; 
+/**
+ * 扮演位标记（D2）：全会话恰好 1；侧栏标题 / 统计读它。
+ */
+isUser: boolean; 
+/**
+ * 模板溯源（D1）：选卡实例化记卡 id；None = 动态造人（D6，本切片不产生）。
+ */
+characterId: number | null; 
+/**
+ * 出场动画风格快照（D1）——回显快照值而非模板卡现值，改卡不影响既有会话；
+ * 消费方（聊天渲染参数）读这里，不再回查模板卡。
+ */
+renderStyle: string }
 /**
  * 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
  * seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。
@@ -538,11 +564,15 @@ location: string | null;
 timeNote: string | null }
 /**
  * 会话摘要（FR-007：列表按 updated_at 倒序）。
- * 机械适配（多角色换挂）：sessions.character_id 列已随迁移 0009 移除，摘要不再
- * 携带 characterId——阵容/扮演位信息（is_user、实例名）的 wire 重设计属 Task-31
- * 的多角色 IPC 变更，本层只做最小机械适配。
+ * 多角色阵容制（wire 重设计，Task-31）：sessions.character_id 已随迁移 0009
+ * 移除，阵容 / 扮演位信息改经 `instances` 回显（建会话快照，D1/D2）。
  */
-export type SessionSummary = { id: number; title: string; updatedAt: number }
+export type SessionSummary = { id: number; title: string; updatedAt: number; 
+/**
+ * 建成后的阵容回显（在世实例，创建序 = 用户位在前）；本切片无实例增删，
+ * 空数组仅出现在异常数据（正常建会话至少一个用户位）。
+ */
+instances: SessionInstanceDto[] }
 /**
  * 流式事件（INT-001 v1 四态）。Rust 侧由 [`TauriEventSink`] 发射，
  * TS 侧类型经 tauri-specta 同源生成于 `src/api/generated/bindings.ts`。

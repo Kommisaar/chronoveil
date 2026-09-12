@@ -115,22 +115,47 @@ impl From<models::MessageRole> for MessageRole {
     }
 }
 
+/// 会话角色实例回显行（多角色阵容制 wire，Task-31）：`SessionSummary.instances`
+/// 逐行——建会话时逐卡实例化的运行时身份快照（D1），非模板卡。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInstanceDto {
+    pub id: i64,
+    /// 设定快照名（建会话时值拷贝自卡，改卡不回写，D1）。
+    pub name: String,
+    /// 扮演位标记（D2）：全会话恰好 1；侧栏标题 / 统计读它。
+    pub is_user: bool,
+    /// 模板溯源（D1）：选卡实例化记卡 id；None = 动态造人（D6，本切片不产生）。
+    pub character_id: Option<i64>,
+    /// 出场动画风格快照（D1）——回显快照值而非模板卡现值，改卡不影响既有会话；
+    /// 消费方（聊天渲染参数）读这里，不再回查模板卡。
+    pub render_style: String,
+}
+
+impl From<models::CharacterInstance> for SessionInstanceDto {
+    fn from(i: models::CharacterInstance) -> Self {
+        Self {
+            id: i.id,
+            name: i.name,
+            is_user: i.is_user,
+            character_id: i.character_id,
+            render_style: i.render_style,
+        }
+    }
+}
+
 /// 会话摘要（FR-007：列表按 updated_at 倒序）。
-/// 机械适配（多角色换挂）：sessions.character_id 列已随迁移 0009 移除，摘要不再
-/// 携带 characterId——阵容/扮演位信息（is_user、实例名）的 wire 重设计属 Task-31
-/// 的多角色 IPC 变更，本层只做最小机械适配。
+/// 多角色阵容制（wire 重设计，Task-31）：sessions.character_id 已随迁移 0009
+/// 移除，阵容 / 扮演位信息改经 `instances` 回显（建会话快照，D1/D2）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: i64,
     pub title: String,
     pub updated_at: i64,
-}
-
-impl From<models::Session> for SessionSummary {
-    fn from(s: models::Session) -> Self {
-        Self { id: s.id, title: s.title, updated_at: s.updated_at }
-    }
+    /// 建成后的阵容回显（在世实例，创建序 = 用户位在前）；本切片无实例增删，
+    /// 空数组仅出现在异常数据（正常建会话至少一个用户位）。
+    pub instances: Vec<SessionInstanceDto>,
 }
 
 /// 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
@@ -183,9 +208,11 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
     }
 }
 
-/// 聊天消息（前端 ChatMessage；characterId 机械适配为「说话人实例 id 真值」：
-/// assistant → messages.instance_id（未指认的旧行为 null），user → null。
-/// 字段名与整体 wire 语义（instanceId 全量透出）的重设计属 Task-31）。
+/// 聊天消息（前端 ChatMessage；wire 定案 Task-31）：字段名沿用 `characterId`
+/// （旧 wire 相容名，避免纯改名 churn），语义已是「说话人实例 id 真值」——
+/// assistant → messages.instance_id（未指认的旧行为 null），user → null（用户条
+/// 调用方按 role 渲染，无需实例 id；实例身份的权威回显在 SessionSummary.instances
+/// 与状态 DTO 的 instanceId，消费方勿把本字段当模板卡 id 用）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -405,7 +432,9 @@ pub struct SceneDto {
     pub summary: Option<String>,
     /// 桥场加厚回顾（Task-03），可空；渲染回退单行 summary。
     pub recap: Option<String>,
-    /// 在场 character id 数组。
+    /// 在场**实例** id 数组（多角色换挂后语义翻转：迁移 0009 前为模板卡 id，写入端
+    /// 现按实例记值——开场锚行 seed 与结算裁决 schema 均为实例 id；名字映射由
+    /// 消费方经 SessionSummary.instances 回显派生）。
     pub present: Vec<i64>,
 }
 
@@ -691,13 +720,32 @@ fn opening_seed_from(input: &SessionOpeningInput) -> Result<models::OpeningSeed,
     })
 }
 
-fn list_sessions_impl(app: &AppState) -> Result<Vec<SessionSummary>, IpcError> {
-    Ok(app
+/// 领域会话 → 摘要 DTO：instances 回显需查实例表（会失败、带 AppState），故不用
+/// `From<models::Session>`，所有 SessionSummary 产出统一走本助手（wire 回显单点）。
+fn session_summary_with_roster(
+    app: &AppState,
+    session: models::Session,
+) -> Result<SessionSummary, IpcError> {
+    let instances = app
         .storage
+        .list_instances(session.id)?
+        .into_iter()
+        .map(SessionInstanceDto::from)
+        .collect();
+    Ok(SessionSummary {
+        id: session.id,
+        title: session.title,
+        updated_at: session.updated_at,
+        instances,
+    })
+}
+
+fn list_sessions_impl(app: &AppState) -> Result<Vec<SessionSummary>, IpcError> {
+    app.storage
         .list_sessions()?
         .into_iter()
-        .map(SessionSummary::from)
-        .collect())
+        .map(|session| session_summary_with_roster(app, session))
+        .collect()
 }
 
 #[tauri::command]
@@ -731,7 +779,7 @@ fn create_session_impl(
         title: title.unwrap_or_default(),
         opening,
     })?;
-    Ok(SessionSummary::from(session))
+    session_summary_with_roster(app, session)
 }
 
 #[tauri::command]
@@ -1392,17 +1440,31 @@ mod tests {
 
     #[test]
     fn session_summary_serializes_camel_case() {
-        // 语义变化（多角色换挂）：sessions.character_id 移除，摘要不再携带 characterId
-        //（阵容/扮演位 wire 重设计属 Task-31）。
+        // 语义（多角色阵容制，Task-31）：sessions.character_id 移除，阵容/扮演位
+        // 经 instances 回显（wire camelCase：isUser / characterId / renderStyle）。
         let json = serde_json::to_value(SessionSummary {
             id: 3,
             title: "雨夜来电".into(),
             updated_at: 1234,
+            instances: vec![SessionInstanceDto {
+                id: 1,
+                name: "旅人".into(),
+                is_user: true,
+                character_id: Some(9),
+                render_style: "type".into(),
+            }],
         })
         .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "id": 3, "title": "雨夜来电", "updatedAt": 1234 })
+            serde_json::json!({
+                "id": 3,
+                "title": "雨夜来电",
+                "updatedAt": 1234,
+                "instances": [
+                    { "id": 1, "name": "旅人", "isUser": true, "characterId": 9, "renderStyle": "type" }
+                ]
+            })
         );
     }
 
@@ -1610,8 +1672,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// FR-014：开局包经 create_session 落库——显式日历写入会话快照、开场锚行
-    /// idx=0 且 date_label 派生；降级（opening = None）同样有默认锚行。
+    /// 阵容回显（多角色阵容制 wire，Task-31）：create / list 的 SessionSummary.instances
+    /// 携带建会话快照（D1/D2）——快照名值拷贝、is_user 恰好一、模板溯源、renderStyle
+    /// 快照；顺序 = 创建序（用户位在前）。改卡不回写既有会话的快照（D1 经 wire 可验）。
+    #[test]
+    fn session_summary_echoes_roster_instances() {
+        let (app, dir) = temp_state("roster_echo");
+        let llm_card = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let roster = vec![
+            RosterPickInput { character_id: user_card.id, is_user: true },
+            RosterPickInput { character_id: llm_card.id, is_user: false },
+        ];
+
+        let created =
+            create_session_impl(&app, roster, Some("雨夜来电".into()), None).unwrap();
+        // 回显 = 建会话入参的实例化快照；示例卡 render_style 均为缺省 "type"（models::NewCharacter）。
+        assert_eq!(created.title, "雨夜来电", "title 保留在 wire（缺省空串由首条用户消息回填）");
+        let echo: Vec<(&str, bool, Option<i64>, &str)> = created
+            .instances
+            .iter()
+            .map(|i| (i.name.as_str(), i.is_user, i.character_id, i.render_style.as_str()))
+            .collect();
+        assert_eq!(
+            echo,
+            vec![
+                ("旅人", true, Some(user_card.id), "type"),
+                ("苏鸢", false, Some(llm_card.id), "type"),
+            ],
+            "instances 按创建序（用户位在前），快照字段齐全"
+        );
+        assert_eq!(created.instances[0].id, 1, "实例 id 为全局自增 PK，跨会话不重复");
+
+        // list_sessions 同样回显（列表消费方〈侧栏 / 聊天说话人映射〉不依赖 create 返回值）。
+        let listed = list_sessions_impl(&app).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].instances.len(), 2);
+
+        // D1 快照语义：改卡不回写既有会话——renderStyle / 名字保持建会话时的值拷贝。
+        app.storage.update_character(
+            llm_card.id,
+            &models::UpdateCharacter {
+                name: "苏鸢·改".into(),
+                avatar: llm_card.avatar.clone(),
+                persona: llm_card.persona.clone(),
+                gender: llm_card.gender.clone(),
+                age: llm_card.age.clone(),
+                render_style: "ink".into(),
+                model_config: llm_card.model_config.clone(),
+                accent_color: llm_card.accent_color.clone(),
+                voice_config: None,
+                calendar_config: None,
+            },
+        ).unwrap();
+        let after = list_sessions_impl(&app).unwrap();
+        let llm_instance = &after[0].instances[1];
+        assert_eq!(llm_instance.name, "苏鸢", "实例名 = 建会话快照，改卡不回写");
+        assert_eq!(llm_instance.render_style, "type", "renderStyle = 建会话快照，改卡不回写");
+        assert_eq!(llm_instance.character_id, Some(llm_card.id), "模板溯源不变");
+
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     #[test]
     fn create_session_with_opening_seeds_calendar_and_anchor() {
         let (app, dir) = temp_state("opening");

@@ -47,6 +47,7 @@ Rust 四层（`src-tauri/src/`）：`interfaces → services → domain ← infr
 - **mock 落库契约**：mock 层持久化 `calendarConfig` 必须 snake_case 键（`days_per_month` / `day_names`，对齐 `parseCalendarJson` 消费契约）；wire DTO（camelCase）与存储态（snake_case）是两种形态，禁止混存直落。
 - **同构声明要证据**：断言「与 X 同构 / 逐位一致 / 语义相同」时必须附逐字段对照证据（diff 或测试断言），不接受无证据的口头同构。
 - **跨文件常量互指**：同一约束的边界常量在多处出现（如历法月天数 1..=999 同时存在于校验、持久化与 AI 钳制路径）时，必须注释互指，优先编译期引用单一事实源。
+- **数据迁移兼容性暂不适用（用户指令 2026-09-12）**：应用未发布、无存量数据要保护——schema 可破坏性变更（改列/删列/重建），行为变更不需要迁移桥接，迁移文件只需保证全新库能按序建到最新。**移除条件：用户说明已发布需要考虑存量数据时，本条失效**，届时所有 schema 变更恢复「旧数据可升级」约束。
 
 <!-- user-guidelines:start -->
 <!-- stacks: rust, typescript, react, tauri -->

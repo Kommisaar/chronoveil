@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 数据模型全景 · 2026-09-12</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --surface: #232323; --surface2: #2b2b2b;
+    --border: #3a3a3a; --text: #e8e4dc; --dim: #a8a49c;
+    --accent: #93a5c8; --accent2: #e8b06a; --green: #6cc0a0; --blue: #7aa2c8;
+    --pink: #d090a8; --red: #d08080; --purple: #a89ad0;
+    --mono: "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.65; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.55rem; font-weight: 600; }
+  h1 .sub { color: var(--dim); font-size: 1rem; font-weight: 400; margin-left: .75rem; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 2.4rem 0 1rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); color: var(--accent2); }
+  .meta { color: var(--dim); font-size: .9rem; margin: .3rem 0 1.5rem; }
+  code { font-family: var(--mono); font-size: .84em; background: var(--surface2); padding: .08em .4em; border-radius: 4px; color: var(--accent2); }
+  /* ER 图 */
+  .er { display: flex; flex-wrap: wrap; gap: 1.6rem; align-items: flex-start; margin: 1.2rem 0; }
+  .tbl { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-width: 250px; overflow: hidden; flex: 0 0 auto; }
+  .tbl .tname { background: var(--surface2); padding: .45rem .9rem; font-family: var(--mono); font-weight: 700; font-size: .92rem; color: var(--accent2); border-bottom: 1px solid var(--border); }
+  .tbl .tname .zh { color: var(--dim); font-family: "Segoe UI", "Microsoft YaHei"; font-weight: 400; font-size: .8rem; margin-left: .5rem; }
+  .tbl table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .8rem; }
+  .tbl td { padding: .18rem .9rem; }
+  .tbl td.c { color: var(--text); }
+  .tbl td.t { color: var(--dim); text-align: right; }
+  .tbl tr.hl td { background: rgba(232,176,106,.08); }
+  .tbl tr.dead td { color: #7a6a6a; text-decoration: line-through; text-decoration-color: rgba(208,128,128,.5); }
+  .legend { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .7rem 1rem; font-size: .84rem; margin: .8rem 0; flex: 1 1 240px; min-width: 240px; }
+  .legend b { color: var(--accent); }
+  .legend .sw { display: inline-block; width: .75em; height: .75em; border-radius: 2px; margin-right: .35em; vertical-align: -1px; }
+  .arrow-note { font-size: .84rem; color: var(--dim); margin: .6rem 0; }
+  .arrow-note b { color: var(--blue); }
+  /* 目标态 */
+  .new-tbl { border: 1px solid var(--green); box-shadow: 0 0 12px rgba(108,192,160,.15); }
+  .new-tbl .tname { color: var(--green); }
+  .chg { display: inline-block; font-size: .68rem; padding: .02rem .4rem; border-radius: 8px; margin-left: .4rem; vertical-align: 1px; font-family: "Segoe UI"; }
+  .ch-new { background: rgba(108,192,160,.2); color: var(--green); }
+  .ch-del { background: rgba(208,128,128,.18); color: var(--red); text-decoration: line-through; }
+  .ch-mod { background: rgba(147,165,200,.2); color: var(--accent); }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<h1>ChronoVeil 数据模型全景<span class="sub">2026-09-12 · 迁移 0001–0008 · master 8fe733d</span></h1>
+<p class="meta">上半：当前实际 schema（8 个迁移的净结果）· 下半：多角色改造目标态（已拍板决策的落点）</p>
+
+<h2>一、当前 schema（7 张业务表）</h2>
+
+<div class="arrow-note"><b>三条跨表引用，全部指向模板：</b>
+① <code>sessions.character_id</code> → 会话活引用角色卡（人设/风格装配时实时读卡）；
+② <code>character_state.character_id</code> → 状态挂「卡@会话」；
+③ <code>messages.character_id</code> → <span style="color:var(--red)">0002 起的死列，从未写入</span>（wire 上的 characterId 是命令层推导假值）。
+唯一的实例化 = <code>sessions.calendar_config</code> 值拷贝列。</div>
+
+<div class="er">
+  <div class="tbl">
+    <div class="tname">characters<span class="zh">角色卡 · 模板库</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr><td class="c">name</td><td class="t">TEXT</td></tr>
+      <tr><td class="c">avatar</td><td class="t">TEXT?</td></tr>
+      <tr><td class="c">persona</td><td class="t">TEXT</td></tr>
+      <tr class="dead"><td class="c">greeting</td><td class="t">0004 已删</td></tr>
+      <tr><td class="c">render_style</td><td class="t">TEXT</td></tr>
+      <tr><td class="c">model_config</td><td class="t">JSON?</td></tr>
+      <tr><td class="c">voice_config</td><td class="t">恒NULL</td></tr>
+      <tr><td class="c">accent_color / gender / age</td><td class="t">0003/0005</td></tr>
+      <tr class="hl"><td class="c">calendar_config</td><td class="t">JSON?</td></tr>
+      <tr><td class="c">created_at / updated_at</td><td class="t">INT</td></tr>
+      <tr><td class="c">deleted_at</td><td class="t">软删墓碑</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">sessions<span class="zh">会话容器</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr class="hl"><td class="c">character_id →</td><td class="t">FK characters</td></tr>
+      <tr><td class="c">title</td><td class="t">TEXT</td></tr>
+      <tr class="hl"><td class="c">calendar_config ◄</td><td class="t">快照列</td></tr>
+      <tr><td class="c">created_at / updated_at</td><td class="t">INT</td></tr>
+      <tr><td class="c">deleted_at</td><td class="t">软删墓碑</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">messages<span class="zh">消息</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr><td class="c">session_id →</td><td class="t">FK sessions</td></tr>
+      <tr><td class="c">role (user|assistant)</td><td class="t">CHECK</td></tr>
+      <tr><td class="c">content / reasoning</td><td class="t">TEXT</td></tr>
+      <tr><td class="c">think_ms / tokens</td><td class="t">INT?</td></tr>
+      <tr><td class="c">scene_id →</td><td class="t">FK scenes</td></tr>
+      <tr class="dead"><td class="c">character_id →</td><td class="t">死列·未写入</td></tr>
+      <tr><td class="c">interrupt_flag</td><td class="t">终态旗</td></tr>
+      <tr><td class="c">created_at / deleted_at</td><td class="t">INT</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">scenes<span class="zh">场景</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr><td class="c">session_id →</td><td class="t">FK sessions</td></tr>
+      <tr><td class="c">idx（会话内单调）</td><td class="t">INT</td></tr>
+      <tr><td class="c">location / time_note</td><td class="t">TEXT?</td></tr>
+      <tr><td class="c">fic_day / fic_part</td><td class="t">记账层</td></tr>
+      <tr><td class="c">date_label</td><td class="t">命名缓存</td></tr>
+      <tr><td class="c">summary / recap</td><td class="t">远景/桥场</td></tr>
+      <tr class="hl"><td class="c">present (JSON 数组)</td><td class="t">恒[占位]</td></tr>
+      <tr><td class="c">deleted_at</td><td class="t">软删墓碑</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">character_state<span class="zh">人物状态</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr class="hl"><td class="c">character_id →</td><td class="t">FK characters</td></tr>
+      <tr><td class="c">session_id →</td><td class="t">FK sessions</td></tr>
+      <tr><td class="c">scope (state|relation)</td><td class="t">CHECK</td></tr>
+      <tr><td class="c">key / value</td><td class="t">叙事文本</td></tr>
+      <tr><td class="c">expiry (scene_end|event:x)</td><td class="t">清算线索</td></tr>
+      <tr><td class="c">source_scene →</td><td class="t">FK scenes</td></tr>
+      <tr><td class="c">updated_at / deleted_at</td><td class="t">INT</td></tr>
+    </table>
+    <div class="tname" style="font-size:.72rem; font-weight:400">唯一约束：(character_id, session_id, key) WHERE 在世</div>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">llm_calls<span class="zh">调用轨迹 · 0008</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr><td class="c">session_id →（可空=draft）</td><td class="t">FK sessions</td></tr>
+      <tr><td class="c">kind（4 类）</td><td class="t">CHECK</td></tr>
+      <tr><td class="c">model / started_at / duration_ms</td><td class="t">INT</td></tr>
+      <tr><td class="c">prompt_json</td><td class="t">完整请求</td></tr>
+      <tr><td class="c">response / reasoning_text</td><td class="t">TEXT?</td></tr>
+      <tr><td class="c">tool_calls_json</td><td class="t">TEXT?</td></tr>
+      <tr><td class="c">prompt/completion_tokens</td><td class="t">INT?</td></tr>
+      <tr><td class="c">status (ok|error) / error_text</td><td class="t">—</td></tr>
+    </table>
+  </div>
+
+  <div class="legend">
+    <b>图例</b><br>
+    <span class="sw" style="background:rgba(232,176,106,.35)"></span>黄底 = 与角色卡相关的关键列<br>
+    <span class="sw" style="background:#3a3a3a"></span>灰字划线 = 已删列 / 死列<br><br>
+    <b>唯一实例化</b>：sessions.calendar_config（建会话时从卡值拷贝，之后各自演进）——其余全是活引用。<br><br>
+    <b>运行时读取链</b>：生成时 get_character(会话.character_id) 实时读卡 → 角色卡改了，正在进行的会话下一句立刻生效。<br><br>
+    <b>角色软删的坑</b>：卡软删后会话还在，但 get_character NotFound → 该会话无法再生成（隐性挂起）。
+  </div>
+</div>
+
+<h2>二、多角色目标态（模板 / 实例分离 · 已拍板）</h2>
+
+<div class="arrow-note"><b>核心变化：</b>角色卡降级为纯模板库（与运行时解耦）；新建 <code>character_instances</code> 承接全部运行时角色身份——设定快照进实例，改卡不影响已开会话。<code>sessions.character_id</code> 删除，扮演位由 <code>is_user</code> 表达；<code>messages.character_id</code> 死列激活升级为 <code>instance_id</code>；状态唯一约束简化为 (instance_id, key)。</div>
+
+<div class="er">
+  <div class="tbl">
+    <div class="tname">characters<span class="zh">纯模板库</span></div>
+    <table>
+      <tr><td class="c">id / name / avatar / persona …</td><td class="t">同现状</td></tr>
+      <tr><td class="c">render_style / calendar_config …</td><td class="t">同现状</td></tr>
+      <tr><td class="c">与运行时解耦<span class="chg ch-mod">语义降级</span></td><td class="t">—</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl new-tbl">
+    <div class="tname">character_instances<span class="chg ch-new">新表 · 核心</span></div>
+    <table>
+      <tr class="hl"><td class="c">id</td><td class="t">PK</td></tr>
+      <tr><td class="c">session_id →</td><td class="t">FK sessions</td></tr>
+      <tr><td class="c">character_id →（可空）</td><td class="t">溯源用</td></tr>
+      <tr><td class="c">name / persona</td><td class="t">快照</td></tr>
+      <tr><td class="c">render_style</td><td class="t">快照</td></tr>
+      <tr class="hl"><td class="c">is_user（恰好1个）</td><td class="t">扮演位</td></tr>
+      <tr><td class="c">created_at / deleted_at</td><td class="t">—</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">sessions<span class="zh">容器·瘦身</span></div>
+    <table>
+      <tr><td class="c">id / title / 时间列</td><td class="t">保留</td></tr>
+      <tr><td class="c">calendar_config</td><td class="t">可留可移</td></tr>
+      <tr class="dead"><td class="c">character_id</td><td class="t">删除</td></tr>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tname">下游换挂 instance_id</div>
+    <table>
+      <tr><td class="c">messages.instance_id<span class="chg ch-mod">死列激活</span></td><td class="t">—</td></tr>
+      <tr><td class="c">character_state.instance_id<span class="chg ch-mod">换挂</span></td><td class="t">—</td></tr>
+      <tr><td class="c">唯一约束 → (instance_id, key)<span class="chg ch-mod">简化</span></td><td class="t">—</td></tr>
+      <tr><td class="c">scenes.present → 实例 id 数组<span class="chg ch-mod">真语义</span></td><td class="t">—</td></tr>
+      <tr><td class="c">动态造人：character_id=NULL<span class="chg ch-new">新能力</span></td><td class="t">—</td></tr>
+      <tr><td class="c">导出为卡：手动<span class="chg ch-new">新能力</span></td><td class="t">—</td></tr>
+    </table>
+  </div>
+
+  <div class="legend">
+    <b>决策依据（全部已拍板）</b><br>
+    ① 模板/实例分离：改卡不影响已开会话<br>
+    ② 扮演位必选卡、is_user 恰好 1<br>
+    ③ Q1 逐拍独立生成 · Q2 离场照常清算<br>
+    ④ Q4 roster 无上限（代价自担，次数明示）<br>
+    ⑤ 动态人物不自动入库，手动导出<br>
+    ⑥ greeting 已删（0004），实例表不设<br>
+    ⑦ 无迁移负担：schema 可破坏性变更<br>
+    ⑧ Q5 关系键「对XX」文本约定（不加列）
+  </div>
+</div>
+
+<h2>三、生成链路上的角色读取（现状 vs 目标态）</h2>
+<div class="arrow-note">
+<b>现状</b>：generation → get_character(会话.character_id) → 单 Character 进 prompt → 单人装配。<br>
+<b>目标态</b>：generation → 按 session_id 取 roster（实例数组，is_user 标「你」）→ Q1 逐拍：每个 LLM 位实例独立一次生成（用户位由你输入）→ 各自 persona 快照 + 各自状态/关系分视角装配 → 轨迹面板天然显示 N 次调用的归属。
+</div>
+
+<footer>ChronoVeil 数据模型全景 · 2026-09-12 · 依据 migrations 0001–0008 与多角色决策（账本 run 20260911T134930Z-292a175d） · 配套：<code>docs/报告-路线图.html</code> · <code>docs/设计备忘-多角色群像.md</code></footer>
+
+</body>
+</html>

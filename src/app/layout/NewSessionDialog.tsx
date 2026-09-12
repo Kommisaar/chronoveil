@@ -7,9 +7,10 @@
  * 旧都历，选中预设显示静态样例行，不与 fiction_time::date_label 双写实时换算）、
  * 起始锚「第 N 天 · 时段」（六值下拉，缺省 夜）、首场景地点 / 时间原文（可选）。
  *
- * 选人卡复用角色页海报卡视觉（posterGradientOf 海报渐变 + 首字/头像 + 名字条，
- * 与 CharactersView 同一事实源），适配为对话框内的可选中迷你卡（aria-pressed
- * 表达选中态）。提交语义：「直接开始」= 降级路径，opening 传 null（后端同样
+ * 选人卡复用角色页海报卡视觉（与 CharactersView 同一事实源），适配为对话框
+ * 内的可选中迷你卡（aria-pressed 表达选中态），网格视觉件抽在
+ * CharacterPickGrid（两步共用）。提交语义：「直接开始」= 降级路径，opening
+ * 传 null（后端同样
  * 无条件 seed 默认锚开场行，day=1 / part=夜 / 日历走会话快照）；「开局并开始」
  * 携带表单值。阵容提交为 members（用户位在前 + LLM 位按点选序），后端逐卡
  * 实例化快照（D1）。四内置预设常量与 Rust `domain/fiction_time::presets` 一一
@@ -35,15 +36,13 @@ import {
   RadioGroup,
   Text,
   makeStyles,
-  mergeClasses,
-  shorthands,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CharacterSummary, SessionOpeningInput, SessionRosterMember } from '../../api/types';
-import { posterGradientOf } from '../../features/characters/posterGradient';
 import { CALENDAR_PRESETS, type CalendarPresetId } from '../../components/calendarPresets';
+import { CharacterPickGrid } from './CharacterPickGrid';
 
 /** 历法五选项键：follow = 角色卡快照兜底（wire 传 null）。 */
 type PresetKey = 'follow' | CalendarPresetId;
@@ -90,96 +89,6 @@ const useStyles = makeStyles({
     marginTop: tokens.spacingVerticalS,
     fontSize: tokens.fontSizeBase300,
     fontWeight: tokens.fontWeightSemibold,
-  },
-  // 选人卡网格（两步共用）：三列迷你海报卡，限高滚动（卡库可多于首屏）
-  cardGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: tokens.spacingVerticalS,
-    marginTop: tokens.spacingVerticalS,
-    maxHeight: '320px',
-    overflowY: 'auto',
-    paddingRight: tokens.spacingHorizontalXXS,
-  },
-  // 迷你海报卡：复用角色页海报视觉（渐变底 + 首字/头像 + 名字条），适配选中态
-  card: {
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    aspectRatio: '3 / 4',
-    padding: '0px',
-    // 选中圈：常态透明 2px 描边（griffel 禁 border 简写，走 shorthands 展开
-    // longhand——同 ChatView composerCard 的 focus 描边先例），选中换品牌色
-    ...shorthands.border('2px', 'solid', 'transparent'),
-    borderRadius: tokens.borderRadiusMedium,
-    overflow: 'hidden',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    ':hover': { filter: 'brightness(1.12)' },
-  },
-  cardSelected: {
-    // 选中圈：品牌色描边（渐变底上始终可辨）
-    ...shorthands.borderColor(tokens.colorBrandStroke1),
-  },
-  posterImg: {
-    position: 'absolute',
-    inset: '0',
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  letter: {
-    position: 'absolute',
-    inset: '0',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: tokens.colorNeutralForegroundOnBrand,
-    fontSize: tokens.fontSizeBase500,
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  // 底部压暗条（角色页 scrim 同语义）：保证名字在海报上可读
-  scrim: {
-    position: 'absolute',
-    right: '0',
-    bottom: '0',
-    left: '0',
-    height: '40%',
-    backgroundImage:
-      'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)',
-  },
-  name: {
-    position: 'relative',
-    width: '100%',
-    padding: `0 ${tokens.spacingHorizontalS} ${tokens.spacingVerticalXXS}`,
-    color: tokens.colorNeutralForegroundOnBrand,
-    fontSize: tokens.fontSizeBase200,
-    textAlign: 'center',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  // 选中角标（右上角对勾）：aria-pressed 之外的可视冗余
-  check: {
-    position: 'absolute',
-    top: '4px',
-    right: '6px',
-    color: tokens.colorNeutralForegroundOnBrand,
-    fontSize: tokens.fontSizeBase300,
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  // 扮演位记号（阵容步的已选扮演卡，左上角小徽标）
-  roleBadge: {
-    position: 'absolute',
-    top: '4px',
-    left: '4px',
-    padding: '1px 5px',
-    borderRadius: tokens.borderRadiusSmall,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    color: tokens.colorNeutralForegroundOnBrand,
-    fontSize: tokens.fontSizeBase100,
   },
   form: {
     display: 'flex',
@@ -303,55 +212,6 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
     return part === undefined ? value : t(part.labelKey);
   };
 
-  /** 选人卡（两步共用）：单选步传 selectedId 与 onSelect(单值语义)，阵容步传
-   *  selectedIds 与 onSelect(切换语义)。userBadge = 阵容步的扮演位记号 id。 */
-  const renderCardGrid = (options: {
-    selectedIds: number[];
-    onToggle: (characterId: number) => void;
-    userBadgeId: number | null;
-  }): ReactNode => {
-    if (characters === null) return null;
-    if (characters.length === 0) {
-      return <div className={styles.dialogHint}>{t('sessions.noCharacters')}</div>;
-    }
-    return (
-      <div className={styles.cardGrid}>
-        {characters.map((character) => {
-          const selected = options.selectedIds.includes(character.id);
-          return (
-            <button
-              key={character.id}
-              type="button"
-              className={mergeClasses(styles.card, selected && styles.cardSelected)}
-              style={{ backgroundImage: posterGradientOf(character) }}
-              aria-pressed={selected}
-              disabled={creating}
-              onClick={() => options.onToggle(character.id)}
-            >
-              {character.avatar ? (
-                <img className={styles.posterImg} src={character.avatar} alt="" />
-              ) : (
-                <span className={styles.letter} aria-hidden="true">
-                  {character.name.slice(0, 1)}
-                </span>
-              )}
-              <span className={styles.scrim} aria-hidden="true" />
-              {options.userBadgeId === character.id && (
-                <span className={styles.roleBadge}>{t('sessions.wizard.yourRole')}</span>
-              )}
-              <span className={styles.name}>{character.name}</span>
-              {selected && (
-                <span className={styles.check} aria-hidden="true">
-                  ✓
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
-
   return (
     <Dialog open={open} onOpenChange={(_, data) => onOpenChange(data.open)}>
       <DialogSurface aria-describedby={undefined}>
@@ -362,22 +222,27 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
               <>
                 <Text className={styles.stepTitle}>{t('sessions.wizard.stepUser')}</Text>
                 <div className={styles.dialogHint}>{t('sessions.wizard.pickUserHint')}</div>
-                {renderCardGrid({
-                  selectedIds: userId === null ? [] : [userId],
-                  onToggle: (characterId) =>
-                    setUserId((current) => (current === characterId ? null : characterId)),
-                  userBadgeId: null,
-                })}
+                <CharacterPickGrid
+                  characters={characters}
+                  selectedIds={userId === null ? [] : [userId]}
+                  onToggle={(characterId) =>
+                    setUserId((current) => (current === characterId ? null : characterId))
+                  }
+                  userBadgeId={null}
+                  disabled={creating}
+                />
               </>
             ) : stage === 'pickRoster' ? (
               <>
                 <Text className={styles.stepTitle}>{t('sessions.wizard.stepRoster')}</Text>
                 <div className={styles.dialogHint}>{t('sessions.wizard.rosterHint')}</div>
-                {renderCardGrid({
-                  selectedIds: roster,
-                  onToggle: toggleRoster,
-                  userBadgeId: userId,
-                })}
+                <CharacterPickGrid
+                  characters={characters}
+                  selectedIds={roster}
+                  onToggle={toggleRoster}
+                  userBadgeId={userId}
+                  disabled={creating}
+                />
               </>
             ) : (
               <div className={styles.form}>

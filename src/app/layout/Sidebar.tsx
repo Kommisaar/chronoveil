@@ -22,13 +22,6 @@
 // 的 inner 里滑出而非挤压；收起过渡结束后 inner 隐藏（两段式，避免
 // 文本被压扁、焦点落入零宽区域）。
 import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   makeStyles,
   mergeClasses,
   tokens,
@@ -59,6 +52,7 @@ import { moveIndicator } from '../../components/indicatorMotion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
 import { NewSessionDialog } from './NewSessionDialog';
+import { SessionDeleteDialog } from './SessionDeleteDialog';
 
 // 入场动画：淡入 + 8px 上移，逐项错开 16ms、错开总量钳制 240ms（过长
 // 清单只对首屏节奏负责）。关键帧 sidebar-item-enter 落 app.css 全局
@@ -473,40 +467,14 @@ export function Sidebar() {
         onCreate={(members, opening) => void createFromRoster(members, opening)}
       />
 
-      {/* 删除确认：文案明示「聊天记录软删除」（ADR-009） */}
-      <Dialog
-        open={deleteTarget !== null}
-        onOpenChange={(_, data) => {
-          if (!data.open) setDeleteTarget(null);
-        }}
-      >
-        <DialogSurface aria-describedby={undefined}>
-          <DialogBody>
-            <DialogTitle>{t('sessions.delete')}</DialogTitle>
-            <DialogContent>
-              {deleteTarget !== null
-                ? t('sessions.deleteBody', { title: displayTitle(deleteTarget) })
-                : null}
-            </DialogContent>
-            <DialogActions>
-              <Button
-                appearance="secondary"
-                disabled={deleting}
-                onClick={() => setDeleteTarget(null)}
-              >
-                {t('sessions.cancel')}
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={deleting}
-                onClick={() => void confirmDelete()}
-              >
-                {t('sessions.deleteConfirm')}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+      {/* 删除确认：文案明示「聊天记录软删除」（ADR-009）；开关与执行留在本组件 */}
+      <SessionDeleteDialog
+        target={deleteTarget}
+        targetTitle={deleteTarget === null ? '' : displayTitle(deleteTarget)}
+        deleting={deleting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </aside>
   );
 }

@@ -210,6 +210,7 @@ mod tests {
                 source_scene: Some(2),
                 updated_at: 84,
                 deleted_at: None,
+                superseded_at: None,
             }))
             .unwrap()
         };

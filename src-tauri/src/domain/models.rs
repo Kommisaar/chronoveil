@@ -289,8 +289,9 @@ pub struct Scene {
 }
 
 /// 人物状态（FR-012）：挂会话内角色实例（多角色群像换挂，迁移 0009——会话隶属由
-/// 实例携带，不再单列 session_id）。同键（instance_id, key）在世行唯一（partial
-/// unique index）；Q5/D9「对XX」关系约定走 key 文本，不加列。
+/// 实例携带，不再单列 session_id）。迁移 0010 状态历史化后同键（instance_id, key）
+/// 演进为 append-only 行链，「当前生效行」唯一（partial unique index 只约束生效行）；
+/// Q5/D9「对XX」关系约定走 key 文本，不加列。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CharacterState {
     pub id: i64,
@@ -304,11 +305,17 @@ pub struct CharacterState {
     pub value: String,
     /// 过期三义透传（BR-002：scene_end / event:xxx / manual；形态由结算层定，存储层不解释）。
     pub expiry: Option<String>,
-    /// 来源场景，可空。
+    /// 来源场景，可空。导演结算约定记「被收束的场景」，该状态自下一场起生效——
+    /// 时间点还原（as_of）查询据此锚定行的时间位置。
     pub source_scene: Option<i64>,
     pub updated_at: i64,
-    /// 软删除墓碑（ADR-009）。
+    /// 软删除墓碑（ADR-009）：clear 语义的删除标记，可还原。
     pub deleted_at: Option<i64>,
+    /// 被取代时刻（迁移 0010 状态历史化）：非 NULL = 同键已插入新行，本行退居历史链。
+    /// 与 deleted_at 语义区分——superseded_at 是正常演进的取代（值演进，非删除），
+    /// deleted_at 是墓碑清除；「当前生效行」判定 = 两者皆 NULL（与迁移 0010 的
+    /// partial unique index 及 infra/storage/character_states.rs 的查询过滤互指）。
+    pub superseded_at: Option<i64>,
 }
 
 /// 插入场景入参；`idx` 由存储层按会话单调自增分配，调用方不指定。
@@ -328,8 +335,8 @@ pub struct NewScene {
     pub present: Vec<i64>,
 }
 
-/// upsert 人物状态入参：同键（instance_id, key）覆盖 value / expiry / source_scene
-/// （scope 是行既有属性，不随覆盖变化）；键不存在则插入新行。
+/// 追加式状态变更入参（迁移 0010 状态历史化）：同键（instance_id, key）存在生效行时
+/// 旧行打 superseded_at、本条作为新行追加（append-only 历史链）；无生效行则直接插入。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewCharacterState {
     pub instance_id: i64,

@@ -63,7 +63,7 @@ fn migration_0002_preserves_v1_data() {
     };
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "旧版本记录保留，新版本追加"
     );
 
@@ -523,4 +523,111 @@ fn migration_0009_builds_instances_and_rewires_ownership() {
         .query_row("SELECT MAX(id) FROM messages", [], |r| r.get(0))
         .unwrap();
     assert!(next_id > 300, "重建后自增续号：实际 {next_id}");
+}
+
+/// 0010（状态历史化，方案 §2 第 2 步）：character_state 扩可空 superseded_at 列、
+/// 唯一索引 uq_character_state_live 重建为只约束「当前生效行」——旧行扩列为 NULL
+/// （仍生效），同键在被取代 / 墓碑后可再插（append 合法），生效行仍互斥。
+#[test]
+fn migration_0010_adds_superseded_column_and_live_only_unique_index() {
+    let conn = Connection::open_in_memory().unwrap();
+    // 手工推进到版本 9（0009 形态既有库），预置数据后让 run() 只应用 0010。
+    for (version, sql) in &MIGRATIONS[..9] {
+        conn.execute_batch(sql).unwrap();
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+            [version],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO sessions (title, created_at, updated_at) VALUES ('旧会话', 1, 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO character_instances (session_id, name, persona, render_style, is_user, created_at) \
+             VALUES (1, '苏鸢', '', 'type', 0, 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+             VALUES (1, 'state', '情绪', '释然', 2)",
+        [],
+    )
+    .unwrap();
+
+    run(&conn).unwrap();
+
+    // 版本账本：10 新记。
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 10",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "0010 恰好记录一次");
+    // 新列就位且旧行为 NULL（= 仍生效，无存量需回填）。
+    let superseded: Option<i64> = conn
+        .query_row(
+            "SELECT superseded_at FROM character_state WHERE instance_id = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(superseded, None, "旧行 superseded_at 扩列为 NULL = 仍生效");
+
+    // 生效行同键仍互斥（索引收窄不是放松为无约束）。
+    assert!(
+        conn.execute_batch(
+            "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+                 VALUES (1, 'relation', '情绪', 'x', 3)"
+        )
+        .is_err(),
+        "生效行 (instance_id, key) 唯一约束保留"
+    );
+
+    // 旧行被取代（打 superseded_at）后同键可再插——append 合法，历史链不冲突。
+    conn.execute(
+        "UPDATE character_state SET superseded_at = 4 WHERE instance_id = 1",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+             VALUES (1, 'state', '情绪', '悲伤', 5)",
+        [],
+    )
+    .unwrap();
+    // 墓碑行不阻塞同键再插（迁移 0002 决策、0010 收窄沿用）。
+    conn.execute(
+        "UPDATE character_state SET deleted_at = 6 WHERE value = '悲伤'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+             VALUES (1, 'state', '情绪', '平静', 7)",
+        [],
+    )
+    .unwrap();
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM character_state", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 3, "取代链 + 墓碑 + 重插三行共存");
+
+    // 索引定义：uq_character_state_live 的 WHERE 同时含两个 NULL 判定。
+    let index_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uq_character_state_live'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        index_sql.contains("deleted_at IS NULL") && index_sql.contains("superseded_at IS NULL"),
+        "唯一索引只约束当前生效行，实际：{index_sql}"
+    );
 }

@@ -254,7 +254,9 @@ impl StoragePort for Storage {
             }
             // 3) 新场景行（边界快照 header，idx 同会话单调自增）。
             let scene = scenes::insert(&tx, &write.scene)?;
-            // 4) 状态清算：upsert 覆盖 / 软删清除（ADR-009 可还原）。
+            // 4) 状态清算：追加式状态变更（迁移 0010：旧行打 superseded_at + 追加新行，
+            //    历史链保留）/ 软删清除（ADR-009 可还原）。本层外层事务保证取代 +
+            //    插入 + 清除同生共死（INT-003）。
             for upsert in &write.state_upserts {
                 character_states::upsert(&tx, upsert)?;
             }
@@ -266,19 +268,38 @@ impl StoragePort for Storage {
         })
     }
 
-    // ---- character_state（FR-012，挂实例）----
-    // FR-012：生产状态写入走 commit_settlement 清算支路（内部直调 character_states::upsert），
-    // 直连端口（状态手动编辑类 UI）接线前无生产调用方（仅测试消费）。
+    // ---- character_state（FR-012，挂实例；迁移 0010 状态历史化）----
+    // FR-012：生产状态写入走 commit_settlement 清算支路（内部直调 character_states::upsert，
+    // 复用其外层事务），直连端口（状态手动编辑类 UI）接线前无生产调用方（仅测试消费）。
     #[allow(dead_code)]
     fn upsert_character_state(
         &self,
         new: &NewCharacterState,
     ) -> Result<CharacterState, StorageError> {
-        self.with_conn(|conn| character_states::upsert(conn, new))
+        self.with_conn(|conn| {
+            // 历史化后「一次变更」= 旧行打 superseded_at + 追加新行两步——半写会留下
+            // 「旧行已让位、新行缺失」的断链，端口直连路径在此绑成单事务（结算路径
+            // 复用 commit_settlement 的外层事务）。
+            let tx = conn.unchecked_transaction()?;
+            let state = character_states::upsert(&tx, new)?;
+            tx.commit()?;
+            Ok(state)
+        })
     }
 
     fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError> {
         self.with_conn(|conn| character_states::list_by_session(conn, session_id))
+    }
+
+    // 状态时间点还原（迁移 0010 / 方案 §2 第 2 步）：第 3 步「时间线分叉」的读原语，
+    // 分叉落新实例前取「锚点前最后生效状态行」；该步接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
+    fn list_character_states_as_of_scene(
+        &self,
+        session_id: i64,
+        scene_idx: i64,
+    ) -> Result<Vec<CharacterState>, StorageError> {
+        self.with_conn(|conn| character_states::list_as_of_scene(conn, session_id, scene_idx))
     }
 
     // FR-012 手动清除状态预留：生产清除走 commit_settlement 清算支路（内部直调

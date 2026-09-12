@@ -110,15 +110,33 @@ pub trait StoragePort: Send + Sync {
     fn commit_settlement(&self, write: &SettlementWrite) -> Result<Scene, StorageError>;
 
     // ---- character_state（FR-012：会话内人物状态，挂实例） ----
-    /// upsert：同键（instance_id, key）覆盖 value / expiry / source_scene，键不存在则
-    /// 插入。仅在世行参与唯一约束（partial unique index，迁移 0002 决策沿用、0009 换挂），
-    /// 软删后同键重插为新行。
+    /// 追加式状态变更（迁移 0010 状态历史化，方案 §2 第 2 步）：同键（instance_id, key）
+    /// 存在生效行时，旧行打 superseded_at + 插入新行（单事务，append-only 历史链）；
+    /// 无生效行（含墓碑 / 被取代行）则直接插入。返回新插入的生效行。
+    /// 「当前生效行」判定 = deleted_at IS NULL AND superseded_at IS NULL（与迁移 0010
+    /// partial unique index、infra/storage/character_states.rs 查询过滤互指）。
     fn upsert_character_state(&self, new: &NewCharacterState)
         -> Result<CharacterState, StorageError>;
-    /// 会话内全部在世状态（跨实例、不分组，按 id 升序）；经实例表按会话过滤
-    /// （状态行本身不携带 session_id，迁移 0009 换挂）。
+    /// 会话内全部**当前生效**状态（跨实例、不分组，按 id 升序）；历史链行 / 墓碑行
+    /// 不出现。经实例表按会话过滤（状态行本身不携带 session_id，迁移 0009 换挂）。
     fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError>;
     fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError>;
+    /// 状态时间点还原（迁移 0010 / 方案 §2 第 2 步；第 3 步「时间线分叉」的读原语——
+    /// 方案 B「LLM 重建」已否决，还原的必须是存的）：还原「锚点场景进行中时」的会话
+    /// 状态全景。每（实例, key）取来源场景号**严格小于**锚点 idx 的最新行（updated_at
+    /// 序，同刻按 id 序兜底稳定）。导演结算约定状态记在被收束场（source_scene）上、
+    /// 自下一场起生效，故「号 < 锚点」= 当时已生效；若下游需要「含锚点场收束成果」的
+    /// 口径，取 as_of(锚点 idx + 1)。source_scene 为 NULL 的行（首场结算无上一行 /
+    /// 手工设置）视为自会话之始存在，任何锚点可还原。返回行可能含 superseded_at 非
+    /// NULL 的历史行——该时点的最新行不等于当下的生效行，正是本查询的意义；
+    /// 墓碑行一律排除；清除动作（soft_delete）本身没有场景锚，故被清除过的 key
+    /// 在任何锚点都还原不出（宁可缺失、不虚构复活；第 3 步如需清除点之前的精确
+    /// 还原，须先给清除动作补场景锚）。
+    fn list_character_states_as_of_scene(
+        &self,
+        session_id: i64,
+        scene_idx: i64,
+    ) -> Result<Vec<CharacterState>, StorageError>;
 
     // ---- character_instances（多角色群像地基：会话内运行时角色身份，方案 §2 第 1 步） ----
     /// 插入实例（建会话阵容实例化走 [`StoragePort::create_session`] 内部路径；本方法

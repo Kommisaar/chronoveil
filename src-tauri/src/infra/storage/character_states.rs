@@ -1,8 +1,12 @@
 //! character_state 表查询（FR-012：会话内人物状态，多角色换挂后挂**实例**——
 //! 迁移 0009：列 character_id + session_id → instance_id NOT NULL，会话隶属由实例
 //! 携带）。软删过滤统一封装在本层（ADR-009）。
-//! 唯一约束选型（迁移 0002 决策、0009 换挂）：partial unique index 只约束在世行，
-//! 本模块 upsert 先查在世同键行再覆盖或插入，天然不触碰墓碑行。
+//! 状态历史化（迁移 0010，方案 §2 第 2 步方案 A）：同键（instance_id, key）演进为
+//! append-only 行链——写入只追加，旧行打 superseded_at；「当前生效行」判定 =
+//! `deleted_at IS NULL AND superseded_at IS NULL`（与迁移 0010 的 partial unique
+//! index 互为同一约束的两处出现，改动须同步）。superseded_at（演进取代，历史链）
+//! 与 deleted_at（墓碑清除，ADR-009）语义独立：历史链行仍可经 as_of 查询还原，
+//! 墓碑行不参与任何读路径。
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -14,7 +18,7 @@ use super::now;
 pub(crate) const ENTITY: &str = "character_state";
 
 const COLS: &str = "id, instance_id, scope, \"key\", value, expiry, \
-                    source_scene, updated_at, deleted_at";
+                    source_scene, updated_at, deleted_at, superseded_at";
 
 /// 行 → 领域对象；scope 解析需携带领域错误，故不走 `rusqlite::Result` 闭包签名。
 fn state_from_row(row: &Row<'_>) -> Result<CharacterState, StorageError> {
@@ -28,10 +32,11 @@ fn state_from_row(row: &Row<'_>) -> Result<CharacterState, StorageError> {
         source_scene: row.get(6)?,
         updated_at: row.get(7)?,
         deleted_at: row.get(8)?,
+        superseded_at: row.get(9)?,
     })
 }
 
-/// 按主键取整行（upsert 内部回读用；不过滤墓碑——upsert 只产在世行）。
+/// 按主键取整行（追加写入后的新行回读用；新行恒为生效行，无需过滤）。
 fn get_by_id(conn: &Connection, id: i64) -> Result<CharacterState, StorageError> {
     let sql = format!("SELECT {COLS} FROM character_state WHERE id = ?1");
     let mut stmt = conn.prepare(&sql)?;
@@ -42,9 +47,13 @@ fn get_by_id(conn: &Connection, id: i64) -> Result<CharacterState, StorageError>
     }
 }
 
-/// upsert：同键（instance_id, key）在世行覆盖 value / expiry / source_scene 并
-/// bump updated_at；无在世同键行则插入（scope 只在插入时生效）。
-/// 连接互斥串行（单进程单写入，data_model「迁移与并发」），查后写无竞态。
+/// 追加式状态变更（迁移 0010 状态历史化）：同键存在生效行时旧行打 superseded_at +
+/// 插入新行（append-only，历史链保留全程——第 3 步时间线分叉依赖「还原的是存的」）；
+/// 无生效行（首插 / 墓碑后重插 / 被取代后重插）则直接插入。墓碑行不阻塞重插：
+/// partial unique index 只约束生效行（迁移 0002 决策、0010 收窄）。
+/// 事务边界在 super（mod.rs）：端口直连路径由调用方包单事务（取代 + 插入半写会断链），
+/// 结算路径复用 commit_settlement 的外层事务。连接互斥串行（单进程单写入），
+/// 查后写无竞态。
 pub(crate) fn upsert(
     conn: &Connection,
     new: &NewCharacterState,
@@ -52,44 +61,39 @@ pub(crate) fn upsert(
     let existing: Option<i64> = conn
         .query_row(
             "SELECT id FROM character_state \
-             WHERE instance_id = ?1 AND \"key\" = ?2 AND deleted_at IS NULL",
+             WHERE instance_id = ?1 AND \"key\" = ?2 \
+             AND deleted_at IS NULL AND superseded_at IS NULL",
             params![new.instance_id, new.key],
             |r| r.get(0),
         )
         .optional()?;
-    let id = match existing {
-        Some(id) => {
-            conn.execute(
-                "UPDATE character_state SET value = ?2, expiry = ?3, source_scene = ?4, \
-                     updated_at = ?5 \
-                 WHERE id = ?1 AND deleted_at IS NULL",
-                params![id, new.value, new.expiry, new.source_scene, now()],
-            )?;
-            id
-        }
-        // 墓碑行不阻塞重插：partial unique index 只约束在世行（迁移 0002 决策，验收 2）。
-        None => {
-            conn.execute(
-                "INSERT INTO character_state (instance_id, scope, \"key\", \
-                     value, expiry, source_scene, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    new.instance_id,
-                    new.scope.as_str(),
-                    new.key,
-                    new.value,
-                    new.expiry,
-                    new.source_scene,
-                    now(),
-                ],
-            )?;
-            conn.last_insert_rowid()
-        }
-    };
-    get_by_id(conn, id)
+    if let Some(id) = existing {
+        conn.execute(
+            "UPDATE character_state SET superseded_at = ?2 \
+             WHERE id = ?1 AND deleted_at IS NULL AND superseded_at IS NULL",
+            params![id, now()],
+        )?;
+    }
+    conn.execute(
+        "INSERT INTO character_state (instance_id, scope, \"key\", \
+             value, expiry, source_scene, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            new.instance_id,
+            new.scope.as_str(),
+            new.key,
+            new.value,
+            new.expiry,
+            new.source_scene,
+            now(),
+        ],
+    )?;
+    get_by_id(conn, conn.last_insert_rowid())
 }
 
-/// 会话内全部在世状态（跨实例、不分组），按 id 升序（插入序稳定）。
+/// 会话内全部**当前生效**状态（跨实例、不分组），按 id 升序（插入序稳定）。
+/// 历史链行（superseded_at 非 NULL）与墓碑行都不出现——装配（generation）/
+/// 结算（director）/ IPC 状态面板的读视角与历史化之前一致（验收 1：现有行为不变）。
 /// 状态行不携带 session_id（迁移 0009 换挂）——经实例表按会话过滤。
 pub(crate) fn list_by_session(
     conn: &Connection,
@@ -98,11 +102,14 @@ pub(crate) fn list_by_session(
     // JOIN 下裸列名歧义（两表都有 id / deleted_at）：SELECT 列逐一限定表名。
     let qualified = "character_state.id, character_state.instance_id, scope, \
                      \"key\", value, expiry, character_state.source_scene, \
-                     character_state.updated_at, character_state.deleted_at";
+                     character_state.updated_at, character_state.deleted_at, \
+                     character_state.superseded_at";
     let sql = format!(
         "SELECT {qualified} FROM character_state \
          JOIN character_instances ON character_instances.id = character_state.instance_id \
-         WHERE character_instances.session_id = ?1 AND character_state.deleted_at IS NULL \
+         WHERE character_instances.session_id = ?1 \
+           AND character_state.deleted_at IS NULL \
+           AND character_state.superseded_at IS NULL \
          ORDER BY character_state.id ASC"
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -125,215 +132,52 @@ pub(crate) fn soft_delete(conn: &Connection, id: i64, ts: i64) -> Result<(), Sto
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::models::{NewCharacter, NewCharacterInstance, NewSession, RosterPick};
-    use crate::domain::ports::StoragePort;
-    use crate::infra::storage::{test_support::temp_storage, Storage};
-    use std::path::PathBuf;
-    use std::thread::sleep;
-    use std::time::Duration;
-
-    /// 测试夹具：建角色卡 + 会话（1 用户位 + 1 LLM 位），返回
-    /// (storage, dir, user_instance_id, llm_instance_id, session_id)。
-    fn setup(tag: &str) -> (Storage, PathBuf, i64, i64, i64) {
-        let (storage, dir) = temp_storage(tag);
-        let user_card = storage
-            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
-            .unwrap()
-            .id;
-        let llm_card = storage
-            .create_character(&NewCharacter { name: "艾莉".into(), ..Default::default() })
-            .unwrap()
-            .id;
-        let session_id = storage
-            .create_session(&NewSession {
-                roster: vec![
-                    RosterPick { character_id: user_card, is_user: true },
-                    RosterPick { character_id: llm_card, is_user: false },
-                ],
-                title: String::new(),
-                opening: None,
-            })
-            .unwrap()
-            .id;
-        let instances = storage.list_instances(session_id).unwrap();
-        // list_instances：用户位在前（is_user DESC），LLM 位随后（id ASC）。
-        let user_instance = instances.iter().find(|i| i.is_user).unwrap().id;
-        let llm_instance = instances.iter().find(|i| !i.is_user).unwrap().id;
-        (storage, dir, user_instance, llm_instance, session_id)
+/// 状态时间点还原（迁移 0010 / 方案 §2 第 2 步；第 3 步「时间线分叉」的读原语）。
+/// 语义详见 domain/ports.rs 同名方法的契约注释；此处是实现要点：
+/// - 每（实例, key）取「来源场景号严格小于锚点 idx」的最新行——导演约定状态记在
+///   被收束场（source_scene）上、自下一场起生效，故 `idx < 锚点` = 锚点场景进行中时
+///   已生效；NULL source_scene 视为自会话之始存在（`source IS NULL` 单独放行）。
+/// - 生效过滤只排墓碑（deleted_at IS NULL），**不排** superseded 行：锚点时点的
+///   最新行往往正是当下已被取代的历史行，这正是 as_of 的意义。
+/// - 每 key 取最新用相关子查询实现（ORDER BY updated_at DESC, id DESC 兜底同刻
+///   稳定序），代替窗口函数——语义等价且不依赖 SQLite 版本特性。
+pub(crate) fn list_as_of_scene(
+    conn: &Connection,
+    session_id: i64,
+    scene_idx: i64,
+) -> Result<Vec<CharacterState>, StorageError> {
+    // 生效判定（只排墓碑）与来源锚定（号 < 锚点 / NULL 放行）在内外两层查询各出现
+    // 一次，两处 SQL 字面一致——与 list_by_session 的「当下生效」判定刻意不同
+    //（as_of 不排 superseded），改动时四处于以同步。
+    let sql = format!(
+        "SELECT {COLS} FROM character_state \
+         WHERE id IN ( \
+             SELECT cs.id FROM character_state cs \
+             JOIN character_instances ci ON ci.id = cs.instance_id \
+             LEFT JOIN scenes src ON src.id = cs.source_scene \
+             WHERE ci.session_id = ?1 \
+               AND cs.deleted_at IS NULL \
+               AND (cs.source_scene IS NULL OR src.idx < ?2) \
+               AND cs.id = ( \
+                   SELECT cs2.id FROM character_state cs2 \
+                   JOIN character_instances ci2 ON ci2.id = cs2.instance_id \
+                   LEFT JOIN scenes src2 ON src2.id = cs2.source_scene \
+                   WHERE ci2.session_id = ?1 \
+                     AND cs2.instance_id = cs.instance_id AND cs2.\"key\" = cs.\"key\" \
+                     AND cs2.deleted_at IS NULL \
+                     AND (cs2.source_scene IS NULL OR src2.idx < ?2) \
+                   ORDER BY cs2.updated_at DESC, cs2.id DESC LIMIT 1) \
+         ) \
+         ORDER BY id ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(params![session_id, scene_idx])?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        out.push(state_from_row(row)?);
     }
-
-    fn state(instance_id: i64, key: &str, value: &str) -> NewCharacterState {
-        NewCharacterState {
-            instance_id,
-            scope: CharacterStateScope::State,
-            key: key.into(),
-            value: value.into(),
-            expiry: Some("scene_end".into()),
-            source_scene: None,
-        }
-    }
-
-    /// 验收 3：同键覆盖 value / expiry / source_scene（同 id、scope 不变），updated_at 前进。
-    #[test]
-    fn upsert_overwrites_same_key() {
-        let (storage, dir, _uid, lid, _sid) = setup("state_upsert");
-        let first = storage
-            .upsert_character_state(&state(lid, "情绪", "警觉"))
-            .unwrap();
-        assert_eq!(first.scope, CharacterStateScope::State);
-        assert_eq!(first.expiry.as_deref(), Some("scene_end"));
-        assert_eq!(first.deleted_at, None);
-
-        sleep(Duration::from_millis(4));
-        let second = storage
-            .upsert_character_state(&NewCharacterState {
-                expiry: Some("event:亮灯".into()),
-                source_scene: Some(7),
-                ..state(lid, "情绪", "释然")
-            })
-            .unwrap();
-        assert_eq!(second.id, first.id, "同键覆盖不换行");
-        assert_eq!(second.value, "释然");
-        assert_eq!(second.expiry.as_deref(), Some("event:亮灯"));
-        assert_eq!(second.source_scene, Some(7));
-        assert!(second.updated_at > first.updated_at, "覆盖必须 bump updated_at");
-        assert_eq!(
-            storage
-                .list_character_states(_sid)
-                .unwrap()
-                .iter()
-                .filter(|s| s.instance_id == lid)
-                .count(),
-            1,
-            "同键覆盖后仍只有一行"
-        );
-
-        // 不同键 → 新行
-        let other = storage
-            .upsert_character_state(&state(lid, "持有", "黄铜钥匙"))
-            .unwrap();
-        assert_ne!(other.id, first.id);
-        drop(storage);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// 验收 2：软删墓碑行同键重插——partial unique index 只约束在世行，
-    /// 重插为新行（新 id），墓碑原样保留。
-    #[test]
-    fn tombstone_does_not_block_same_key_reinsert() {
-        let (storage, dir, _uid, lid, _sid) = setup("state_tomb");
-        let gone = storage
-            .upsert_character_state(&state(lid, "情绪", "警觉"))
-            .unwrap();
-        storage.soft_delete_character_state(gone.id).unwrap();
-        assert!(
-            storage
-                .list_character_states(_sid)
-                .unwrap()
-                .iter()
-                .all(|s| s.instance_id != lid),
-            "软删后列表不得含墓碑行（ADR-009）"
-        );
-        assert!(matches!(
-            storage.soft_delete_character_state(gone.id),
-            Err(StorageError::NotFound { .. })
-        ));
-
-        let again = storage
-            .upsert_character_state(&state(lid, "情绪", "平静"))
-            .unwrap();
-        assert_ne!(again.id, gone.id, "重插是新行");
-        assert_eq!(again.value, "平静");
-        let mine = storage
-            .list_character_states(_sid)
-            .unwrap()
-            .into_iter()
-            .filter(|s| s.instance_id == lid)
-            .collect::<Vec<_>>();
-        assert_eq!(mine.len(), 1, "墓碑行不入列表，重插行可见");
-        assert_eq!(mine[0].id, again.id);
-        drop(storage);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// FR-012 + 迁移 0009 换挂：状态挂实例、按会话查询跨实例可见（经实例表过滤）、
-    /// 软删过滤生效；scope=relation 与 state 并存；同键不同实例互不冲突。
-    #[test]
-    fn list_by_session_filters_and_covers_scopes() {
-        let (storage, dir, uid, lid, sid) = setup("state_list");
-        // 动态造人式第二实例（D6 同权）：直接走 create_instance。
-        let other = storage
-            .create_instance(&NewCharacterInstance {
-                session_id: sid,
-                character_id: None,
-                name: "乙".into(),
-                persona: String::new(),
-                render_style: "type".into(),
-                is_user: false,
-            })
-            .unwrap();
-
-        let mut relation = state(lid, "对乙的态度", "戒备");
-        relation.scope = CharacterStateScope::Relation;
-        let a = storage.upsert_character_state(&state(lid, "情绪", "警觉")).unwrap();
-        let b = storage.upsert_character_state(&relation).unwrap();
-        // 另一实例、同一会话：按会话查询应一并返回（FR-012 会话内全景）。
-        let c = storage
-            .upsert_character_state(&state(other.id, "情绪", "平静"))
-            .unwrap();
-        // 干扰项：另一会话的同名实例不可见。
-        let user_card = storage.list_characters().unwrap()[0].id;
-        let llm_card = storage.list_characters().unwrap()[1].id;
-        let other_session = storage
-            .create_session(&NewSession {
-                roster: vec![
-                    RosterPick { character_id: user_card, is_user: true },
-                    RosterPick { character_id: llm_card, is_user: false },
-                ],
-                title: String::new(),
-                opening: None,
-            })
-            .unwrap()
-            .id;
-        let other_session_llm = storage
-            .list_instances(other_session)
-            .unwrap()
-            .into_iter()
-            .find(|i| !i.is_user)
-            .unwrap()
-            .id;
-        storage
-            .upsert_character_state(&state(other_session_llm, "情绪", "别串场"))
-            .unwrap();
-
-        let list = storage.list_character_states(sid).unwrap();
-        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec![a.id, b.id, c.id], "按 id 升序，跨实例、限会话");
-        assert_eq!(list[1].scope, CharacterStateScope::Relation, "scope 往返一致");
-        assert_eq!(list[1].instance_id, lid, "归属实例往返一致");
-
-        // 软删过滤
-        storage.soft_delete_character_state(b.id).unwrap();
-        let list = storage.list_character_states(sid).unwrap();
-        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec![a.id, c.id], "墓碑行被过滤");
-
-        // 同键不同实例互不冲突（唯一键 = (instance_id, key)，迁移 0009 换挂）。
-        let same_key_other = storage.upsert_character_state(&state(uid, "情绪", "坦然")).unwrap();
-        assert_ne!(same_key_other.id, a.id, "同键挂不同实例为新行");
-        drop(storage);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// scope 库值防御：非法值视为数据损坏（后端错误），不 panic。
-    #[test]
-    fn scope_from_db_rejects_unknown() {
-        assert!(matches!(
-            CharacterStateScope::from_db("mood"),
-            Err(StorageError::Backend(_))
-        ));
-    }
+    Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

@@ -132,6 +132,7 @@ fn state(scope: CharacterStateScope, key: &str, value: &str, expiry: Option<&str
         source_scene: None,
         updated_at: 0,
         deleted_at: None,
+        superseded_at: None,
     }
 }
 
@@ -1110,6 +1111,7 @@ fn state_snapshot_groups_by_instance_when_multiple_owners() {
             source_scene: None,
             updated_at: 0,
             deleted_at: None,
+            superseded_at: None,
         },
         CharacterState {
             id: 2,
@@ -1121,6 +1123,7 @@ fn state_snapshot_groups_by_instance_when_multiple_owners() {
             source_scene: None,
             updated_at: 0,
             deleted_at: None,
+            superseded_at: None,
         },
         CharacterState {
             id: 3,
@@ -1132,6 +1135,7 @@ fn state_snapshot_groups_by_instance_when_multiple_owners() {
             source_scene: None,
             updated_at: 0,
             deleted_at: None,
+            superseded_at: None,
         },
     ];
     let history = vec![message(1, MessageRole::User, "在吗？")];

@@ -31,6 +31,10 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // character_instances 新表 + sessions/messages/character_state 三处换挂
     // （sessions DROP character_id；messages 死列换 instance_id；状态挂 instance_id）
     (9, include_str!("../../../migrations/0009_character_instances.sql")),
+    // 状态历史化（方案《多角色与时间线-最终》§2 第 2 步，方案 A append-only）：
+    // character_state 扩 superseded_at（取代链）+ 唯一索引收窄为只约束当前生效行
+    // （deleted_at IS NULL AND superseded_at IS NULL）
+    (10, include_str!("../../../migrations/0010_character_state_history.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

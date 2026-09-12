@@ -68,6 +68,14 @@ async listCharacterStates(sessionId: number) : Promise<Result<CharacterStateDto[
     else return { status: "error", error: e  as any };
 }
 },
+async listLlmCalls(sessionId: number, limit: number | null) : Promise<Result<LlmCallDto[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_llm_calls", { sessionId, limit }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async sendMessage(sessionId: number, content: string) : Promise<Result<ChatMessage, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("send_message", { sessionId, content }) };
@@ -398,6 +406,48 @@ export type IpcError =
  */
 { kind: "unavailable"; message: string }
 /**
+ * LLM 调用轨迹（透明化功能）：llm_calls 行投影。`promptJson` / `toolCallsJson`
+ * 以 string 透传（前端 parse）——内容是网关请求 / 响应的原始 JSON，序列化形态
+ * 由网关侧钉死，wire 层不再二次建模。
+ */
+export type LlmCallDto = { id: number; 
+/**
+ * 所属会话；null = 无会话调用（历法起草），不出现在会话查询里。
+ */
+sessionId: number | null; kind: LlmCallKindDto; model: string; 
+/**
+ * 请求发起时刻（Unix 毫秒）。
+ */
+startedAt: number; 
+/**
+ * 本次 HTTP 请求墙钟耗时（毫秒）。
+ */
+durationMs: number; 
+/**
+ * 请求消息数组 JSON（[{role, content, …}]），string 透传。
+ */
+promptJson: string; 
+/**
+ * 响应正文；失败 / 取消为已收到的半条。
+ */
+responseText: string | null; reasoningText: string | null; 
+/**
+ * 该轮模型发起的工具调用 [{name, arguments}] JSON，string 透传。
+ */
+toolCallsJson: string | null; promptTokens: number | null; completionTokens: number | null; status: LlmCallStatusDto; 
+/**
+ * status = error 时的人类可读原因。
+ */
+errorText: string | null }
+/**
+ * LLM 调用类别（wire 小写；与 llm_calls.kind 库值一致）。
+ */
+export type LlmCallKindDto = "dialogue" | "explorer" | "director" | "draft"
+/**
+ * LLM 调用终态（wire 小写；与 llm_calls.status 库值一致）。
+ */
+export type LlmCallStatusDto = "ok" | "error"
+/**
  * 消息角色（data_model：role CHECK IN ('user', 'assistant')）。
  */
 export type MessageRole = "user" | "assistant"
@@ -507,7 +557,14 @@ export type StreamEvent =
  * 幕后活动（Task-06 记忆探索透出）：非流式生命周期事件，即时透出——
  * 不经生成编排的终态闸门（闸门只扣 token / reasoning / done / error）。
  */
-{ type: "activity"; session_id: number; message_id: number; phase: ActivityPhase; detail: string | null }
+{ type: "activity"; session_id: number; message_id: number; phase: ActivityPhase; detail: string | null } | 
+/**
+ * LLM 调用轨迹（透明化功能）：一次 LLM HTTP 请求完成即发（含失败 / 取消
+ * 尝试）。无顶层 session_id —— 会话定位在 `call.session_id`（draft 为 null，
+ * 前端按其过滤；不匹配即丢弃）。事件发射与落库同点完成且**以落库为准**
+ * （见 [`TauriCallSink`]）。
+ */
+{ type: "trace"; call: LlmCallDto }
 /**
  * 更新角色卡入参（FR-006 / FR-013）：[`CharacterInput`] 全字段 + 世界观历法。
  * 编辑器整卡提交（Task-17 `buildInput` 返回 `CharacterInput & { calendarConfig }`，

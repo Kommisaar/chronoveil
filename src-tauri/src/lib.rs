@@ -53,9 +53,18 @@ pub fn run() {
         .setup(move |app| {
             // 挂载事件注册表（INT-001：StreamEvent 经 TauriEventSink 广播）。
             specta_builder.mount_events(app);
+            let state = app.state::<AppState>();
             // 注入流式事件通道（TASK-006 / FR-001）：生成编排经 AppState::sink 取用。
-            app.state::<AppState>().set_sink(std::sync::Arc::new(
+            state.set_sink(std::sync::Arc::new(
                 interfaces::events::TauriEventSink::new(app.handle().clone()),
+            ));
+            // 注入 LLM 调用轨迹记录器（透明化功能）：落库 + Trace 事件组合实现，
+            // 命令层装配 LlmClient 时经 AppState::call_sink 挂接。
+            state.set_call_sink(std::sync::Arc::new(
+                interfaces::events::TauriCallSink::new(
+                    state.storage.clone(),
+                    app.handle().clone(),
+                ),
             ));
             Ok(())
         })

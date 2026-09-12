@@ -338,6 +338,69 @@ describe('listScenes / listCharacterStates（FR-011 / FR-012 读路径）', () =
   });
 });
 
+describe('listLlmCalls（透明化功能：LLM 调用轨迹读路径，语义对齐 ipc.rs list_llm_calls_impl）', () => {
+  it('初始无轨迹：在世会话返回空数组（mock 只在 sendMessage 时合成演示条目）', async () => {
+    const { backend } = await loadMock();
+    expect(await backend.listLlmCalls(1)).toEqual([]);
+  });
+
+  it('sendMessage 合成一条 dialogue 轨迹：字段齐全、promptJson 可 parse、内容标注 mock', async () => {
+    const { backend } = await loadMock();
+    const session = await backend.createSession(1, null);
+    await backend.sendMessage(session.id, '你好，雨夜');
+    const calls = await backend.listLlmCalls(session.id);
+    expect(calls).toHaveLength(1);
+    const call = calls[0]!;
+    expect(call.sessionId).toBe(session.id);
+    expect(call.kind).toBe('dialogue');
+    expect(call.status).toBe('ok');
+    expect(call.errorText).toBeNull();
+    expect(call.model).toContain('mock');
+    expect(call.responseText).toContain('mock');
+    expect(typeof call.promptJson).toBe('string');
+    expect(JSON.parse(call.promptJson)).toEqual([{ role: 'user', content: '你好，雨夜' }]);
+    expect(call.durationMs).toBeGreaterThan(0);
+    expect(call.promptTokens).toBeGreaterThan(0);
+    expect(call.completionTokens).toBeGreaterThan(0);
+  });
+
+  it('按 id 倒序（最新在前）；limit 截断取最新；跨会话隔离', async () => {
+    const { backend } = await loadMock();
+    const sessionA = await backend.createSession(1, null);
+    const sessionB = await backend.createSession(2, null);
+    await backend.sendMessage(sessionA.id, '第一条');
+    await backend.sendMessage(sessionA.id, '第二条');
+    await backend.sendMessage(sessionB.id, '别会话');
+
+    const callsA = await backend.listLlmCalls(sessionA.id);
+    expect(callsA).toHaveLength(2);
+    expect(callsA[0]!.id).toBeGreaterThan(callsA[1]!.id);
+    // 倒序：最新在前。
+    expect(JSON.parse(callsA[0]!.promptJson)[0].content).toBe('第二条');
+    expect(await backend.listLlmCalls(sessionB.id)).toHaveLength(1);
+    // limit 生效：截取最新 1 条。
+    const capped = await backend.listLlmCalls(sessionA.id, 1);
+    expect(capped.map((c) => c.id)).toEqual([callsA[0]!.id]);
+  });
+
+  it('不存在的会话报 NotFound；已软删会话等价不可见（对齐 ipc.rs NotFound 同构）', async () => {
+    const { backend } = await loadMock();
+    expect(await apiErrorOf(backend.listLlmCalls(999))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: 999,
+    });
+    const session = await backend.createSession(1, null);
+    await backend.sendMessage(session.id, '轨迹一条');
+    await backend.deleteSession(session.id);
+    expect(await apiErrorOf(backend.listLlmCalls(session.id))).toEqual({
+      kind: 'notFound',
+      entity: 'session',
+      id: session.id,
+    });
+  });
+});
+
 describe('sendMessage（SEQ-001 回执 / FR-007 标题回填）', () => {
   it('回执用户条（trim、speaker null、正数 id）并追加 mock 占位回复（演示闭环）', async () => {
     const { backend } = await loadMock();

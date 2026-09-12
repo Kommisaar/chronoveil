@@ -6,7 +6,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::domain::error::StorageError;
 use crate::infra::config::{ConfigError, ConfigStore};
-use crate::infra::llm::EventSink;
+use crate::infra::llm::{EventSink, LlmCallSink};
 use crate::infra::storage::Storage;
 use crate::services::generation::GenerationRegistry;
 
@@ -28,6 +28,10 @@ pub struct AppState {
     /// 流式事件通道（INT-001）：`setup` 中以 `TauriEventSink` 注入（AppHandle 在
     /// setup 才可用）；命令层经 [`AppState::sink`] 取用，测试可直接注入替身。
     sink: OnceLock<Arc<dyn EventSink>>,
+    /// LLM 调用轨迹记录器（透明化功能）：`setup` 中以 `TauriCallSink`（落库 +
+    /// Trace 事件组合实现）注入；命令层装配 LlmClient 时经 [`AppState::call_sink`]
+    /// 挂接。Option 语义：测试装配不注入 = 不记录（轨迹是旁路）。
+    call_sink: OnceLock<Arc<dyn LlmCallSink>>,
 }
 
 /// 组合根装配错误：`AppState::init*` 的失败路径（home 解析 / 建目录 / 开库 / 配置装载），
@@ -101,6 +105,7 @@ impl AppState {
             config,
             generation: Arc::new(GenerationRegistry::new()),
             sink: OnceLock::new(),
+            call_sink: OnceLock::new(),
         })
     }
 
@@ -112,6 +117,16 @@ impl AppState {
     /// 取流式事件通道（命令层构造生成任务时使用；未注入即装配顺序错误，快速失败）。
     pub fn sink(&self) -> Arc<dyn EventSink> {
         self.sink.get().cloned().expect("流式事件通道未初始化：lib.rs setup 应先于任何命令执行")
+    }
+
+    /// 注入 LLM 调用轨迹记录器（`lib.rs` setup 中调用一次；重复注入忽略首个之后的值）。
+    pub fn set_call_sink(&self, sink: Arc<dyn LlmCallSink>) {
+        let _ = self.call_sink.set(sink);
+    }
+
+    /// 取 LLM 调用轨迹记录器（透明化功能）；None = 测试装配未注入 → 客户端不记录。
+    pub fn call_sink(&self) -> Option<Arc<dyn LlmCallSink>> {
+        self.call_sink.get().cloned()
     }
 }
 

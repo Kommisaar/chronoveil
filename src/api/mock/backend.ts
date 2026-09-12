@@ -14,6 +14,7 @@ import type {
   CharacterSummary,
   ChatMessage,
   ConfigDto,
+  LlmCallDto,
   MessageRole,
   SceneDto,
   SessionOpeningInput,
@@ -195,6 +196,26 @@ export async function listCharacterStates(sessionId: number): Promise<CharacterS
   return [];
 }
 
+// ---- LLM 调用轨迹（透明化功能）----
+
+/** LLM 调用轨迹内存表：仅 sendMessage 合成 dialogue 演示条目（见 sendMessage 注释）。 */
+const llmCalls: LlmCallDto[] = [];
+
+let nextLlmCallId = 1;
+
+/** 与 Rust `DEFAULT_LLM_CALL_LIST_LIMIT` 一致：limit 缺省时的截断数（最新 200 条）。 */
+const DEFAULT_LLM_CALL_LIST_LIMIT = 200;
+
+export async function listLlmCalls(sessionId: number, limit?: number): Promise<LlmCallDto[]> {
+  // 对齐 ipc.rs list_llm_calls_impl：先会话在世校验（NotFound 而非空列表），
+  // 再按 id 倒序（最新在前）+ limit 截断。
+  sessionOf(sessionId);
+  return llmCalls
+    .filter((call) => call.sessionId === sessionId)
+    .sort((a, b) => b.id - a.id)
+    .slice(0, limit ?? DEFAULT_LLM_CALL_LIST_LIMIT);
+}
+
 /** 会话标题缺省值（FR-007）：与 Rust `generation::default_title` 一致——
  *  首条用户消息按码点截断到 20 字，截断时补省略号。 */
 const TITLE_MAX_CHARS = 20;
@@ -217,19 +238,38 @@ export async function sendMessage(
   const userMessage = makeMessage(sessionId, null, 'user', trimmed);
   ;(messagesBySession[sessionId] ??= []).push(userMessage);
   // 占位回复：mock 无真实生成；characterId 派生规则与命令层一致（assistant → 会话角色）。
-  ;(messagesBySession[sessionId] ??= []).push(
-    makeMessage(
-      sessionId,
-      session.characterId,
-      'assistant',
-      '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
-      'mock 思考：等待 TASK-006 接入真实生成闭环。',
-      800,
-    ),
+  const reply = makeMessage(
+    sessionId,
+    session.characterId,
+    'assistant',
+    '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
+    'mock 思考：等待 TASK-006 接入真实生成闭环。',
+    800,
   );
+  ;(messagesBySession[sessionId] ??= []).push(reply);
   // FR-007：标题缺省取首条用户消息截断（ipc.rs send_message_impl / default_title）。
   if (session.title === '') session.title = defaultTitle(trimmed);
   session.updatedAt = userMessage.createdAt;
+  // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
+  // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
+  // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
+  // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
+  llmCalls.push({
+    id: nextLlmCallId++,
+    sessionId,
+    kind: 'dialogue',
+    model: 'mock-model',
+    startedAt: reply.createdAt - 900,
+    durationMs: 900,
+    promptJson: JSON.stringify([{ role: 'user', content: trimmed }]),
+    responseText: reply.content,
+    reasoningText: reply.reasoning,
+    toolCallsJson: null,
+    promptTokens: 128,
+    completionTokens: 64,
+    status: 'ok',
+    errorText: null,
+  });
   return userMessage;
 }
 
@@ -237,7 +277,6 @@ export async function sendMessage(
 export async function cancelGeneration(_sessionId: number): Promise<boolean> {
   return false;
 }
-
 export async function regenerateLast(sessionId: number): Promise<ChatMessage> {
   const session = sessionOf(sessionId);
   const messages = messagesBySession[sessionId] ?? [];

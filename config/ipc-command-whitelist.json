@@ -8,6 +8,7 @@
     "list_messages",
     "list_scenes",
     "list_character_states",
+    "list_llm_calls",
     "send_message",
     "cancel_generation",
     "regenerate_last",

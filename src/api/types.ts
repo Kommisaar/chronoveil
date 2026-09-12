@@ -34,6 +34,12 @@ export type {
   ConfigDto,
   /** 单套 LLM Provider（FR-009）。 */
   ProviderDto,
+  /** LLM 调用轨迹（透明化功能；promptJson / toolCallsJson 以 string 透传，前端 parse）。 */
+  LlmCallDto,
+  /** LLM 调用类别（透明化功能：dialogue / explorer / director / draft）。 */
+  LlmCallKindDto,
+  /** LLM 调用终态（透明化功能：ok / error）。 */
+  LlmCallStatusDto,
   /** 命令错误（可判别结构；IPC 命令统一返回）。 */
   IpcError,
 } from './generated/bindings';

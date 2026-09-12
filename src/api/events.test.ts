@@ -33,6 +33,30 @@ async function importEvents() {
   return import('./events');
 }
 
+/** 合法 wire trace 负载（透明化功能；camelCase call；sessionId 可空 = 无会话的起草调用）。 */
+function wireTrace(sessionId: number | null, overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'trace',
+    call: {
+      id: 12,
+      sessionId,
+      kind: 'dialogue',
+      model: 'mock-model',
+      startedAt: 1_000,
+      durationMs: 250,
+      promptJson: '[{"role":"user","content":"你好"}]',
+      responseText: '在。',
+      reasoningText: null,
+      toolCallsJson: null,
+      promptTokens: 11,
+      completionTokens: 7,
+      status: 'ok',
+      errorText: null,
+      ...overrides,
+    },
+  };
+}
+
 describe('fromWireEvent 防御式解析（INT-001 / 验收 7）', () => {
   it('token/reasoning/done/error 合法负载 → camelCase 事件（done 补 thinkMs）', async () => {
     const { fromWireEvent } = await importEvents();
@@ -98,6 +122,29 @@ describe('fromWireEvent 防御式解析（INT-001 / 验收 7）', () => {
     expect(fromWireEvent({ type: 'activity', session_id: 1, message_id: -3, phase: 'toolCall', detail: 7 })).toBeNull();
   });
 
+  // ---- 调用轨迹事件（透明化功能）----
+
+  it('trace 合法负载 → { type: trace, call }（无顶层路由键，会话定位在 call 内）', async () => {
+    const { fromWireEvent } = await importEvents();
+    const wire = wireTrace(3) as { call: Record<string, unknown> };
+    expect(fromWireEvent(wire)).toEqual({ type: 'trace', call: wire.call });
+    // sessionId null（draft 调用）同样合法透传。
+    const draft = wireTrace(null) as { call: Record<string, unknown> };
+    expect(fromWireEvent(draft)).toEqual({ type: 'trace', call: draft.call });
+  });
+
+  it('trace 负载缺字段 / 字段类型不符 / kind·status 未知 → 拒收（防御式解析不变量保持）', async () => {
+    const { fromWireEvent } = await importEvents();
+    expect(fromWireEvent({ type: 'trace' })).toBeNull();
+    expect(fromWireEvent({ type: 'trace', call: 'garbage' })).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { id: 'x' }))).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { kind: 'quantumLeap' }))).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { status: 'pending' }))).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { promptJson: 42 }))).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { promptTokens: '11' }))).toBeNull();
+    expect(fromWireEvent(wireTrace(3, { sessionId: '3' }))).toBeNull();
+  });
+
   it('缺路由键 / 字段类型不符 / 非对象输入一律拒收', async () => {
     const { fromWireEvent } = await importEvents();
     // 缺 session_id / message_id（路由键，INT-001 身份字段）
@@ -154,5 +201,32 @@ describe('subscribeStream 按 session_id 过滤（ADR-007 / 验收 7）', () => 
     await Promise.resolve(); // 退订走 microtask
     dispatch({ type: 'token', session_id: 1, message_id: -1, text: 'A2', reset: false });
     expect(handlerA).toHaveBeenCalledTimes(2);
+  });
+
+  it('subscribeStream 不投递轨迹事件（语义另路，既有消费方穷尽 switch 不受影响）', async () => {
+    const { subscribeStream } = await importEvents();
+    const handlerA = vi.fn();
+    subscribeStream(1, handlerA);
+
+    dispatch(wireTrace(1)); // 即使会话匹配也不投递：轨迹经 subscribeTrace 消费
+    dispatch({ type: 'token', session_id: 1, message_id: -1, text: 'A', reset: false });
+
+    expect(handlerA).toHaveBeenCalledTimes(1);
+    expect((handlerA.mock.calls[0]![0] as { type: string }).type).toBe('token');
+  });
+
+  it('subscribeTrace 按 call.sessionId 路由；null（无会话的起草调用）与非法负载被过滤', async () => {
+    const { subscribeTrace } = await importEvents();
+    const handler = vi.fn();
+    subscribeTrace(1, handler);
+
+    dispatch(wireTrace(1));
+    dispatch(wireTrace(2)); // 其他会话：丢弃
+    dispatch(wireTrace(null)); // draft：不属于任何会话，丢弃
+    dispatch({ type: 'trace' }); // 非法负载：忽略
+    dispatch({ type: 'token', session_id: 1, message_id: -1, text: 'A', reset: false }); // 非轨迹：忽略
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0]![0]).toMatchObject({ id: 12, sessionId: 1, kind: 'dialogue' });
   });
 });

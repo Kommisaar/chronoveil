@@ -15,11 +15,17 @@
 //! `src/api/events.ts` 的 `subscribeStream` 订阅并按 session_id 过滤（多路并发路由，FR-007）。
 //! 未知事件类型由前端忽略（向前兼容，INT-001）。
 
+use std::sync::Arc;
+
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::infra::llm::{ActivityPhase, EventSink, LlmEvent};
+use crate::domain::models::NewLlmCall;
+use crate::infra::llm::{ActivityPhase, EventSink, LlmCallSink, LlmEvent};
+use crate::infra::storage::Storage;
+
+use super::ipc::LlmCallDto;
 
 /// 流式事件（INT-001 v1 四态）。Rust 侧由 [`TauriEventSink`] 发射，
 /// TS 侧类型经 tauri-specta 同源生成于 `src/api/generated/bindings.ts`。
@@ -67,6 +73,14 @@ pub enum StreamEvent {
         /// 技术措辞摘要（工具名+参数摘要 / 结果截断 / 卷宗前若干字）；数据非 UI 文案。
         detail: Option<String>,
     },
+    /// LLM 调用轨迹（透明化功能）：一次 LLM HTTP 请求完成即发（含失败 / 取消
+    /// 尝试）。无顶层 session_id —— 会话定位在 `call.session_id`（draft 为 null，
+    /// 前端按其过滤；不匹配即丢弃）。事件发射与落库同点完成且**以落库为准**
+    /// （见 [`TauriCallSink`]）。
+    Trace {
+        /// 已落库的轨迹行（携带库内 id，前端可与 list_llm_calls 结果对齐）。
+        call: LlmCallDto,
+    },
 }
 
 impl From<LlmEvent> for StreamEvent {
@@ -112,6 +126,48 @@ impl EventSink for TauriEventSink {
             // 发射失败不 panic：流式事件丢失不应击穿生成闭环（终态以落库为准）。
             // 事件是可丢旁路 → 降级记 warn，不动主对话闭环。
             log::warn!("stream-event 发射失败：{e}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LLM 调用轨迹 sink（透明化功能）：落库 + Trace 事件的组合实现
+// ---------------------------------------------------------------------------
+
+/// [`LlmCallSink`] 的生产实现：先落库（storage.insert_llm_call），成功才发
+/// `StreamEvent::Trace`（**以落库为准**——库中没有的轨迹不广播）；落库失败只
+/// warn，不影响主流程（轨迹是旁路）。
+///
+/// 设计说明（为什么不在 infra/storage 实现本 trait）：「调用完成即发 + 以落库为准」
+/// 要求落库与事件发射**同点**完成——infra 拿不到事件口（AppHandle 在 interfaces），
+/// 由调用方在返回后补发事件则需要把记录数据从网关带回调用方（重复记录逻辑）。
+/// trait 定义在 infra（网关记录点信息最全），组合实现在 interfaces 双通道一次接好，
+/// 组合根 setup 注入 AppState，命令层装配 LlmClient 时挂接。
+pub struct TauriCallSink {
+    storage: Arc<Storage>,
+    handle: tauri::AppHandle,
+}
+
+impl TauriCallSink {
+    /// `setup` 中以 Storage 句柄 + AppHandle 构造并注入 `AppState`（组合根装配）。
+    pub fn new(storage: Arc<Storage>, handle: tauri::AppHandle) -> Self {
+        Self { storage, handle }
+    }
+}
+
+impl LlmCallSink for TauriCallSink {
+    fn record(&self, call: NewLlmCall) {
+        use crate::domain::ports::StoragePort;
+        let stored = match self.storage.insert_llm_call(&call) {
+            Ok(stored) => stored,
+            Err(error) => {
+                log::warn!("LLM 调用轨迹落库失败（本条轨迹丢弃，不影响主流程）：{error}");
+                return;
+            }
+        };
+        if let Err(e) = (StreamEvent::Trace { call: LlmCallDto::from(stored) }).emit(&self.handle)
+        {
+            log::warn!("trace 事件发射失败（落库已完成，查询路径兜底）：{e}");
         }
     }
 }
@@ -278,5 +334,74 @@ mod tests {
     #[test]
     fn event_name_is_stable() {
         assert_eq!(StreamEvent::NAME, "stream-event");
+    }
+
+    // ---- 调用轨迹事件（透明化功能）：Trace 负载契约 ----
+
+    /// Trace 事件：type 判别值 trace；call 负载逐字段 camelCase（kind / status 小写、
+    /// promptJson string 透传、可空 usage 为 null）；无顶层 session_id（在 call 内）。
+    #[test]
+    fn trace_event_serializes_camel_case_payload() {
+        let json = serde_json::to_value(StreamEvent::Trace {
+            call: super::super::ipc::LlmCallDto {
+                id: 12,
+                session_id: Some(3),
+                kind: super::super::ipc::LlmCallKindDto::Dialogue,
+                model: "test-model".into(),
+                started_at: 1_000,
+                duration_ms: 250,
+                prompt_json: r#"[{"role":"user","content":"你好"}]"#.into(),
+                response_text: Some("在。".into()),
+                reasoning_text: None,
+                tool_calls_json: None,
+                prompt_tokens: Some(11),
+                completion_tokens: Some(7),
+                status: super::super::ipc::LlmCallStatusDto::Ok,
+                error_text: None,
+            },
+        })
+        .unwrap();
+        assert_eq!(json["type"], "trace");
+        assert!(json.get("session_id").is_none() && json.get("sessionId").is_none(),
+            "无顶层会话字段——会话定位在 call 内");
+        let call = &json["call"];
+        assert_eq!(call["id"], 12);
+        assert_eq!(call["sessionId"], 3, "call 负载 camelCase");
+        assert_eq!(call["kind"], "dialogue", "kind 枚举值小写");
+        assert_eq!(call["model"], "test-model");
+        assert_eq!(call["startedAt"], 1_000);
+        assert_eq!(call["durationMs"], 250);
+        assert_eq!(call["promptJson"], r#"[{"role":"user","content":"你好"}]"#);
+        assert_eq!(call["responseText"], "在。");
+        assert!(call["reasoningText"].is_null());
+        assert_eq!(call["promptTokens"], 11);
+        assert_eq!(call["completionTokens"], 7);
+        assert_eq!(call["status"], "ok", "status 枚举值小写");
+        assert!(call["errorText"].is_null());
+
+        // draft 调用：sessionId null + status error + kind draft。
+        let draft = serde_json::to_value(StreamEvent::Trace {
+            call: super::super::ipc::LlmCallDto {
+                id: 13,
+                session_id: None,
+                kind: super::super::ipc::LlmCallKindDto::Draft,
+                model: "m".into(),
+                started_at: 2,
+                duration_ms: 3,
+                prompt_json: "[]".into(),
+                response_text: None,
+                reasoning_text: None,
+                tool_calls_json: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                status: super::super::ipc::LlmCallStatusDto::Error,
+                error_text: Some("LLM 请求超时".into()),
+            },
+        })
+        .unwrap();
+        assert_eq!(draft["call"]["sessionId"], serde_json::Value::Null, "无会话调用 wire null");
+        assert_eq!(draft["call"]["kind"], "draft");
+        assert_eq!(draft["call"]["status"], "error");
+        assert_eq!(draft["call"]["errorText"], "LLM 请求超时");
     }
 }

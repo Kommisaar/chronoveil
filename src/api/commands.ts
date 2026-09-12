@@ -22,6 +22,7 @@ import type {
   CharacterSummary,
   ChatMessage,
   ConfigDto,
+  LlmCallDto,
   SceneDto,
   SessionOpeningInput,
   SessionSummary,
@@ -89,6 +90,19 @@ export async function listCharacterStates(sessionId: number): Promise<CharacterS
   return isTauri
     ? unwrap(commands.listCharacterStates(sessionId))
     : mock.listCharacterStates(sessionId);
+}
+
+// ---- LLM 调用轨迹（透明化功能）----
+
+/**
+ * 会话内 LLM 调用轨迹（透明化功能）：按 id 倒序（最新在前）；会话不存在 / 已软删
+ * 报 NotFound。`limit` 缺省 = 后端默认截断（最新 200 条）。`promptJson` /
+ * `toolCallsJson` 为 string 透传，消费方自行 `JSON.parse`。
+ */
+export async function listLlmCalls(sessionId: number, limit?: number): Promise<LlmCallDto[]> {
+  return isTauri
+    ? unwrap(commands.listLlmCalls(sessionId, limit ?? null))
+    : mock.listLlmCalls(sessionId, limit);
 }
 
 // ---- 生成（TASK-006 已接线：send / regenerate 走真实生成闭环，进度经事件流推送；

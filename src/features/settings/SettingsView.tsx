@@ -32,6 +32,7 @@ import {
 } from '@fluentui/react-components';
 import {
   Add16Regular,
+  Book20Regular,
   Color20Regular,
   Globe20Regular,
   Pause20Regular,
@@ -49,6 +50,7 @@ import {
   isRhythmValid,
   newProviderId,
   parseAnimBaseMs,
+  parseNearScenes,
   toDraft,
   withoutModel,
 } from './preferences';
@@ -135,6 +137,8 @@ export function SettingsView() {
   const [loaded, setLoaded] = useState<ConfigDto | null>(null);
   const [draft, setDraft] = useState<ConfigDto | null>(null);
   const [animBaseText, setAnimBaseText] = useState('');
+  // 近景场景数（近景窗口可选化）：与动效基准同款「文本态 + 解析」输入。
+  const [nearScenesText, setNearScenesText] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ProviderDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -152,6 +156,7 @@ export function SettingsView() {
         setLoaded(config);
         setDraft(toDraft(config));
         setAnimBaseText(String(config.animDurationBase));
+        setNearScenesText(String(config.nearScenes));
       })
       .catch((e: unknown) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
@@ -162,6 +167,7 @@ export function SettingsView() {
   }, []);
 
   const animBase = draft ? parseAnimBaseMs(animBaseText) : null;
+  const nearScenes = draft ? parseNearScenes(nearScenesText) : null;
 
   /** 保存将写入的整份 config：草稿为基，directorModel 原样保留（验收 6）。 */
   const next: ConfigDto | null = useMemo(() => {
@@ -176,8 +182,9 @@ export function SettingsView() {
       uiLanguage: draft.uiLanguage,
       uiTheme: draft.uiTheme,
       directorModel: loaded.directorModel,
+      nearScenes: nearScenes ?? loaded.nearScenes,
     };
-  }, [loaded, draft, animBase]);
+  }, [loaded, draft, animBase, nearScenes]);
 
   // 脏状态：保存将写入的内容与载入基线逐字段比对
   const dirty = next !== null && loaded !== null && JSON.stringify(next) !== JSON.stringify(loaded);
@@ -187,6 +194,7 @@ export function SettingsView() {
     if (draft.providers.some((p) => !isProviderValid(p))) issues.push(t('settings.issueProvider'));
     if (!isRhythmValid(draft.rhythmMsPerChar)) issues.push(t('settings.issueRhythm'));
     if (animBase === null) issues.push(t('settings.issueAnimBase'));
+    if (nearScenes === null) issues.push(t('settings.issueNearScenes'));
   }
   const hasIssues = issues.length > 0;
 
@@ -268,6 +276,7 @@ export function SettingsView() {
       setLoaded(next);
       setDraft(toDraft(next));
       setAnimBaseText(String(next.animDurationBase));
+      setNearScenesText(String(next.nearScenes));
     } catch (e: unknown) {
       // 后端校验失败（如 rhythm 越界）经 ApiError 展示可读错误（验收 5）；
       // 不自动重试，待下一次修改由自动保存再试。
@@ -403,6 +412,36 @@ export function SettingsView() {
               {animBase === null ? (
                 <Text className={styles.rowIssue} role="alert">
                   {t('settings.issueAnimBase')}
+                </Text>
+              ) : null}
+            </SettingsCard>
+
+            {/* 近景窗口可选化（ADR-004 参数化）：近景携带的已结算场景数，数字输入 */}
+            <SettingsCard title={t('settings.contextCard')}>
+              <SettingsRow
+                icon={<Book20Regular />}
+                title={t('settings.nearScenes')}
+                description={t('settings.nearScenesDesc')}
+                control={
+                  <Input
+                    className={styles.animInput}
+                    type="number"
+                    min={1}
+                    max={6}
+                    step={1}
+                    value={nearScenesText}
+                    aria-label={t('settings.nearScenes')}
+                    onChange={(_, d) => {
+                      setNearScenesText(d.value);
+                      const parsed = parseNearScenes(d.value);
+                      if (parsed !== null) patch({ nearScenes: parsed });
+                    }}
+                  />
+                }
+              />
+              {nearScenes === null ? (
+                <Text className={styles.rowIssue} role="alert">
+                  {t('settings.issueNearScenes')}
                 </Text>
               ) : null}
             </SettingsCard>

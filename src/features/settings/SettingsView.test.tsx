@@ -207,4 +207,26 @@ describe('SettingsView（TASK-009）', () => {
     fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '300' } });
     await waitFor(() => expect(screen.queryByText(/动效基准需为 150–1200/)).toBeNull());
   });
+
+  it('近景场景数：非法输入不落盘并提示，改合法后自动落盘（窗口可选化 1–6）', async () => {
+    const baseline = await getConfig();
+    renderSettings();
+    const input = await screen.findByLabelText('近景场景数');
+    expect((input as HTMLInputElement).value).toBe('2');
+    // 越域（0 / 7）→ 字段级提示 + 底部汇总各一次，越过防抖窗口后不落盘
+    fireEvent.change(input, { target: { value: '7' } });
+    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(2);
+    await settle(700);
+    expect((await getConfig()).nearScenes).toBe(baseline.nearScenes);
+    fireEvent.change(screen.getByLabelText('近景场景数'), { target: { value: '0' } });
+    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(2);
+    await settle(700);
+    expect((await getConfig()).nearScenes).toBe(baseline.nearScenes);
+    // 边界值 5 合法 → 自动落盘
+    fireEvent.change(screen.getByLabelText('近景场景数'), { target: { value: '5' } });
+    await waitFor(async () => {
+      expect((await getConfig()).nearScenes).toBe(5);
+    }, AUTOSAVE_WAIT);
+    await waitFor(() => expect(screen.queryByText(/近景场景数需为 1–6/)).toBeNull());
+  });
 });

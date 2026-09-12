@@ -51,6 +51,7 @@ const CONFIG: ConfigDto = {
   uiLanguage: 'system',
   uiTheme: 'system',
   directorModel: null,
+  nearScenes: 2,
 };
 
 function renderView() {

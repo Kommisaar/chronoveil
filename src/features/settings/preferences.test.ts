@@ -3,12 +3,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ConfigDto, ProviderDto } from '../../api/types';
 import {
+  isNearScenesValid,
   isProviderValid,
   isRhythmValid,
   normalizeLanguageSetting,
   normalizeThemeSetting,
   newProviderId,
   parseAnimBaseMs,
+  parseNearScenes,
   toDraft,
   withoutModel,
 } from './preferences';
@@ -32,6 +34,7 @@ const config = (partial: Partial<ConfigDto>): ConfigDto => ({
   uiLanguage: 'zh',
   uiTheme: 'system',
   directorModel: null,
+  nearScenes: 2,
   ...partial,
 });
 
@@ -69,6 +72,28 @@ describe('isRhythmValid（FR-009：10–160）', () => {
     expect(isRhythmValid(161)).toBe(false);
     expect(isRhythmValid(45.5)).toBe(false);
     expect(isRhythmValid(Number.NaN)).toBe(false);
+  });
+});
+
+describe('parseNearScenes / isNearScenesValid（近景窗口可选化：1–6，默认 2）', () => {
+  it('边界 1 / 6 与默认 2 放行', () => {
+    expect(parseNearScenes('1')).toBe(1);
+    expect(parseNearScenes(' 2 ')).toBe(2);
+    expect(parseNearScenes('6')).toBe(6);
+    expect(isNearScenesValid(1)).toBe(true);
+    expect(isNearScenesValid(6)).toBe(true);
+  });
+  it('越域与非法文本拒绝，走 issueNearScenes 错误路径（与 Rust validate 同域拒绝）', () => {
+    expect(parseNearScenes('')).toBeNull();
+    expect(parseNearScenes('abc')).toBeNull();
+    expect(parseNearScenes('-1')).toBeNull();
+    expect(parseNearScenes('2.5')).toBeNull();
+    expect(parseNearScenes('0')).toBeNull();
+    expect(parseNearScenes('7')).toBeNull();
+    expect(isNearScenesValid(0)).toBe(false);
+    expect(isNearScenesValid(7)).toBe(false);
+    expect(isNearScenesValid(2.5)).toBe(false);
+    expect(isNearScenesValid(Number.NaN)).toBe(false);
   });
 });
 

@@ -15,6 +15,11 @@ import { RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 export const RHYTHM_MIN = RHYTHM_MIN_MS;
 export const RHYTHM_MAX = RHYTHM_MAX_MS;
 
+/** 近景场景数允许范围（近景窗口可选化；与 infra/config.rs NEAR_SCENES_MIN/MAX
+ *  1–6 双重兜底，默认 2 = ADR-004 原窗口）。前端无引擎对应物，此处为单一来源。 */
+export const NEAR_SCENES_MIN = 1;
+export const NEAR_SCENES_MAX = 6;
+
 const THEME_VALUES: readonly ThemeSetting[] = ['system', 'light', 'dark'];
 const LANGUAGE_VALUES: readonly LanguageSetting[] = ['system', 'zh', 'en'];
 
@@ -49,6 +54,21 @@ export function parseAnimBaseMs(text: string): number | null {
   if (!/^\d+$/.test(trimmed)) return null;
   const value = Number(trimmed);
   return value >= DUR_MIN_MS && value <= DUR_MAX_MS ? value : null;
+}
+
+/** 近景场景数文本 → 值；不可解析或越出 1–6 返回 null（禁保存，走
+ *  issueNearScenes 既有错误提示）。与 infra/config.rs validate 同域拒绝，
+ *  不做静默钳边。 */
+export function parseNearScenes(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return value >= NEAR_SCENES_MIN && value <= NEAR_SCENES_MAX ? value : null;
+}
+
+/** 近景场景数域校验（整数 1–6）；数字输入已限位，此为保存前兜底。 */
+export function isNearScenesValid(value: number): boolean {
+  return Number.isInteger(value) && value >= NEAR_SCENES_MIN && value <= NEAR_SCENES_MAX;
 }
 
 /** 单套 Provider 逐项有效性（UI-003；双层级 2026-09-09：模型列表非空且逐项非空）。 */

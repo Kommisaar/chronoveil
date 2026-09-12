@@ -90,6 +90,7 @@ function configWith(overrides: Partial<ConfigDto> = {}): ConfigDto {
     uiLanguage: 'zh',
     uiTheme: 'system',
     directorModel: null,
+    nearScenes: 2,
     ...overrides,
   };
 }
@@ -633,6 +634,7 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
       uiLanguage: 'en',
       uiTheme: 'dark',
       directorModel: 'm1',
+      nearScenes: 3,
     });
     await backend.saveConfig(next);
     expect(await backend.getConfig()).toEqual(next);
@@ -663,6 +665,25 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
     });
     // 被拒的保存不落盘
     expect((await backend.getConfig()).rhythmMsPerChar).toBe(160);
+  });
+
+  it('nearScenes 越界报 config 错误（近景窗口可选化：1–6，边界值放行）', async () => {
+    const { backend } = await loadMock();
+    await backend.saveConfig(configWith({ nearScenes: 1 }));
+    await backend.saveConfig(configWith({ nearScenes: 6 }));
+    expect((await backend.getConfig()).nearScenes).toBe(6);
+
+    // 错误文案与 Rust validate 同形（snake_case 键 + 允许区间）。
+    const payload = await apiErrorOf(backend.saveConfig(configWith({ nearScenes: 7 })));
+    expect(payload).toEqual({
+      kind: 'config',
+      message: 'near_scenes = 7 越界（允许 1–6）',
+    });
+    await expect(backend.saveConfig(configWith({ nearScenes: 0 }))).rejects.toMatchObject({
+      name: 'ApiError',
+    });
+    // 被拒的保存不落盘
+    expect((await backend.getConfig()).nearScenes).toBe(6);
   });
 });
 

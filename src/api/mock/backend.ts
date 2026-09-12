@@ -34,6 +34,7 @@ export const DEFAULT_CONFIG: ConfigDto = {
   uiLanguage: 'zh',
   uiTheme: 'system',
   directorModel: null,
+  nearScenes: 2, // ADR-004 默认近景窗口（config.near_scenes 缺键回落值）
 };
 
 let config: ConfigDto = { ...DEFAULT_CONFIG };
@@ -396,6 +397,13 @@ export async function saveConfig(next: ConfigDto): Promise<void> {
     throw new ApiError({
       kind: 'config',
       message: `rhythm_ms_per_char = ${next.rhythmMsPerChar} 越界（允许 10–160）`,
+    });
+  }
+  // 近景场景数（近景窗口可选化）：对齐 infra/config.rs validate（1–6，拒绝不钳边）。
+  if (next.nearScenes < 1 || next.nearScenes > 6) {
+    throw new ApiError({
+      kind: 'config',
+      message: `near_scenes = ${next.nearScenes} 越界（允许 1–6）`,
     });
   }
   config = { ...next, providers: cloneProviders(next.providers) };

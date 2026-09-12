@@ -143,15 +143,27 @@ mod tests {
     use rusqlite::Connection;
     use std::path::PathBuf;
 
+    /// 阵容夹具：旅人（用户位）+ 艾莉（LLM 位）。
+    fn test_roster(_storage: &Storage, user_card: i64, llm_card: i64) -> Vec<crate::domain::models::RosterPick> {
+        vec![
+            crate::domain::models::RosterPick { character_id: user_card, is_user: true },
+            crate::domain::models::RosterPick { character_id: llm_card, is_user: false },
+        ]
+    }
+
     /// 测试夹具：建角色 + 会话，返回 (storage, dir, session_id)。
     fn setup(tag: &str) -> (Storage, PathBuf, i64) {
         let (storage, dir) = temp_storage(tag);
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap()
+            .id;
         let char_id = storage
             .create_character(&NewCharacter { name: "艾莉".into(), ..Default::default() })
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession { roster: test_roster(&storage, user_card, char_id), title: String::new(), opening: None })
             .unwrap()
             .id;
         (storage, dir, session_id)
@@ -193,9 +205,13 @@ mod tests {
         assert_eq!(latest.summary.as_deref(), Some("高潮"));
 
         // 新会话不再有空账本（FR-014）：latest = 开场锚行（降级缺省 day=1 · 夜）。
-        let char_id = storage.list_characters().unwrap()[0].id;
+        let cards = storage.list_characters().unwrap();
         let other = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: test_roster(&storage, cards[0].id, cards[1].id),
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
         let _ = storage.insert_message(&NewMessage::new(other.id, MessageRole::User, "hi"));
         let anchor = storage.latest_scene(other.id).unwrap().unwrap();
@@ -241,9 +257,13 @@ mod tests {
     #[test]
     fn scenes_isolated_per_session() {
         let (storage, dir, sid_a) = setup("scene_iso");
-        let char_id = storage.list_characters().unwrap()[0].id;
+        let cards = storage.list_characters().unwrap();
         let sid_b = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: test_roster(&storage, cards[0].id, cards[1].id),
+                title: String::new(),
+                opening: None,
+            })
             .unwrap()
             .id;
         storage.insert_scene(&scene(sid_a, 1, "A 场")).unwrap();

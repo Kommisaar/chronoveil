@@ -102,9 +102,24 @@ mod tests {
     use crate::infra::storage::Storage;
     use std::path::PathBuf;
 
+    /// 阵容夹具：旅人（用户位）+ 苏鸢（LLM 位）——setup 与用例共用。
+    fn fixture_roster(_storage: &Storage, user_card: i64, llm_card: i64) -> Vec<crate::domain::models::RosterPick> {
+        vec![
+            crate::domain::models::RosterPick { character_id: user_card, is_user: true },
+            crate::domain::models::RosterPick { character_id: llm_card, is_user: false },
+        ]
+    }
+
     /// 夹具：角色 + 会话，返回 (storage, dir, session_id)。
     fn setup(tag: &str) -> (Storage, PathBuf, i64) {
         let (storage, dir) = temp_storage(tag);
+        let user_card = storage
+            .create_character(&crate::domain::models::NewCharacter {
+                name: "旅人".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .id;
         let char_id = storage
             .create_character(&crate::domain::models::NewCharacter {
                 name: "苏鸢".into(),
@@ -114,7 +129,7 @@ mod tests {
             .id;
         let session_id = storage
             .create_session(&crate::domain::models::NewSession {
-                character_id: char_id,
+                roster: fixture_roster(&storage, user_card, char_id),
                 title: String::new(),
                 opening: None,
             })
@@ -180,10 +195,12 @@ mod tests {
     #[test]
     fn list_orders_desc_filters_session_and_caps() {
         let (storage, dir, session_id) = setup("llmcall_list");
-        let char_id = storage.list_characters().unwrap()[0].id;
+        // 干扰会话：旅人（用户位）+ 苏鸢（LLM 位），与 setup 同阵容。
+        let cards = storage.list_characters().unwrap();
+        let roster = fixture_roster(&storage, cards[0].id, cards[1].id);
         let other = storage
             .create_session(&crate::domain::models::NewSession {
-                character_id: char_id,
+                roster,
                 title: String::new(),
                 opening: None,
             })

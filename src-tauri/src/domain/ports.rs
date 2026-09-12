@@ -9,8 +9,9 @@
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, CharacterState, LlmCall, Message, NewCharacter, NewCharacterState, NewLlmCall,
-    NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
+    Character, CharacterInstance, CharacterState, LlmCall, Message, NewCharacter,
+    NewCharacterInstance, NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, Scene,
+    Session, UpdateCharacter,
 };
 
 /// 消息归属半开区间 `(after_message_id, upto_message_id]`（FR-011）：区间内的在世消息
@@ -67,6 +68,9 @@ pub trait StoragePort: Send + Sync {
     fn restore_character(&self, id: i64) -> Result<(), StorageError>;
 
     // ---- sessions（FR-007：多会话管理） ----
+    /// 建会话（多角色阵容形态）：`new.roster` 逐卡实例化为会话角色实例（D1 快照），
+    /// 与会话行、开场锚行（present = 全部实例 id）同一事务落库；校验「恰一用户位 +
+    /// ≥1 LLM 位」（D2/D3），任一卡不存在整体回滚。
     fn create_session(&self, new: &NewSession) -> Result<Session, StorageError>;
     /// 会话列表，按 updated_at 倒序（每条新消息自动刷新 updated_at）。
     fn list_sessions(&self) -> Result<Vec<Session>, StorageError>;
@@ -79,6 +83,7 @@ pub trait StoragePort: Send + Sync {
 
     // ---- messages（ADR-001：终态落库原语） ----
     /// 插入消息；同一事务内刷新所属会话 updated_at（FR-007：每条新消息刷新）。
+    /// `new.instance_id` 为说话人实例归属（user = 用户位，assistant = 生成位）。
     fn insert_message(&self, new: &NewMessage) -> Result<Message, StorageError>;
     /// 会话内消息，按 id 升序（对话顺序），不含墓碑行。
     fn list_messages(&self, session_id: i64) -> Result<Vec<Message>, StorageError>;
@@ -104,15 +109,27 @@ pub trait StoragePort: Send + Sync {
     /// **单事务**提交——任一支路失败整体回滚，重试从头再来。
     fn commit_settlement(&self, write: &SettlementWrite) -> Result<Scene, StorageError>;
 
-    // ---- character_state（FR-012：会话内人物状态） ----
-    /// upsert：同键（character_id, session_id, key）覆盖 value / expiry / source_scene，
-    /// 键不存在则插入。仅在世行参与唯一约束（partial unique index，迁移 0002 决策），
+    // ---- character_state（FR-012：会话内人物状态，挂实例） ----
+    /// upsert：同键（instance_id, key）覆盖 value / expiry / source_scene，键不存在则
+    /// 插入。仅在世行参与唯一约束（partial unique index，迁移 0002 决策沿用、0009 换挂），
     /// 软删后同键重插为新行。
     fn upsert_character_state(&self, new: &NewCharacterState)
         -> Result<CharacterState, StorageError>;
-    /// 会话内全部在世状态（不分组），按 id 升序。
+    /// 会话内全部在世状态（跨实例、不分组，按 id 升序）；经实例表按会话过滤
+    /// （状态行本身不携带 session_id，迁移 0009 换挂）。
     fn list_character_states(&self, session_id: i64) -> Result<Vec<CharacterState>, StorageError>;
     fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError>;
+
+    // ---- character_instances（多角色群像地基：会话内运行时角色身份，方案 §2 第 1 步） ----
+    /// 插入实例（建会话阵容实例化走 [`StoragePort::create_session`] 内部路径；本方法
+    /// 供动态造人〔第 3 步后〕与测试直接落实例）。
+    fn create_instance(&self, new: &NewCharacterInstance) -> Result<CharacterInstance, StorageError>;
+    /// 会话内在世实例，用户扮演位在前（is_user DESC），其余按创建序（id ASC）。
+    fn list_instances(&self, session_id: i64) -> Result<Vec<CharacterInstance>, StorageError>;
+    /// 取单个在世实例；不存在或已软删报 NotFound。
+    fn get_instance(&self, id: i64) -> Result<CharacterInstance, StorageError>;
+    /// 软删实例（置墓碑）；在世状态行 / 消息归属保留（D4 离场清算：遗忘 = 不再注入）。
+    fn soft_delete_instance(&self, id: i64) -> Result<(), StorageError>;
 
     // ---- llm_calls（透明化功能：LLM 调用轨迹，日志性质旁路数据）----
     /// 插入一条调用轨迹（一次 HTTP 请求一条）。本表**不做软删除**（无墓碑列）：

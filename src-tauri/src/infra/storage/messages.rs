@@ -10,7 +10,7 @@ use crate::domain::ports::AttachRange;
 pub(crate) const ENTITY: &str = "message";
 
 const COLS: &str = "id, session_id, role, content, reasoning, think_ms, tokens, \
-                    created_at, interrupt_flag, scene_id, deleted_at";
+                    created_at, interrupt_flag, scene_id, instance_id, deleted_at";
 
 /// 库值 → 消息角色；未知值按列转换失败上报（数据损坏）。
 fn role_from_db(value: &str) -> rusqlite::Result<MessageRole> {
@@ -36,15 +36,17 @@ fn row_to_message(row: &Row<'_>) -> rusqlite::Result<Message> {
         interrupt_flag: row.get(8)?,
         // 结算 AttachRange 回填的场景归属；插入路径恒 NULL（NewMessage 不带此字段）。
         scene_id: row.get(9)?,
-        deleted_at: row.get(10)?,
+        // 说话人实例（多角色群像，迁移 0009）：随 NewMessage 携带写入。
+        instance_id: row.get(10)?,
+        deleted_at: row.get(11)?,
     })
 }
 
 pub(crate) fn insert(conn: &Connection, new: &NewMessage, ts: i64) -> Result<Message, StorageError> {
     conn.execute(
         "INSERT INTO messages (session_id, role, content, reasoning, think_ms, tokens, \
-             created_at, interrupt_flag) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             created_at, interrupt_flag, instance_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             new.session_id,
             new.role.as_str(),
@@ -54,6 +56,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewMessage, ts: i64) -> Result<Mes
             new.tokens,
             ts,
             new.interrupt_flag,
+            new.instance_id,
         ],
     )?;
     Ok(Message {
@@ -67,6 +70,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewMessage, ts: i64) -> Result<Mes
         created_at: ts,
         interrupt_flag: new.interrupt_flag.clone(),
         scene_id: None,
+        instance_id: new.instance_id,
         deleted_at: None,
     })
 }
@@ -174,29 +178,49 @@ pub(crate) fn restore(conn: &Connection, id: i64) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::{NewCharacter, NewSession};
+    use crate::domain::models::{NewCharacter, NewSession, RosterPick};
     use crate::domain::ports::StoragePort;
     use crate::infra::storage::test_support::temp_storage;
     use std::thread::sleep;
     use std::time::Duration;
 
     fn setup(storage: &crate::infra::storage::Storage) -> i64 {
-        let char_id = storage
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap()
+            .id;
+        let llm_card = storage
             .create_character(&NewCharacter { name: "卡".into(), ..Default::default() })
             .unwrap()
             .id;
         storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: user_card, is_user: true },
+                    RosterPick { character_id: llm_card, is_user: false },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap()
             .id
     }
 
-    /// 终态落库往返（ADR-001）：reasoning 与正文分离、think_ms / tokens / interrupt_flag 保留。
+    /// 终态落库往返（ADR-001）：reasoning 与正文分离、think_ms / tokens / interrupt_flag
+    /// / instance_id 保留。
     #[test]
     fn terminal_state_roundtrip() {
         let (storage, dir) = temp_storage("msg_roundtrip");
         let sid = setup(&storage);
 
+        // 说话人实例 = 阵容中的 LLM 位（恰一用户位，LLM 位可指认归属）。
+        let llm_instance = storage
+            .list_instances(sid)
+            .unwrap()
+            .into_iter()
+            .find(|i| !i.is_user)
+            .unwrap()
+            .id;
         let user = storage
             .insert_message(&NewMessage::new(sid, MessageRole::User, "**你好**"))
             .unwrap();
@@ -209,6 +233,7 @@ mod tests {
                 think_ms: Some(4200),
                 tokens: Some(128),
                 interrupt_flag: None,
+                instance_id: Some(llm_instance),
             })
             .unwrap();
         // error / cancel 半条带中断标记（形态透传，ADR-001）
@@ -221,6 +246,7 @@ mod tests {
                 think_ms: Some(800),
                 tokens: None,
                 interrupt_flag: Some("cancel".into()),
+                instance_id: Some(llm_instance),
             })
             .unwrap();
 
@@ -228,6 +254,7 @@ mod tests {
         assert_eq!(list.len(), 3, "在世消息按对话顺序");
         assert_eq!(list[0].id, user.id);
         assert_eq!(list[0].role, MessageRole::User);
+        assert_eq!(list[0].instance_id, None, "未指认归属透传 NULL");
         assert_eq!(list[1].id, assistant.id);
         assert_eq!(
             list[1].reasoning.as_deref(),
@@ -237,6 +264,7 @@ mod tests {
         assert_eq!(list[1].content, "*她抬头* ……");
         assert_eq!(list[1].think_ms, Some(4200));
         assert_eq!(list[1].tokens, Some(128));
+        assert_eq!(list[1].instance_id, Some(llm_instance), "说话人实例随行落库读回");
         assert_eq!(list[2].interrupt_flag.as_deref(), Some("cancel"), "中断标记保留");
         drop(storage);
         let _ = std::fs::remove_dir_all(&dir);
@@ -286,6 +314,7 @@ mod tests {
                 think_ms: Some(100),
                 tokens: Some(10),
                 interrupt_flag: Some("error".into()),
+                instance_id: None,
             })
             .unwrap();
 
@@ -299,6 +328,7 @@ mod tests {
                 think_ms: Some(900),
                 tokens: Some(64),
                 interrupt_flag: None,
+                instance_id: None,
             })
             .unwrap();
         assert_ne!(new.id, old.id, "新条是新插入行，主键不复用");

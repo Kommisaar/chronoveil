@@ -7,6 +7,7 @@
 
 mod character_states;
 mod characters;
+mod instances;
 mod llm_calls;
 mod messages;
 mod migrations;
@@ -20,8 +21,9 @@ use rusqlite::Connection;
 
 use crate::domain::error::StorageError;
 use crate::domain::models::{
-    Character, CharacterState, LlmCall, Message, MessageRole, NewCharacter, NewCharacterState,
-    NewLlmCall, NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
+    Character, CharacterInstance, CharacterState, LlmCall, Message, MessageRole, NewCharacter,
+    NewCharacterInstance, NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, Scene,
+    Session, UpdateCharacter,
 };
 use crate::domain::ports::{SettlementWrite, StoragePort};
 
@@ -264,7 +266,7 @@ impl StoragePort for Storage {
         })
     }
 
-    // ---- character_state（FR-012）----
+    // ---- character_state（FR-012，挂实例）----
     // FR-012：生产状态写入走 commit_settlement 清算支路（内部直调 character_states::upsert），
     // 直连端口（状态手动编辑类 UI）接线前无生产调用方（仅测试消费）。
     #[allow(dead_code)]
@@ -286,6 +288,34 @@ impl StoragePort for Storage {
         self.with_conn(|conn| {
             let ts = now();
             character_states::soft_delete(conn, id, ts)
+        })
+    }
+
+    // ---- character_instances（多角色群像地基：会话内运行时角色身份）----
+    // 建会话阵容实例化走 create_session 内部路径（sessions::insert 单事务）；本端口
+    // 供动态造人（第 3 步后）与测试直接落实例。
+    fn create_instance(
+        &self,
+        new: &NewCharacterInstance,
+    ) -> Result<CharacterInstance, StorageError> {
+        self.with_conn(|conn| instances::insert(conn, new))
+    }
+
+    fn list_instances(&self, session_id: i64) -> Result<Vec<CharacterInstance>, StorageError> {
+        self.with_conn(|conn| instances::list_by_session(conn, session_id))
+    }
+
+    fn get_instance(&self, id: i64) -> Result<CharacterInstance, StorageError> {
+        self.with_conn(|conn| instances::get(conn, id))
+    }
+
+    // 实例软删（D4 离场清算的存储原语）：运行中加人 / 离场 UI 属第 3 步后接线，
+    // 端口先行（与 ADR-009 其余墓碑原语同惯例），测试消费。
+    #[allow(dead_code)]
+    fn soft_delete_instance(&self, id: i64) -> Result<(), StorageError> {
+        self.with_conn(|conn| {
+            let ts = now();
+            instances::soft_delete(conn, id, ts)
         })
     }
 
@@ -332,7 +362,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::{cleanup, temp_storage};
     use super::*;
-    use crate::domain::models::{NewCharacter, NewSession};
+    use crate::domain::models::{NewCharacter, NewSession, RosterPick};
     use rusqlite::Connection;
     use std::path::PathBuf;
 
@@ -359,14 +389,14 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8], "schema_version 各版本只记录一次");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9], "schema_version 各版本只记录一次");
 
         let tables: Vec<String> = {
             let mut stmt = conn
                 .prepare(
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN \
                      ('characters', 'sessions', 'messages', 'scenes', 'character_state', \
-                     'llm_calls') \
+                     'character_instances', 'llm_calls') \
                      ORDER BY name",
                 )
                 .unwrap();
@@ -376,6 +406,7 @@ mod tests {
         assert_eq!(
             tables,
             vec![
+                "character_instances".to_string(),
                 "character_state".to_string(),
                 "characters".to_string(),
                 "llm_calls".to_string(),
@@ -383,7 +414,7 @@ mod tests {
                 "scenes".to_string(),
                 "sessions".to_string(),
             ],
-            "v1 三表 + 5b 两新表（迁移 0002）+ 调用轨迹表（迁移 0008）"
+            "v1 三表 + 5b 两新表（迁移 0002）+ 调用轨迹表（迁移 0008）+ 实例表（迁移 0009）"
         );
         drop(conn);
         cleanup(&dir);
@@ -436,18 +467,21 @@ mod tests {
         cleanup(&dir);
     }
 
-    /// 外键完整性保护：character_id 指向不存在的角色 → Conflict（打开即 PRAGMA foreign_keys=ON）。
+    /// 阵容引用不存在的卡：实例化路径逐卡 NotFound（多角色换挂后不再是无名外键冲突）。
     #[test]
     fn foreign_keys_enforced() {
         let (storage, dir) = temp_storage("fk");
         let err = storage
             .create_session(&NewSession {
-                character_id: 999_999,
+                roster: vec![
+                    RosterPick { character_id: 999_999, is_user: true },
+                    RosterPick { character_id: 999_998, is_user: false },
+                ],
                 title: String::new(),
                 opening: None,
             })
             .unwrap_err();
-        assert!(matches!(err, StorageError::Conflict(_)), "实际：{err:?}");
+        assert!(matches!(err, StorageError::NotFound { .. }), "实际：{err:?}");
         drop(storage);
         cleanup(&dir);
     }
@@ -484,15 +518,35 @@ mod tests {
             .collect()
     }
 
-    /// 夹具：角色 + 会话 + 两条消息（user、assistant 各一），返回各 id。
+    /// 夹具：两张卡（「旅人」用户位 + 「苏鸢」LLM 位）+ 会话 + 两条消息（user、
+    /// assistant 各一），返回各 id（llm_instance = 装配/结算的生成位实例）。
     fn settlement_fixture(tag: &str) -> (Storage, PathBuf, i64, i64, i64, i64) {
         let (storage, dir) = temp_storage(tag);
-        let char_id = storage
+        let user_card = storage
+            .create_character(&NewCharacter { name: "旅人".into(), ..Default::default() })
+            .unwrap()
+            .id;
+        let llm_card = storage
             .create_character(&NewCharacter { name: "苏鸢".into(), ..Default::default() })
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { character_id: char_id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: user_card, is_user: true },
+                    RosterPick { character_id: llm_card, is_user: false },
+                ],
+                title: String::new(),
+                opening: None,
+            })
+            .unwrap()
+            .id;
+        // roster 输入序 = 实例创建序：LLM 位放首位 → 实例 id 1（与旧用例的 char_id=1 断言最小差异）。
+        let llm_instance = storage
+            .list_instances(session_id)
+            .unwrap()
+            .into_iter()
+            .find(|i| !i.is_user)
             .unwrap()
             .id;
         let user_id = storage
@@ -507,7 +561,7 @@ mod tests {
             ))
             .unwrap()
             .id;
-        (storage, dir, char_id, session_id, user_id, assistant_id)
+        (storage, dir, llm_instance, session_id, user_id, assistant_id)
     }
 
     fn new_scene(session_id: i64) -> NewScene {
@@ -528,14 +582,13 @@ mod tests {
     /// 状态 upsert 与软删清除一次落库（FR-011 / INT-003）。
     #[test]
     fn commit_settlement_lands_all_branches_in_one_transaction() {
-        let (storage, dir, char_id, session_id, _user_id, assistant_id) =
+        let (storage, dir, llm_instance, session_id, _user_id, assistant_id) =
             settlement_fixture("settle_ok");
         // 上一结算的边界快照行（开场段）+ 一条待清除状态。
         let previous = storage.insert_scene(&new_scene(session_id)).unwrap();
         let stale = storage
             .upsert_character_state(&NewCharacterState {
-                character_id: char_id,
-                session_id,
+                instance_id: llm_instance,
                 scope: CharacterStateScope::State,
                 key: "别扭".into(),
                 value: "欲言又止".into(),
@@ -558,8 +611,7 @@ mod tests {
                 upto_message_id: assistant_id,
             }),
             state_upserts: vec![NewCharacterState {
-                character_id: char_id,
-                session_id,
+                instance_id: llm_instance,
                 scope: CharacterStateScope::State,
                 key: "情绪".into(),
                 value: "释然".into(),
@@ -639,7 +691,7 @@ mod tests {
     /// 新场景行 / summary 回写 / 消息归属 / upsert 一律不留痕迹。
     #[test]
     fn commit_settlement_rolls_back_on_any_branch_failure() {
-        let (storage, dir, char_id, session_id, _user_id, assistant_id) =
+        let (storage, dir, llm_instance, session_id, _user_id, assistant_id) =
             settlement_fixture("settle_rollback");
         let previous = storage.insert_scene(&new_scene(session_id)).unwrap();
         let before_summary = previous.summary.clone();
@@ -657,8 +709,7 @@ mod tests {
                     upto_message_id: assistant_id,
                 }),
                 state_upserts: vec![NewCharacterState {
-                    character_id: char_id,
-                    session_id,
+                    instance_id: llm_instance,
                     scope: CharacterStateScope::State,
                     key: "情绪".into(),
                     value: "释然".into(),

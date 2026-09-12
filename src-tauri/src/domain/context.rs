@@ -133,6 +133,7 @@ mod tests {
             content: content.to_string(),
             reasoning: None,
             think_ms: None,
+            instance_id: None,
             tokens: None,
             created_at: id as i64,
             interrupt_flag: None,

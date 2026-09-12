@@ -1,9 +1,7 @@
 //! 领域模型：Character / Session / Message（DOM-001，data_model v1 三表）+
-//! Scene / CharacterState（data_model「5b 增量」，TASK-011 数据层地基）。
+//! Scene / CharacterState（data_model「5b 增量」，TASK-011 数据层地基）+
+//! CharacterInstance（多角色群像地基，方案《多角色与时间线-最终》§2 第 1 步）。
 //! 字段与库表一一对应；时间戳统一为 Unix 毫秒（created_at / updated_at / deleted_at）。
-//!
-//! 注：messages 表 5b 起已有可空 scene_id / character_id 列（迁移 0002）；
-//! scene_id 已开进读路径（见 [`Message::scene_id`]），character_id 仍只在库内。
 
 use serde::{Deserialize, Serialize};
 
@@ -65,15 +63,15 @@ pub struct Character {
     pub deleted_at: Option<i64>,
 }
 
-/// 会话（FR-007）：同一 Character 可开多个；updated_at 每条新消息刷新，列表按其倒序。
+/// 会话（FR-007）：成员由角色实例阵容构成（多角色群像，D1/D2——模板/实例分离后
+/// 会话不再挂单一模板卡）；updated_at 每条新消息刷新，列表按其倒序。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
     pub id: i64,
-    pub character_id: i64,
     /// 标题，缺省取首条用户消息截断。
     pub title: String,
-    /// 会话日历快照（FR-013）：建会话时从 Character 复制，之后各自演进互不回写；
-    /// None = 内置默认历。
+    /// 会话日历快照（FR-013）：建会话时从用户位角色卡复制，之后各自演进互不回写；
+    /// None = 内置默认历。快照列留 sessions 维持现状（方案开放问题的实施裁量）。
     pub calendar_config: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -102,6 +100,9 @@ pub struct Message {
     /// 结算欠账（场景线已出现但结算未落库）/ 场景特性之前的旧数据。插入恒 NULL
     /// （[`NewMessage`] 不带此字段），结算（commit_settlement）是唯一写入者。
     pub scene_id: Option<i64>,
+    /// 说话人实例（多角色群像，方案 §2.2）：user 消息 = 用户位实例，assistant =
+    /// 产生它的生成位实例；NULL = 实例特性之前的旧数据。插入路径经 [`NewMessage`] 携带。
+    pub instance_id: Option<i64>,
     /// 软删除墓碑（ADR-009：重新生成 / 断流重试替换）。
     pub deleted_at: Option<i64>,
 }
@@ -171,14 +172,25 @@ pub struct OpeningSeed {
     pub time_note: Option<String>,
 }
 
-/// 新建会话入参。
+/// 建会话阵容位（D2 扮演位 + D1 选卡实例化）：从角色卡实例化的一位成员。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RosterPick {
+    /// 模板卡 id（实例化快照的来源；溯源记入实例 character_id）。
+    pub character_id: i64,
+    /// true = 用户扮演位（D2：全会话恰好 1）；false = LLM 位（D3 逐拍生成的主体）。
+    pub is_user: bool,
+}
+
+/// 新建会话入参（多角色阵容形态）：成员 = 用户扮演位 1 张卡 + LLM 位 N 张卡
+/// （N ≥ 1，存储层校验；本切片只落建会话时选定的阵容，运行中加人属第 3 步后能力）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewSession {
-    pub character_id: i64,
+    /// 阵容：逐卡实例化为会话内角色实例（快照 name/persona/render_style，D1）。
+    pub roster: Vec<RosterPick>,
     /// 标题，可空串（缺省由调用方取首条用户消息截断后经 update_session_title 回填）。
     pub title: String,
     /// 开局包（FR-014）；None = 降级路径——同样无条件 seed 默认锚开场行
-    /// （day=1 / part=夜 / date_label 走角色卡快照日历），保证 latest_scene 存在。
+    /// （day=1 / part=夜 / date_label 走用户位卡快照日历），保证 latest_scene 存在。
     pub opening: Option<OpeningSeed>,
 }
 
@@ -192,10 +204,13 @@ pub struct NewMessage {
     pub think_ms: Option<i64>,
     pub tokens: Option<i64>,
     pub interrupt_flag: Option<String>,
+    /// 说话人实例（多角色群像）：user 消息 = 用户位实例，assistant = 生成位实例；
+    /// None = 旧形态/未指认（存储层透传，列可空）。
+    pub instance_id: Option<i64>,
 }
 
 impl NewMessage {
-    /// 便捷构造；命令层、生成服务与存储测试共用。
+    /// 便捷构造；命令层、生成服务与存储测试共用（instance_id 由调用方按需补挂）。
     pub fn new(session_id: i64, role: MessageRole, content: impl Into<String>) -> Self {
         Self {
             session_id,
@@ -205,6 +220,7 @@ impl NewMessage {
             think_ms: None,
             tokens: None,
             interrupt_flag: None,
+            instance_id: None,
         }
     }
 }
@@ -265,22 +281,24 @@ pub struct Scene {
     /// 场景产出；远景编年史只对刚滑出窗口的桥场渲染，更古老的场保持一行 summary。
     /// 可空：旧数据 / 新结算未产出时为 NULL，渲染回退单行。
     pub recap: Option<String>,
-    /// 在场 character id 数组（库内以 JSON 文本存储）。
+    /// 在场实例 id 数组（库内以 JSON 文本存储；迁移 0009 起内容语义 = 会话角色实例
+    /// id，原为 character id，列不变——方案 §2.2「scenes.present 真语义」）。
     pub present: Vec<i64>,
     /// 软删除墓碑（ADR-009）。
     pub deleted_at: Option<i64>,
 }
 
-/// 人物状态（FR-012）：挂 `(character_id, session_id)`——状态属于「这个会话里的这个角色」，
-/// 重开会话不带旧案状态。同键（character_id, session_id, key）在世行唯一（partial unique index）。
+/// 人物状态（FR-012）：挂会话内角色实例（多角色群像换挂，迁移 0009——会话隶属由
+/// 实例携带，不再单列 session_id）。同键（instance_id, key）在世行唯一（partial
+/// unique index）；Q5/D9「对XX」关系约定走 key 文本，不加列。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CharacterState {
     pub id: i64,
-    pub character_id: i64,
-    pub session_id: i64,
+    /// 状态所属的角色实例（运行时身份，非模板卡）。
+    pub instance_id: i64,
     /// state | relation。
     pub scope: CharacterStateScope,
-    /// 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+    /// 状态键：情绪 / 持有 / 约定 / 对某实例的态度。
     pub key: String,
     /// 叙事语言的值，非数字。
     pub value: String,
@@ -306,21 +324,55 @@ pub struct NewScene {
     /// 桥场加厚回顾（Task-03），可空；随 summary 同路径回写上一行；新行不预填
     /// （2026-09-12 裁决：边界快照只属于被收束的场景），进行中 header 行恒 None。
     pub recap: Option<String>,
-    /// 在场 character id 数组；空数组落库为 NULL。
+    /// 在场实例 id 数组（迁移 0009 起语义，见 [`Scene::present`]）；空数组落库为 NULL。
     pub present: Vec<i64>,
 }
 
-/// upsert 人物状态入参：同键（character_id, session_id, key）覆盖 value / expiry / source_scene
+/// upsert 人物状态入参：同键（instance_id, key）覆盖 value / expiry / source_scene
 /// （scope 是行既有属性，不随覆盖变化）；键不存在则插入新行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewCharacterState {
-    pub character_id: i64,
-    pub session_id: i64,
+    pub instance_id: i64,
     pub scope: CharacterStateScope,
     pub key: String,
     pub value: String,
     pub expiry: Option<String>,
     pub source_scene: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------
+// 多角色群像：会话角色实例（方案《多角色与时间线-最终》§2 第 1 步，D1/D2/D6）
+// ---------------------------------------------------------------------------
+
+/// 会话内角色实例：角色卡的一次性快照身份（D1「卡是死的，人是活的」）——运行时
+/// 一切身份（装配人设、状态归属、消息归属、在场名单）都挂在实例上；改卡不回写。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CharacterInstance {
+    pub id: i64,
+    pub session_id: i64,
+    /// 模板溯源（D1）：选卡实例化记卡 id；None = 动态造人（D6，只活在会话实例内）。
+    pub character_id: Option<i64>,
+    /// 设定快照（D1：值拷贝，改卡不回写）。
+    pub name: String,
+    pub persona: String,
+    pub render_style: String,
+    /// 扮演位标记（D2）：true = 用户亲自扮演的「你」，全会话恰好 1。
+    pub is_user: bool,
+    pub created_at: i64,
+    /// 软删除墓碑（ADR-009）。
+    pub deleted_at: Option<i64>,
+}
+
+/// 新建实例入参（建会话阵容逐卡实例化；动态造人〔第 3 步后〕复用同一入口）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewCharacterInstance {
+    pub session_id: i64,
+    /// 模板溯源；None = 动态造人（D6）。
+    pub character_id: Option<i64>,
+    pub name: String,
+    pub persona: String,
+    pub render_style: String,
+    pub is_user: bool,
 }
 
 // ---------------------------------------------------------------------------

@@ -14,9 +14,9 @@ async listSessions() : Promise<Result<SessionSummary[], IpcError>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createSession(characterId: number, title: string | null, opening: SessionOpeningInput | null) : Promise<Result<SessionSummary, IpcError>> {
+async createSession(roster: RosterPickInput[], title: string | null, opening: SessionOpeningInput | null) : Promise<Result<SessionSummary, IpcError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_session", { characterId, title, opening }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_session", { roster, title, opening }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -253,16 +253,19 @@ accentColor: string | null;
  */
 voiceConfig: string | null }
 /**
- * 人物状态（FR-012）：会话内「这个角色」的状态 / 关系条目，`list_character_states`
- * 按 id 升序返回全部在世行。不含 `session_id` / `deleted_at`（同 [`SceneDto`]）。
+ * 人物状态（FR-012）：会话内「这个角色实例」的状态 / 关系条目，
+ * `list_character_states` 按 id 升序返回全部在世行。不含 `session_id` /
+ * `deleted_at`（同 [`SceneDto`]；会话隶属由实例携带，迁移 0009 换挂）。
+ * 机械适配：wire 字段 characterId → instanceId（真值换挂），整体语义重设计属
+ * Task-31。
  */
 export type CharacterStateDto = { id: number; 
 /**
- * 状态所属角色（状态挂在会话内的角色上，FR-012）。
+ * 状态所属的角色实例（运行时身份，非模板卡）。
  */
-characterId: number; scope: CharacterStateScope; 
+instanceId: number; scope: CharacterStateScope; 
 /**
- * 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+ * 状态键：情绪 / 持有 / 约定 / 对某实例的态度。
  */
 key: string; 
 /**
@@ -328,8 +331,9 @@ calendarConfig: string | null; updatedAt: number;
  */
 sessionCount: number }
 /**
- * 聊天消息（前端 ChatMessage；characterId 由命令层派生：
- * assistant → 所属会话的角色，user → null——messages 表不冗余存说话人）。
+ * 聊天消息（前端 ChatMessage；characterId 机械适配为「说话人实例 id 真值」：
+ * assistant → messages.instance_id（未指认的旧行为 null），user → null。
+ * 字段名与整体 wire 语义（instanceId 全量透出）的重设计属 Task-31）。
  */
 export type ChatMessage = { id: number; sessionId: number; characterId: number | null; role: MessageRole; 
 /**
@@ -461,6 +465,11 @@ export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: s
  */
 models: string[] }
 /**
+ * 建会话阵容位 wire 形态（多角色换挂的最小透传 DTO；两步选人 UI 的语义设计属
+ * Task-31）。`characterId` = 模板卡 id，`isUser` = 用户扮演位标记。
+ */
+export type RosterPickInput = { characterId: number; isUser: boolean }
+/**
  * 场景（FR-011 边界快照行）：`list_scenes` 按 idx 升序（叙事顺序）返回。
  * 不含 `session_id`（列表已按会话过滤，调用方已知）与 `deleted_at`
  * （存储层默认滤墓碑，ADR-009）；在世行才会出现在列表里。
@@ -529,8 +538,11 @@ location: string | null;
 timeNote: string | null }
 /**
  * 会话摘要（FR-007：列表按 updated_at 倒序）。
+ * 机械适配（多角色换挂）：sessions.character_id 列已随迁移 0009 移除，摘要不再
+ * 携带 characterId——阵容/扮演位信息（is_user、实例名）的 wire 重设计属 Task-31
+ * 的多角色 IPC 变更，本层只做最小机械适配。
  */
-export type SessionSummary = { id: number; characterId: number; title: string; updatedAt: number }
+export type SessionSummary = { id: number; title: string; updatedAt: number }
 /**
  * 流式事件（INT-001 v1 四态）。Rust 侧由 [`TauriEventSink`] 发射，
  * TS 侧类型经 tauri-specta 同源生成于 `src/api/generated/bindings.ts`。

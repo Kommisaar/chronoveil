@@ -116,23 +116,20 @@ impl From<models::MessageRole> for MessageRole {
 }
 
 /// 会话摘要（FR-007：列表按 updated_at 倒序）。
+/// 机械适配（多角色换挂）：sessions.character_id 列已随迁移 0009 移除，摘要不再
+/// 携带 characterId——阵容/扮演位信息（is_user、实例名）的 wire 重设计属 Task-31
+/// 的多角色 IPC 变更，本层只做最小机械适配。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: i64,
-    pub character_id: i64,
     pub title: String,
     pub updated_at: i64,
 }
 
 impl From<models::Session> for SessionSummary {
     fn from(s: models::Session) -> Self {
-        Self {
-            id: s.id,
-            character_id: s.character_id,
-            title: s.title,
-            updated_at: s.updated_at,
-        }
+        Self { id: s.id, title: s.title, updated_at: s.updated_at }
     }
 }
 
@@ -186,8 +183,9 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
     }
 }
 
-/// 聊天消息（前端 ChatMessage；characterId 由命令层派生：
-/// assistant → 所属会话的角色，user → null——messages 表不冗余存说话人）。
+/// 聊天消息（前端 ChatMessage；characterId 机械适配为「说话人实例 id 真值」：
+/// assistant → messages.instance_id（未指认的旧行为 null），user → null。
+/// 字段名与整体 wire 语义（instanceId 全量透出）的重设计属 Task-31）。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -428,16 +426,19 @@ impl From<models::Scene> for SceneDto {
     }
 }
 
-/// 人物状态（FR-012）：会话内「这个角色」的状态 / 关系条目，`list_character_states`
-/// 按 id 升序返回全部在世行。不含 `session_id` / `deleted_at`（同 [`SceneDto`]）。
+/// 人物状态（FR-012）：会话内「这个角色实例」的状态 / 关系条目，
+/// `list_character_states` 按 id 升序返回全部在世行。不含 `session_id` /
+/// `deleted_at`（同 [`SceneDto`]；会话隶属由实例携带，迁移 0009 换挂）。
+/// 机械适配：wire 字段 characterId → instanceId（真值换挂），整体语义重设计属
+/// Task-31。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterStateDto {
     pub id: i64,
-    /// 状态所属角色（状态挂在会话内的角色上，FR-012）。
-    pub character_id: i64,
+    /// 状态所属的角色实例（运行时身份，非模板卡）。
+    pub instance_id: i64,
     pub scope: CharacterStateScope,
-    /// 状态键：情绪 / 持有 / 约定 / 对某角的态度。
+    /// 状态键：情绪 / 持有 / 约定 / 对某实例的态度。
     pub key: String,
     /// 叙事语言的值，非数字。
     pub value: String,
@@ -452,7 +453,7 @@ impl From<models::CharacterState> for CharacterStateDto {
     fn from(s: models::CharacterState) -> Self {
         Self {
             id: s.id,
-            character_id: s.character_id,
+            instance_id: s.instance_id,
             scope: CharacterStateScope::from(s.scope),
             key: s.key,
             value: s.value,
@@ -705,17 +706,28 @@ pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionSummary>, 
     list_sessions_impl(&state)
 }
 
+/// 建会话阵容位 wire 形态（多角色换挂的最小透传 DTO；两步选人 UI 的语义设计属
+/// Task-31）。`characterId` = 模板卡 id，`isUser` = 用户扮演位标记。
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RosterPickInput {
+    pub character_id: i64,
+    pub is_user: bool,
+}
+
 fn create_session_impl(
     app: &AppState,
-    character_id: i64,
+    roster: Vec<RosterPickInput>,
     title: Option<String>,
     opening: Option<&SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
-    // 先显式查角色：比外键冲突给出更精确的 NotFound（ADR-009 语义）。
-    app.storage.get_character(character_id)?;
+    // 阵容逐卡 NotFound 由存储层实例化路径上报（比外键冲突更精确，ADR-009 语义）。
     let opening = opening.map(opening_seed_from).transpose()?;
     let session = app.storage.create_session(&models::NewSession {
-        character_id,
+        roster: roster
+            .into_iter()
+            .map(|pick| models::RosterPick { character_id: pick.character_id, is_user: pick.is_user })
+            .collect(),
         title: title.unwrap_or_default(),
         opening,
     })?;
@@ -726,11 +738,11 @@ fn create_session_impl(
 #[specta::specta]
 pub fn create_session(
     state: State<'_, AppState>,
-    character_id: i64,
+    roster: Vec<RosterPickInput>,
     title: Option<String>,
     opening: Option<SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
-    create_session_impl(&state, character_id, title, opening.as_ref())
+    create_session_impl(&state, roster, title, opening.as_ref())
 }
 
 fn delete_session_impl(app: &AppState, session_id: i64) -> Result<(), IpcError> {
@@ -808,15 +820,16 @@ fn to_chat_message(message: models::Message, character_id: Option<i64>) -> ChatM
 }
 
 fn list_messages_impl(app: &AppState, session_id: i64) -> Result<Vec<ChatMessage>, IpcError> {
-    let session = app.storage.get_session(session_id)?;
-    let character_id = session.character_id;
+    app.storage.get_session(session_id)?;
     Ok(app
         .storage
         .list_messages(session_id)?
         .into_iter()
         .map(|m| {
+            // 说话人实例真值（多角色换挂）：assistant 取 messages.instance_id；
+            // user 恒 null（保留旧 wire 语义）。字段名/全量透出重设计属 Task-31。
             let speaker = match m.role {
-                models::MessageRole::Assistant => Some(character_id),
+                models::MessageRole::Assistant => m.instance_id,
                 models::MessageRole::User => None,
             };
             to_chat_message(m, speaker)
@@ -954,11 +967,21 @@ fn with_call_trace(app: &AppState, llm: LlmClient) -> LlmClient {
     }
 }
 
-/// 两级模型配置解析（INT-002 / 验收 4）：config.json 全局默认 ← Character.model_config 覆写。
-fn resolve_llm(app: &AppState, session: &models::Session) -> Result<LlmClient, IpcError> {
-    let character = app.storage.get_character(session.character_id)?;
+/// 两级模型配置解析（INT-002 / 验收 4）多角色裁量版：config.json 全局默认 ←
+/// 「主持实例」模板卡的 model_config 覆写。主持实例 = 首个 LLM 位实例（与
+/// generation::host_instance 同一归属语义）；实例无模板（动态造人）或无 LLM 位
+/// （畸形阵容，存储层已拒绝）→ 不覆写，跟随全局默认。
+fn resolve_llm(app: &AppState, session_id: i64) -> Result<LlmClient, IpcError> {
+    let host_card = app
+        .storage
+        .list_instances(session_id)?
+        .into_iter()
+        .find(|i| !i.is_user)
+        .and_then(|i| i.character_id)
+        .map(|id| app.storage.get_character(id))
+        .transpose()?;
     let config = app.config.load()?;
-    let llm_config = generation::resolve_effective_llm(&config, &character)
+    let llm_config = generation::resolve_effective_llm(&config, host_card.as_ref())
         .map_err(|message| IpcError::Config { message })?;
     let llm =
         LlmClient::new(llm_config).map_err(|e| IpcError::Config { message: e.to_string() })?;
@@ -977,18 +1000,23 @@ fn send_message_impl(
     if trimmed.is_empty() {
         return Err(IpcError::Conflict { message: "消息内容为空".into() });
     }
-    let llm = resolve_llm(app, &session)?;
+    let llm = resolve_llm(app, session.id)?;
     // 同会话互斥（FR-007 多路并发为跨会话并发；同会话重复触发拒绝，FR-008）。
     let ticket = app
         .generation
         .begin(session_id)
         .map_err(|_| IpcError::Conflict { message: "该会话已有进行中的生成".into() })?;
-    // 用户条先落库（FR-001 / SEQ-001：RS->RS 落库用户消息）。
-    let user_message = match app.storage.insert_message(&models::NewMessage::new(
-        session_id,
-        models::MessageRole::User,
-        trimmed.clone(),
-    )) {
+    // 用户条先落库（FR-001 / SEQ-001：RS->RS 落库用户消息），归属用户位实例
+    // （多角色换挂；恰一用户位由建会话保证）。
+    let user_instance = app
+        .storage
+        .list_instances(session_id)?
+        .into_iter()
+        .find(|i| i.is_user);
+    let user_message = match app.storage.insert_message(&models::NewMessage {
+        instance_id: user_instance.map(|i| i.id),
+        ..models::NewMessage::new(session_id, models::MessageRole::User, trimmed.clone())
+    }) {
         Ok(m) => m,
         Err(e) => {
             app.generation.finish(session_id);
@@ -1043,7 +1071,7 @@ fn regenerate_last_impl(
     session_id: i64,
 ) -> Result<ChatMessage, IpcError> {
     let session = app.storage.get_session(session_id)?;
-    let llm = resolve_llm(app, &session)?;
+    let llm = resolve_llm(app, session.id)?;
     // FR-008：只对最后一条 assistant 消息提供重新生成。
     let old = app
         .storage
@@ -1059,8 +1087,10 @@ fn regenerate_last_impl(
         ticket,
         regenerate: true,
     });
-    // 返回被替换的旧条：前端据此将其从界面移除（旧条软删发生在终态落库时，FR-008）。
-    Ok(to_chat_message(old, Some(session.character_id)))
+    // 返回被替换的旧条：前端据此将其从界面移除（旧条软删发生在终态落库时，FR-008）；
+    // speaker = 消息自带实例真值（机械适配，同 list_messages_impl）。
+    let speaker = old.instance_id;
+    Ok(to_chat_message(old, speaker))
 }
 
 #[tauri::command]
@@ -1072,10 +1102,16 @@ pub fn regenerate_last(state: State<'_, AppState>, session_id: i64) -> Result<Ch
 // ---- 角色 CRUD（FR-006，含 avatar）----
 
 fn list_characters_impl(app: &AppState) -> Result<Vec<CharacterSummary>, IpcError> {
+    // 会话计数（关系侧）多角色换挂：sessions 不再挂 character_id，改经在世会话的
+    // 实例溯源统计（character_id = 模板卡 id 的实例数）。
     let sessions = app.storage.list_sessions()?;
     let mut counts: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     for s in sessions {
-        *counts.entry(s.character_id).or_insert(0) += 1;
+        for instance in app.storage.list_instances(s.id)? {
+            if let Some(card) = instance.character_id {
+                *counts.entry(card).or_insert(0) += 1;
+            }
+        }
     }
     Ok(app
         .storage
@@ -1291,7 +1327,7 @@ pub fn save_config(state: State<'_, AppState>, config: ConfigDto) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::models::{NewCharacter, NewMessage, NewSession};
+    use crate::domain::models::{NewCharacter, NewMessage, NewSession, RosterPick};
     use crate::domain::ports::StoragePort;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1356,16 +1392,17 @@ mod tests {
 
     #[test]
     fn session_summary_serializes_camel_case() {
+        // 语义变化（多角色换挂）：sessions.character_id 移除，摘要不再携带 characterId
+        //（阵容/扮演位 wire 重设计属 Task-31）。
         let json = serde_json::to_value(SessionSummary {
             id: 3,
-            character_id: 7,
             title: "雨夜来电".into(),
             updated_at: 1234,
         })
         .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "id": 3, "characterId": 7, "title": "雨夜来电", "updatedAt": 1234 })
+            serde_json::json!({ "id": 3, "title": "雨夜来电", "updatedAt": 1234 })
         );
     }
 
@@ -1383,6 +1420,7 @@ mod tests {
                 created_at: 42,
                 interrupt_flag: Some("user_cancel".into()),
                 scene_id: None,
+                instance_id: Some(5),
                 deleted_at: None,
             },
             Some(5),
@@ -1410,6 +1448,7 @@ mod tests {
                 tokens: None,
                 created_at: 1,
                 scene_id: None,
+                instance_id: None,
                 deleted_at: None,
             },
             None,
@@ -1456,8 +1495,7 @@ mod tests {
         let to_json = |scope| {
             serde_json::to_value(CharacterStateDto::from(models::CharacterState {
                 id: 9,
-                character_id: 5,
-                session_id: 3,
+                instance_id: 5,
                 scope,
                 key: "情绪".into(),
                 value: "强撑镇定".into(),
@@ -1470,7 +1508,7 @@ mod tests {
         };
         let json = to_json(models::CharacterStateScope::State);
         assert_eq!(json["scope"], "state", "scope wire 小写（state | relation）");
-        assert_eq!(json["characterId"], 5);
+        assert_eq!(json["instanceId"], 5, "机械适配：characterId → instanceId 真值换挂");
         assert_eq!(json["sourceScene"], 2);
         assert_eq!(json["expiry"], "scene_end");
         assert_eq!(json["updatedAt"], 84);
@@ -1539,13 +1577,20 @@ mod tests {
     #[test]
     fn session_commands_cover_list_create_softdelete() {
         let (app, dir) = temp_state("sessions");
-        let character = sample_character(&app, "苏鸢");
+        let llm_card = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let roster = |user: i64, llm: i64| {
+            vec![
+                RosterPickInput { character_id: user, is_user: true },
+                RosterPickInput { character_id: llm, is_user: false },
+            ]
+        };
 
-        let created = create_session_impl(&app, character.id, None, None).unwrap();
+        let created = create_session_impl(&app, roster(user_card.id, llm_card.id), None, None).unwrap();
         assert_eq!(created.title, "", "缺省标题为空串（首条用户消息后回填属 TASK-006）");
-        assert_eq!(created.character_id, character.id);
 
-        create_session_impl(&app, character.id, Some("旧书店".into()), None).unwrap();
+        create_session_impl(&app, roster(user_card.id, llm_card.id), Some("旧书店".into()), None)
+            .unwrap();
         let listed = list_sessions_impl(&app).unwrap();
         assert_eq!(listed.len(), 2);
 
@@ -1556,9 +1601,9 @@ mod tests {
             delete_session_impl(&app, created.id),
             Err(IpcError::NotFound { .. })
         ));
-        // 指向不存在角色 → NotFound（而非裸外键冲突）。
+        // 阵容引用不存在的卡 → NotFound（实例化路径的逐卡语义，而非裸外键冲突）。
         assert!(matches!(
-            create_session_impl(&app, 999_999, None, None),
+            create_session_impl(&app, roster(user_card.id, 999_999), None, None),
             Err(IpcError::NotFound { .. })
         ));
         drop(app);
@@ -1570,7 +1615,12 @@ mod tests {
     #[test]
     fn create_session_with_opening_seeds_calendar_and_anchor() {
         let (app, dir) = temp_state("opening");
-        let character = sample_character(&app, "苏鸢");
+        let llm_card = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let roster = vec![
+            RosterPickInput { character_id: user_card.id, is_user: true },
+            RosterPickInput { character_id: llm_card.id, is_user: false },
+        ];
 
         let opening = SessionOpeningInput {
             calendar: Some(CalendarConfigDto {
@@ -1585,7 +1635,7 @@ mod tests {
             location: Some("旧都 · 灯市".into()),
             time_note: None,
         };
-        let created = create_session_impl(&app, character.id, None, Some(&opening)).unwrap();
+        let created = create_session_impl(&app, roster.clone(), None, Some(&opening)).unwrap();
 
         // 会话日历 = 显式指定的 snake_case 存储 JSON（wire camelCase 不入库）。
         let stored = app.storage.get_session(created.id).unwrap().calendar_config.unwrap();
@@ -1598,10 +1648,11 @@ mod tests {
         assert_eq!(scene.fic_part.as_deref(), Some("夜"));
         assert_eq!(scene.date_label.as_deref(), Some("白蜡月·晨露日·夜（灯节）"));
         assert_eq!(scene.location.as_deref(), Some("旧都 · 灯市"));
-        assert_eq!(scene.present, vec![character.id]);
+        // 在场 = 全部阵容实例（roster 输入序 = 实例创建序，多角色换挂语义）。
+        assert_eq!(scene.present, vec![1, 2]);
 
         // 降级路径（opening = None）：默认锚行（day=1 / part=夜）无条件存在。
-        let degraded = create_session_impl(&app, character.id, None, None).unwrap();
+        let degraded = create_session_impl(&app, roster, None, None).unwrap();
         let scene = app.storage.latest_scene(degraded.id).unwrap().unwrap();
         assert_eq!((scene.idx, scene.fic_day, scene.fic_part.as_deref()), (0, Some(1), Some("夜")));
         assert_eq!(scene.date_label.as_deref(), Some("第1日·夜"), "角色无日历 → 数字形式");
@@ -1613,7 +1664,12 @@ mod tests {
     #[test]
     fn create_session_rejects_invalid_opening() {
         let (app, dir) = temp_state("opening_invalid");
-        let character = sample_character(&app, "苏鸢");
+        let llm_card = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let roster = vec![
+            RosterPickInput { character_id: user_card.id, is_user: true },
+            RosterPickInput { character_id: llm_card.id, is_user: false },
+        ];
 
         let mut opening = SessionOpeningInput {
             calendar: None,
@@ -1625,13 +1681,13 @@ mod tests {
         // 时段不在六值内 → Conflict。
         let bad_part = SessionOpeningInput { fic_part: Some("半夜三更".into()), ..opening.clone() };
         assert!(matches!(
-            create_session_impl(&app, character.id, None, Some(&bad_part)),
+            create_session_impl(&app, roster.clone(), None, Some(&bad_part)),
             Err(IpcError::Conflict { .. })
         ));
         // 起始日 < 1 → Conflict。
         let bad_day = SessionOpeningInput { fic_day: Some(0), ..opening.clone() };
         assert!(matches!(
-            create_session_impl(&app, character.id, None, Some(&bad_day)),
+            create_session_impl(&app, roster.clone(), None, Some(&bad_day)),
             Err(IpcError::Conflict { .. })
         ));
         // 显式日历缺月长基准（days_per_month = 0）→ Conflict（对齐 has_skin）。
@@ -1643,7 +1699,7 @@ mod tests {
             festivals: None,
         });
         assert!(matches!(
-            create_session_impl(&app, character.id, None, Some(&opening)),
+            create_session_impl(&app, roster, None, Some(&opening)),
             Err(IpcError::Conflict { .. })
         ));
         // 校验失败零落库（连降级锚行也没有）。
@@ -1756,11 +1812,28 @@ mod tests {
     #[test]
     fn message_commands_derive_character_and_reject_missing_session() {
         let (app, dir) = temp_state("messages");
-        let character = sample_character(&app, "林深");
+        let user_card = sample_character(&app, "旅人");
+        let llm_card = sample_character(&app, "林深");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
+        // roster 首位 = LLM 位 → 其实例 id = 1（说话人真值换挂）。
+        let llm_instance = app
+            .storage
+            .list_instances(session.id)
+            .unwrap()
+            .into_iter()
+            .find(|i| !i.is_user)
+            .unwrap()
+            .id;
         app.storage
             .insert_message(&NewMessage::new(session.id, models::MessageRole::User, "在吗？"))
             .unwrap();
@@ -1773,13 +1846,16 @@ mod tests {
                 think_ms: Some(1200),
                 tokens: None,
                 interrupt_flag: None,
+                instance_id: Some(llm_instance),
             })
             .unwrap();
 
         let listed = list_messages_impl(&app, session.id).unwrap();
         assert_eq!(listed.len(), 2);
         assert!(listed[0].character_id.is_none(), "用户消息 speaker 为 null");
-        assert_eq!(listed[1].character_id, Some(character.id), "assistant 派生为会话角色");
+        // 语义变化（多角色换挂）：speaker = messages.instance_id 实例真值（不再由
+        // 命令层从 sessions.character_id 推导假值）。
+        assert_eq!(listed[1].character_id, Some(llm_instance), "assistant speaker = 说话人实例");
         assert_eq!(listed[1].think_ms, Some(1200));
 
         assert!(matches!(
@@ -1795,17 +1871,26 @@ mod tests {
     #[test]
     fn scene_and_state_list_commands_check_session_and_order() {
         let (app, dir) = temp_state("scenes_states");
-        let character = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let llm_card = sample_character(&app, "苏鸢");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
 
-        // 开场锚行无条件存在（FR-014 §7-6）：场景列表按 idx 升序返回在世行。
+        // 开场锚行无条件存在（FR-014 §7-6）：场景列表按 idx 升序返回在世行；
+        // present = 全部实例 id（多角色换挂，roster 两位）。
         let listed = list_scenes_impl(&app, session.id).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].idx, 0);
-        assert_eq!(listed[0].present, vec![character.id]);
+        assert_eq!(listed[0].present, vec![1, 2]);
 
         // 再落两行（idx 单调自增），列表按叙事顺序返回、字段逐一映射。
         app.storage
@@ -1818,7 +1903,7 @@ mod tests {
                 date_label: Some("白蜡月·晨露日·夜（灯节）".into()),
                 summary: None,
                 recap: None,
-                present: vec![character.id],
+                present: vec![1, 2],
             })
             .unwrap();
         app.storage
@@ -1846,8 +1931,7 @@ mod tests {
         let first = app
             .storage
             .upsert_character_state(&models::NewCharacterState {
-                character_id: character.id,
-                session_id: session.id,
+                instance_id: 1,
                 scope: models::CharacterStateScope::State,
                 key: "情绪".into(),
                 value: "强撑镇定".into(),
@@ -1857,8 +1941,7 @@ mod tests {
             .unwrap();
         app.storage
             .upsert_character_state(&models::NewCharacterState {
-                character_id: character.id,
-                session_id: session.id,
+                instance_id: 1,
                 scope: models::CharacterStateScope::Relation,
                 key: "对织灯人的态度".into(),
                 value: "戒备渐消".into(),
@@ -1937,10 +2020,18 @@ mod tests {
     #[test]
     fn list_llm_calls_checks_session_orders_desc_and_caps() {
         let (app, dir) = temp_state("llm_calls");
+        let user_card = sample_character(&app, "旅人");
         let character = sample_character(&app, "苏鸢");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: user_card.id, is_user: true },
+                    RosterPick { character_id: character.id, is_user: false },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
         // 空会话：在世但无轨迹 → 空数组（非 NotFound）。
         assert!(list_llm_calls_impl(&app, session.id, None).unwrap().is_empty());
@@ -1991,10 +2082,18 @@ mod tests {
     #[test]
     fn generation_commands_wire_send_cancel_and_regenerate() {
         let (app, dir) = temp_state("generation");
-        let character = sample_character(&app, "苏鸢");
+        let user_card = sample_character(&app, "旅人");
+        let llm_card = sample_character(&app, "苏鸢");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: character.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
 
         // Provider 未配置 → 类型化 Config 错误；用户条与注册表零副作用。
@@ -2057,14 +2156,18 @@ mod tests {
             Err(IpcError::Conflict { .. })
         ));
 
-        // 有 assistant 条后重新生成：返回旧条（前端据以从界面移除），注册表占用。
+        // 有 assistant 条后重新生成：返回旧条（前端据以从界面移除），注册表占用；
+        // speaker = 实例真值（消息自带 instance_id，机械适配）。
         app.storage
-            .insert_message(&NewMessage::new(session.id, models::MessageRole::Assistant, "旧回复"))
+            .insert_message(&NewMessage {
+                instance_id: Some(1),
+                ..NewMessage::new(session.id, models::MessageRole::Assistant, "旧回复")
+            })
             .unwrap();
         let old = regenerate_last_impl(&app, noop_sink(), &noop_spawner(), session.id).unwrap();
         assert_eq!(old.role, MessageRole::Assistant);
         assert_eq!(old.content, "旧回复");
-        assert_eq!(old.character_id, Some(character.id));
+        assert_eq!(old.character_id, Some(1), "speaker = 说话人实例 id");
         assert!(cancel_generation_impl(&app, session.id).unwrap());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2125,12 +2228,28 @@ mod tests {
             Some(r#"{"providerId":"p1","model":"m1"}"#)
         );
 
-        // 会话计数汇总（关系侧）。
+        // 会话计数汇总（关系侧；多角色换挂后经实例溯源统计——created 卡作两个
+        // 会话的 LLM 位，各实例化一次）。
+        let user_card = sample_character(&app, "旅人");
+        let roster = |llm: i64| {
+            vec![
+                RosterPick { character_id: user_card.id, is_user: true },
+                RosterPick { character_id: llm, is_user: false },
+            ]
+        };
         app.storage
-            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: roster(created.id),
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
         app.storage
-            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: roster(created.id),
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
         let other = create_character_impl(
             &app,
@@ -2222,10 +2341,19 @@ mod tests {
             fiction_time::date_label(&cal, 2, "黄昏"),
             "潮生月·汐日·黄昏（归潮祭）"
         );
-        // 建会话快照（FR-013）拿到同一份历法——编辑器保存对后续会话生效。
+        // 建会话快照（FR-013）拿到同一份历法——编辑器保存对后续会话生效
+        //（多角色裁量：快照取用户位卡，故 created 卡置于用户位）。
+        let llm_card = sample_character(&app, "阿烬");
         let session = app
             .storage
-            .create_session(&NewSession { character_id: created.id, title: String::new(), opening: None })
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: created.id, is_user: true },
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                ],
+                title: String::new(),
+                opening: None,
+            })
             .unwrap();
         assert_eq!(session.calendar_config.as_deref(), Some(raw.as_str()));
 

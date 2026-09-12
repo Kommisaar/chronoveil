@@ -1,27 +1,34 @@
 /**
  * streamHub 单测（TASK-006 / FR-007 / ADR-007）：流状态机、终态回调、多会话
- * 隔离与订阅面（subscribe / getVersion / onEvent）。
+ * 隔离与订阅面（subscribe / getVersion / onEvent），以及调用轨迹通道
+ * （onTrace / ingestTrace / api 桥接）。
  *
  * hub 是模块级单例：每个用例 vi.resetModules() + 动态 import 取全新实例，
  * 用例间零共享状态（比手工清理更稳健）。api/events 整体 vi.mock：捕获
- * subscribeStream 注册的 handler，测试直接投递合成 StreamEvent 驱动
- * （封闭，不依赖 Tauri）。
+ * subscribeStream 注册的 handler 与 subscribeTraces 登记的 ingestTrace，
+ * 测试直接投递合成事件驱动（封闭，不依赖 Tauri）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEvent, StreamEventHandler } from '../../api/events';
 import type { ActivityPhase } from '../../api/generated/bindings';
-import type { StreamState } from './streamHub';
+import type { LlmCall, StreamState } from './streamHub';
 
 const mocks = vi.hoisted(() => ({
   subscribeStream: vi.fn(),
+  /** api 桥接捕获：每个全新 hub 模块初始化时登记 ingestTrace（重跑即换新实例） */
+  subscribeTraces: vi.fn(),
 }));
 
 vi.mock('../../api/events', () => ({
   subscribeStream: mocks.subscribeStream,
+  subscribeTraces: mocks.subscribeTraces,
 }));
 
 /** subscribeStream mock 捕获的每会话 handler：测试用它直接投递合成事件 */
 const handlers = new Map<number, StreamEventHandler>();
+
+/** subscribeTraces mock 捕获的 ingestTrace（桥接登记，最新模块实例为准） */
+let traceIngest: ((call: LlmCall) => void) | undefined;
 
 type StreamHubModule = typeof import('./streamHub');
 
@@ -36,6 +43,10 @@ beforeEach(async () => {
     return () => {
       handlers.delete(sessionId);
     };
+  });
+  mocks.subscribeTraces.mockImplementation((ingest: (call: LlmCall) => void) => {
+    traceIngest = ingest;
+    return () => {};
   });
   vi.resetModules();
   mod = await import('./streamHub');
@@ -394,5 +405,71 @@ describe('订阅面：subscribe / getVersion / onEvent', () => {
     emit(1, fin(1)); // done 也派发给在册监听者
     expect(listenerA).toHaveBeenCalledTimes(1); // 已退订
     expect(listenerB).toHaveBeenCalledTimes(2);
+  });
+});
+
+// —— 合成调用轨迹（契约先行：形状对齐 streamHub 的 LlmCall / 后端 LlmCallDto）——
+const call = (overrides: Partial<LlmCall> = {}): LlmCall => ({
+  id: 1,
+  sessionId: 1,
+  kind: 'dialogue',
+  model: 'test-model',
+  startedAt: 0,
+  durationMs: 1200,
+  promptJson: '[]',
+  responseText: null,
+  reasoningText: null,
+  toolCallsJson: null,
+  promptTokens: null,
+  completionTokens: null,
+  status: 'ok',
+  errorText: null,
+  ...overrides,
+});
+
+describe('调用轨迹通道（onTrace / ingestTrace，独立于 StreamEvent）', () => {
+  it('模块初始化经 api 的 subscribeTraces 登记 ingestTrace（桥接自动接线）', () => {
+    expect(mocks.subscribeTraces).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribeTraces).toHaveBeenCalledWith(expect.any(Function));
+    expect(traceIngest).toBeDefined();
+  });
+
+  it('ingestTrace 广播给全部 onTrace 监听者，原对象透传；多监听者互不影响', () => {
+    const listenerA = vi.fn();
+    const listenerB = vi.fn();
+    const offA = mod.streamHub.onTrace(listenerA);
+    mod.streamHub.onTrace(listenerB);
+
+    const record = call({ id: 7, kind: 'explorer' });
+    traceIngest?.(record);
+    expect(listenerA).toHaveBeenCalledTimes(1);
+    expect(listenerA).toHaveBeenCalledWith(record);
+    expect(listenerB).toHaveBeenCalledTimes(1);
+
+    offA();
+    traceIngest?.(call({ id: 8, status: 'error', errorText: 'boom' }));
+    expect(listenerA).toHaveBeenCalledTimes(1); // 已退订
+    expect(listenerB).toHaveBeenCalledTimes(2);
+  });
+
+  it('无监听者时 ingestTrace 不抛；轨迹与流式状态机互不干扰', () => {
+    begin(1);
+    emit(1, tok(1, '正文'));
+    expect(() => traceIngest?.(call({ id: 9 }))).not.toThrow();
+    // 轨迹不入流状态：不 bump 版本、不触碰 content / status
+    const version = mod.streamHub.getVersion();
+    expect(stateOf(1).content).toBe('正文');
+    expect(stateOf(1).status).toBe('streaming');
+    expect(mod.streamHub.getVersion()).toBe(version);
+    expect(mod.streamHub.stateOf(1)?.activity).toEqual([]);
+  });
+
+  it('后台会话的轨迹同样广播（消费方自行按 sessionId 过滤，从众 onTerminal）', () => {
+    const listener = vi.fn();
+    mod.streamHub.onTrace(listener);
+    // 从未 begin 的会话（纯后台轨迹）也照常派发
+    traceIngest?.(call({ id: 10, sessionId: 42 }));
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]?.[0]).toMatchObject({ id: 10, sessionId: 42 });
   });
 });

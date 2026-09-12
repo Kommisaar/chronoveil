@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "check": "pnpm run check:deps && pnpm run check:whitelist && pnpm run check:ipc && pnpm run check:rust && pnpm run test",
+    "check": "pnpm run check:deps && pnpm run check:whitelist && pnpm run check:ipc && pnpm run check:rust && tsc --noEmit && pnpm run test",
     "check:deps": "depcruise src --config .dependency-cruiser.cjs",
     "check:whitelist": "node scripts/check-dependency-whitelist.mjs",
     "check:ipc": "node scripts/check-ipc-whitelist.mjs",

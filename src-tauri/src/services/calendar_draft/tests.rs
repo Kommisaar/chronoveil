@@ -175,10 +175,9 @@ fn parse_draft_failure_table_reports_reasons() {
     // 32 字符恰好放行（钳制边界）。
     let ok = "甲".repeat(32);
     assert!(
-        parse_ok(&format!(r#"{{"months":["{ok}"],"days_per_month":30}}"#))
+        !parse_ok(&format!(r#"{{"months":["{ok}"],"days_per_month":30}}"#))
             .months
-            .first()
-            .is_some()
+            .is_empty()
     );
     // 超钳制：65 条节日（键 1..=65 须全部在年内，故用 999 天/月放大年长）。
     let festivals: Vec<String> = (1..=65).map(|i| format!("\"{i}\":\"节{i}\"")).collect();

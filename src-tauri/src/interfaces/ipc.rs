@@ -875,7 +875,8 @@ fn list_messages_impl(app: &AppState, session_id: i64) -> Result<Vec<ChatMessage
         .into_iter()
         .map(|m| {
             // 说话人实例真值（多角色换挂）：assistant 取 messages.instance_id；
-            // user 恒 null（保留旧 wire 语义）。字段名/全量透出重设计属 Task-31。
+            // user 恒 null（保留旧 wire 语义）。字段名沿用 characterId、值=实例
+            // 真值的 wire 定案见 ChatMessage 结构体文档注释。
             let speaker = match m.role {
                 models::MessageRole::Assistant => m.instance_id,
                 models::MessageRole::User => None,

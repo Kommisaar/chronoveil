@@ -2,8 +2,9 @@
  * mock 后端契约对齐测试（ADR-010 双模式）：以冻结契约（多角色第 1 步，Rust 侧
  * Task-30 落地）与 src-tauri/src/interfaces/ipc.rs 既有语义为参照，逐命令断言
  * 纯浏览器 mock（src/api/mock/backend.ts）行为同契约：
- * - 会话：阵容制建会话（非空 + is_user 恰好一 + 逐成员卡在世 → 逐卡实例化快照，
- *   D1/D2）、快照与卡隔离（改卡不影响已建会话读数）、软删后不再出现、重复删除
+ * - 会话：阵容制建会话（恰一用户位 + ≥1 LLM 位 + 逐成员卡在世 → 逐卡实例化快照，
+ *   D1/D2/D3，结构冲突文案对齐 sessions.rs insert）、快照与卡隔离（改卡不影响
+ *   已建会话读数）、软删后不再出现、重复删除
  *   NotFound、列表 updated_at DESC + id DESC（infra/storage/sessions.rs 排序）；
  * - 消息：先取会话（不存在 / 已删 → NotFound）、characterId wire 定案（assistant 条 =
  *   说话实例真值，user 条恒 null）；
@@ -167,11 +168,11 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
     expect((await backend.listSessions()).find((s) => s.id === created.id)?.instances).toHaveLength(3);
   });
 
-  it('阵容为空 / is_user 数量不为 1 报 conflict（D2 恰好一的不变量在 wire 入口把关）', async () => {
+  it('非法阵容（空 / 纯 LLM 位 / 双用户位）报 conflict，文案逐字对齐存储层（D2/D3 硬校验在 wire 入口把关）', async () => {
     const { backend } = await loadMock();
     expect(await apiErrorOf(backend.createSession([], null, null))).toEqual({
       kind: 'conflict',
-      message: '会话阵容不能为空',
+      message: '会话阵容必须为「用户扮演位 1 张卡 + LLM 位至少 1 张卡」，实际 0 名成员、0 个扮演位',
     });
     expect(
       (await apiErrorOf(backend.createSession([{ characterId: 1, isUser: false }], null, null))).kind,
@@ -192,6 +193,35 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
     ).toBe('conflict');
   });
 
+  it('恰一用户位但无 LLM 位报 conflict（D3 ≥1 LLM 位是存储层硬校验，对齐 create_session_rejects_invalid_rosters）', async () => {
+    const { backend } = await loadMock();
+    expect(
+      await apiErrorOf(backend.createSession([{ characterId: 1, isUser: true }], null, null)),
+    ).toEqual({
+      kind: 'conflict',
+      message: '会话阵容必须为「用户扮演位 1 张卡 + LLM 位至少 1 张卡」，实际 1 名成员、1 个扮演位',
+    });
+  });
+
+  it('双用户位报 conflict（D2 恰一用户位硬校验，对齐 create_session_rejects_invalid_rosters）', async () => {
+    const { backend } = await loadMock();
+    expect(
+      await apiErrorOf(
+        backend.createSession(
+          [
+            { characterId: 1, isUser: true },
+            { characterId: 2, isUser: true },
+          ],
+          null,
+          null,
+        ),
+      ),
+    ).toEqual({
+      kind: 'conflict',
+      message: '会话阵容必须为「用户扮演位 1 张卡 + LLM 位至少 1 张卡」，实际 2 名成员、2 个扮演位',
+    });
+  });
+
   it('成员卡不存在报 NotFound（而非裸外键冲突，ipc.rs create_session_impl）；被拒请求不建会话', async () => {
     const { backend } = await loadMock();
     const payload = await apiErrorOf(
@@ -205,9 +235,18 @@ describe('createSession（多角色第 1 步：阵容制 / D1 实例化 / D2 扮
       ),
     );
     expect(payload).toEqual({ kind: 'notFound', entity: 'character', id: 999 });
-    // 错误文案与 Rust IpcError::NotFound 的 Display 一致（ApiError.describe）
+    // 错误文案与 Rust IpcError::NotFound 的 Display 一致（ApiError.describe）；
+    // 阵容须过结构校验（2 名成员）才会走到逐卡 NotFound（对齐 sessions.rs insert
+    // 先结构后实例化的检查序）。
     await expect(
-      backend.createSession([{ characterId: 999, isUser: true }], null, null),
+      backend.createSession(
+        [
+          { characterId: 999, isUser: true },
+          { characterId: 1, isUser: false },
+        ],
+        null,
+        null,
+      ),
     ).rejects.toMatchObject({
       message: 'character #999 不存在（或已软删除）',
     });

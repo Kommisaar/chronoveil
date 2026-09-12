@@ -3,7 +3,8 @@
  * 内存实现，仅服务 `pnpm run dev`（无 Rust 工具链的界面开发）。数据种子见 `./data`。
  *
  * 语义对齐 Rust 侧：软删 = 从列表移除（mock 无墓碑）；createSession 阵容制
- * （多角色第 1 步：逐卡实例化快照，D1/D2）；sendMessage 只回执用户条并追加一条
+ * （多角色第 1 步：恰一用户位 + ≥1 LLM 位硬校验 + 逐卡实例化快照，D1/D2/D3）；
+ * sendMessage 只回执用户条并追加一条
  * 占位回复（真实生成闭环由 TASK-006 接线，mock 仅保界面演示完整）。
  * 错误形态对齐 wire 契约：统一抛 [`ApiError`]（payload 为 Rust IpcError 的可判别结构）。
  */
@@ -100,16 +101,15 @@ export async function createSession(
   title: string | null,
   opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
-  // 阵容校验（冻结契约）：非空 + isUser 恰好一处 true（D2）+ 逐成员卡 id 在世。
-  // ≥1 个 LLM 位由向导 FR 保证，不属 wire 不变量（单独用户位契约上合法）。
-  if (members.length === 0) {
-    throw new ApiError({ kind: 'conflict', message: '会话阵容不能为空' });
-  }
+  // 阵容结构校验（D2 / D3）：恰一用户位 + ≥1 LLM 位是存储层硬校验（D3 逐拍生成
+  // 的调用主体），并非仅向导约定的软契约。mock 同构 infra/storage/sessions.rs
+  // insert：条件等价（userCount === 1 时 len < 2 ⟺ 无 LLM 位），冲突文案逐字对齐，
+  // 空阵容一并拒绝（Rust 侧无单独的空阵容文案，同落此分支）。
   const userCount = members.filter((m) => m.isUser).length;
-  if (userCount !== 1) {
+  if (members.length < 2 || userCount !== 1) {
     throw new ApiError({
       kind: 'conflict',
-      message: `会话阵容需恰好一个用户扮演位，实际 ${userCount} 个`,
+      message: `会话阵容必须为「用户扮演位 1 张卡 + LLM 位至少 1 张卡」，实际 ${members.length} 名成员、${userCount} 个扮演位`,
     });
   }
   for (const member of members) {
@@ -275,40 +275,39 @@ export async function sendMessage(
   const userMessage = makeMessage(sessionId, null, 'user', trimmed);
   ;(messagesBySession[sessionId] ??= []).push(userMessage);
   // 占位回复：mock 无真实生成；首个 LLM 位实例发声（D3 逐拍轮转属后续切片，
-  // mock 取确定性首位）。阵容仅用户位时无 LLM 可发声：诚实缺省，不造假回复、
-  // 不合成轨迹（assistant 条 wire 携带说话实例真值，无位即无条）。
-  const llmInstance = session.instances.find((i) => !i.isUser);
-  if (llmInstance) {
-    const reply = makeMessage(
-      sessionId,
-      llmInstance.id,
-      'assistant',
-      '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
-      'mock 思考：等待 TASK-006 接入真实生成闭环。',
-      800,
-    );
-    ;(messagesBySession[sessionId] ??= []).push(reply);
-    // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
-    // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
-    // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
-    // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
-    llmCalls.push({
-      id: nextLlmCallId++,
-      sessionId,
-      kind: 'dialogue',
-      model: 'mock-model',
-      startedAt: reply.createdAt - 900,
-      durationMs: 900,
-      promptJson: JSON.stringify([{ role: 'user', content: trimmed }]),
-      responseText: reply.content,
-      reasoningText: reply.reasoning,
-      toolCallsJson: null,
-      promptTokens: 128,
-      completionTokens: 64,
-      status: 'ok',
-      errorText: null,
-    });
-  }
+  // mock 取确定性首位）。阵容必有 LLM 位（createSession 结构硬校验 D3 + 种子
+  // 数据同构；Rust 侧同形断言见 sessions.rs `expect("阵容校验已保证恰一用户位")`），
+  // 直接取用首位，不为不可达的「无 LLM 位阵容」写防御分支。
+  const llmInstance = session.instances.find((i) => !i.isUser)!;
+  const reply = makeMessage(
+    sessionId,
+    llmInstance.id,
+    'assistant',
+    '（mock）这是纯浏览器演示回复，桌面壳内将流式生成。',
+    'mock 思考：等待 TASK-006 接入真实生成闭环。',
+    800,
+  );
+  ;(messagesBySession[sessionId] ??= []).push(reply);
+  // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
+  // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
+  // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
+  // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
+  llmCalls.push({
+    id: nextLlmCallId++,
+    sessionId,
+    kind: 'dialogue',
+    model: 'mock-model',
+    startedAt: reply.createdAt - 900,
+    durationMs: 900,
+    promptJson: JSON.stringify([{ role: 'user', content: trimmed }]),
+    responseText: reply.content,
+    reasoningText: reply.reasoning,
+    toolCallsJson: null,
+    promptTokens: 128,
+    completionTokens: 64,
+    status: 'ok',
+    errorText: null,
+  });
   // FR-007：标题缺省取首条用户消息截断（ipc.rs send_message_impl / default_title）。
   if (session.title === '') session.title = defaultTitle(trimmed);
   session.updatedAt = userMessage.createdAt;

@@ -10,7 +10,7 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { StreamEventHandler } from '../../api/events';
-import type { CharacterSummary, ChatMessage } from '../../api/types';
+import type { CharacterSummary, ChatMessage, SessionSummary } from '../../api/types';
 import '../../i18n';
 import { useUiStore } from '../../stores/ui';
 import { ChatView } from './ChatView';
@@ -44,9 +44,11 @@ vi.mock('../../api/events', () => ({
 /** subscribeStream mock 捕获的每会话事件处理器（本文件不投事件，仅为卫生清理） */
 const handlers = new Map<number, StreamEventHandler>();
 
+// 模板卡名与实例快照名刻意不同：说话人断言「织星者」只可能来自 roster 回显的
+// 实例名（旧路径经角色清单会显示「模板织星者」）
 const CHARACTER: CharacterSummary = {
   id: 1,
-  name: '织星者',
+  name: '模板织星者',
   avatar: null,
   persona: '',
   gender: null,
@@ -59,10 +61,22 @@ const CHARACTER: CharacterSummary = {
   sessionCount: 1,
 };
 
+// 会话 3 的 roster 回显（多角色第 1 步）：说话人按实例名显示——
+// 实例 11 = LLM 位「织星者」（模板卡 1），实例 10 = 用户位「旅人」（模板卡 2）
+const SESSION: SessionSummary = {
+  id: 3,
+  title: '',
+  updatedAt: 0,
+  instances: [
+    { id: 10, name: '旅人', isUser: true, characterId: 2 },
+    { id: 11, name: '织星者', isUser: false, characterId: 1 },
+  ],
+};
+
 const USER_MESSAGE: ChatMessage = {
   id: 101,
   sessionId: 3,
-  characterId: null,
+  instanceId: 10,
   role: 'user',
   content: '你好 *不解析*',
   reasoning: null,
@@ -74,7 +88,7 @@ const USER_MESSAGE: ChatMessage = {
 const ASSISTANT_MESSAGE: ChatMessage = {
   id: 100,
   sessionId: 3,
-  characterId: 1,
+  instanceId: 11,
   role: 'assistant',
   content: '*她抬起头*，声音很轻。\n\n**别走。**\n\n---\n\n- 甲\n- 乙',
   reasoning: '内心戏',
@@ -103,7 +117,8 @@ beforeEach(() => {
       handlers.delete(sessionId);
     };
   });
-  useUiStore.setState({ activeSessionId: 3, sessions: [], sessionsLoaded: false });
+  // 会话清单单一数据源（TASK-007）：speakerOf 的实例名映射从 store 的 roster 回显取
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION], sessionsLoaded: true });
 });
 
 afterEach(() => {
@@ -115,7 +130,7 @@ afterEach(() => {
 
 it('历史 assistant 行走引擎静态渲染：动作/加粗/场景线/列表与流式同构', async () => {
   const view = renderView();
-  await screen.findByText('织星者'); // 消息列表加载完成（commit 期 DOM）
+  await screen.findByText('织星者'); // 消息列表加载完成；说话人 = roster 回显的实例名
   // 场景线：--- 产出 hr.scene 而非文本。引擎 DOM 由 HistoryMessageBody 的
   // 被动 useEffect 直插，晚于 commit 上屏——findByText 只保证消息头可见，
   // 不保证 effect 已冲刷（jsdom 调度对全量并发负载敏感，偶发 hr.scene 为空）。

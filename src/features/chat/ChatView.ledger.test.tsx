@@ -10,7 +10,7 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { StreamEventHandler } from '../../api/events';
-import type { CharacterStateDto, CharacterSummary, SceneDto } from '../../api/types';
+import type { CharacterStateDto, CharacterSummary, SceneDto, SessionSummary } from '../../api/types';
 import '../../i18n';
 import { useUiStore } from '../../stores/ui';
 import { ChatView } from './ChatView';
@@ -75,8 +75,17 @@ const CHARACTER: CharacterSummary = {
   sessionCount: 1,
 };
 
-// 第二个角色：在场角色名映射用例中覆盖 listCharacters 时启用
-const GUARDIAN: CharacterSummary = { ...CHARACTER, id: 2, name: '守塔人' };
+// 会话 3 的 roster 回显（多角色第 1 步）：在场行的实例名映射来自这里——
+// 实例 1 = 用户位「织星者」、实例 2 = LLM 位「守塔人」；实例快照名与模板卡名同形
+const SESSION: SessionSummary = {
+  id: 3,
+  title: '',
+  updatedAt: 0,
+  instances: [
+    { id: 1, name: '织星者', isUser: true, characterId: 1 },
+    { id: 2, name: '守塔人', isUser: false, characterId: 2 },
+  ],
+};
 
 const SCENES: SceneDto[] = [
   // 第 1 场：dateLabel 在场 → 优先于 ficDay/ficPart 拼接
@@ -282,7 +291,8 @@ beforeEach(() => {
       handlers.delete(sessionId);
     };
   });
-  useUiStore.setState({ activeSessionId: 3, sessions: [], sessionsLoaded: false });
+  // 会话清单单一数据源（TASK-007）：面板的在场实例名映射从 store 的 roster 回显取
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION], sessionsLoaded: true });
 });
 
 afterEach(() => {
@@ -293,16 +303,13 @@ afterEach(() => {
   useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: false });
 });
 
-it('面板打开即拉取场景 / 状态 / 角色清单（present 名字映射用），场景状态按当前会话查询；拉取中先见加载态', async () => {
+it('面板打开即拉取场景 / 状态（调用轨迹见第三段），场景状态按当前会话查询；拉取中先见加载态', async () => {
   renderView();
   openLedger();
   // 加载态同步可见（promise 未 resolve 前渲染 spinner + 文案）
   expect(screen.getByText('加载中…')).toBeTruthy();
   expect(mocks.listScenes).toHaveBeenCalledWith(3);
   expect(mocks.listCharacterStates).toHaveBeenCalledWith(3);
-  // ChatView 挂载自身也会拉一次角色清单，故只断言「面板链路调过」（映射正确性
-  // 由在场角色用例的 DOM 断言背书）
-  expect(mocks.listCharacters).toHaveBeenCalled();
   await screen.findByText('第3场');
 });
 
@@ -406,13 +413,12 @@ it('timeNote 两态：叙事时间原文在场时优先成标签（压过 dateLa
   expect(screen.getByText('第3日·夜')).toBeTruthy();
 });
 
-it('在场角色：present id 按角色清单映射名字，未知 id 回退「角色#id」，空 present 不出行', async () => {
-  mocks.listCharacters.mockResolvedValue([CHARACTER, GUARDIAN]);
+it('在场角色：present 实例 id 按 roster 回显映射实例名，未知 id 回退「角色#id」，空 present 不出行', async () => {
   const { container } = renderView();
   openLedger();
   await screen.findByText('第4场');
 
-  // 第 1 场 present [1] → 织星者；第 3 场 [1, 2] → 双名字映射；第 4 场 [1, 99] → 未知 id 回退
+  // 第 1 场 present [1] → 织星者；第 3 场 [1, 2] → 双实例名映射；第 4 场 [1, 99] → 未知 id 回退
   expect(screen.getByText('在场：织星者')).toBeTruthy();
   expect(screen.getByText('在场：织星者、守塔人')).toBeTruthy();
   expect(screen.getByText('在场：织星者、角色#99')).toBeTruthy();

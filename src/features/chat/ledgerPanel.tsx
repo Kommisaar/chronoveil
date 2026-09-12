@@ -26,12 +26,14 @@
  *   status=ok，null 记 0；N 含 error）。
  *
  * 数据策略：挂载（打开面板）与 sessionId 变化（会话切换）时重拉场景 / 状态 /
- * 调用轨迹三个会话级列表 + 角色清单（present id → 名字映射用，v1 单角色会话通常
- * 就一个）；生成终态（streamHub.onTerminal，ADR-005 保证 done 放行前 scenes /
- * character_state 已在库）且属于本会话时静默重拉，无需手动刷新按钮。调用轨迹另
- * 有实时流：streamHub.onTrace 到达即头部插入（不重拉全量，同 id 幂等更新原位），
- * 面板关闭随卸载摘订阅。轨迹走独立订阅通道、不经 StreamEvent 联合——架构决定
- * 见 streamHub 头注。
+ * 调用轨迹三个会话级列表；生成终态（streamHub.onTerminal，ADR-005 保证 done 放
+ * 行前 scenes / character_state 已在库）且属于本会话时静默重拉，无需手动刷新
+ * 按钮。「在场：…」行的实例名映射（present = 实例 id 数组，多角色第 1 步）从
+ * ui store 会话清单的 roster 回显派生（单一数据源，TASK-007；会话清单在侧栏
+ * 挂载与终态时点重拉，本面板不单独拉角色/会话全量）。调用轨迹另有实时流：
+ * streamHub.onTrace 到达即头部插入（不重拉全量，同 id 幂等更新原位），面板关闭
+ * 随卸载摘订阅。轨迹走独立订阅通道、不经 StreamEvent 联合——架构决定见
+ * streamHub 头注。
  */
 import {
   Accordion,
@@ -45,17 +47,17 @@ import {
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import {
   listCharacterStates,
-  listCharacters,
   listLlmCalls,
   listScenes,
 } from '../../api/commands';
 import type { CharacterStateDto, SceneDto } from '../../api/types';
+import { useUiStore } from '../../stores/ui';
 import { streamHub, type LlmCall } from './streamHub';
 
 const useStyles = makeStyles({
@@ -564,10 +566,10 @@ interface LedgerPanelProps {
 export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const styles = useStyles();
   const { t, i18n } = useTranslation();
+  // 会话清单单一数据源（TASK-007）：在场实例名映射从 roster 回显派生
+  const sessions = useUiStore((s) => s.sessions);
   const [scenes, setScenes] = useState<SceneDto[] | null>(null);
   const [states, setStates] = useState<CharacterStateDto[] | null>(null);
-  // present 角色名映射（id → 名字）：随角色清单一次拉全量，已删角色查不到走回退文案
-  const [characterNames, setCharacterNames] = useState<Map<number, string>>(new Map());
   // 调用轨迹（会话级列表）：实时增量经 onTrace 头部插入 / 原位更新，见下
   const [calls, setCalls] = useState<LlmCall[] | null>(null);
   // 展开详情的行（同时只开一行，点击切换）；跨会话无意义，会话切换时重置
@@ -578,24 +580,17 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const [refreshTick, setRefreshTick] = useState(0);
 
   // 拉取：打开（挂载）、会话切换（sessionId 变化）、终态 / 重试（refreshTick）。
-  // 场景 / 状态 / 调用轨迹按会话查询，角色清单全量（present 映射用，v1 单角色
-  // 会话通常就一个）；四者同库同源，失败一并走错误态重试。
+  // 场景 / 状态 / 调用轨迹按会话查询；三者同库同源，失败一并走错误态重试。
   // cancelled 标记防会话快切竞态：过期响应不落 state。
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setFailed(false);
-    void Promise.all([
-      listScenes(sessionId),
-      listCharacterStates(sessionId),
-      listCharacters(),
-      listLlmCalls(sessionId),
-    ])
-      .then(([nextScenes, nextStates, nextCharacters, nextCalls]) => {
+    void Promise.all([listScenes(sessionId), listCharacterStates(sessionId), listLlmCalls(sessionId)])
+      .then(([nextScenes, nextStates, nextCalls]) => {
         if (cancelled) return;
         setScenes(nextScenes);
         setStates(nextStates);
-        setCharacterNames(new Map(nextCharacters.map((c) => [c.id, c.name])));
         setCalls(nextCalls);
       })
       .catch(() => {
@@ -609,6 +604,13 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
       cancelled = true;
     };
   }, [sessionId, refreshTick]);
+
+  // 在场实例名映射（present = 实例 id，多角色第 1 步）：从本会话的 roster 回显
+  // 派生；实例在会话创建后不变（本切片无实例增删），清单未覆盖到时回退文案兜底。
+  const instanceNames = useMemo(() => {
+    const roster = sessions.find((s) => s.id === sessionId)?.instances ?? [];
+    return new Map(roster.map((instance) => [instance.id, instance.name]));
+  }, [sessions, sessionId]);
 
   // 新完成消息 → 静默重拉（FR-012）：终态事件（done / error 均已落库，ADR-001）
   // 在 done 放行前 scenes / character_state 已结算在库（ADR-005），直接重拉无竞态；
@@ -715,14 +717,14 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
                       )}
                     </div>
                     {scene.present.length > 0 && (
-                      // 在场角色：次要小字行（从众 sceneMeta 层级，不抢 summary）；
-                      // 已删角色回退「角色#id」；名字拼接从众 CalendarSection 的「、」
+                      // 在场实例：次要小字行（从众 sceneMeta 层级，不抢 summary）；
+                      // 未知实例 id 回退「角色#id」；名字拼接从众 CalendarSection 的「、」
                       <div className={styles.sceneMeta}>
                         {t('chat.ledger.present', {
                           names: scene.present
                             .map(
                               (id) =>
-                                characterNames.get(id) ??
+                                instanceNames.get(id) ??
                                 t('chat.ledger.unknownCharacter', { id }),
                             )
                             .join('、'),

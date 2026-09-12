@@ -389,17 +389,27 @@ export function ChatView() {
     return <EmptyState message={t('chat.empty')} />;
   }
 
+  // 当前会话的 roster 回显（多角色第 1 步）：历史消息说话人 / 流式行归属都按
+  // 实例取——消息 instanceId 是实例真值，名字从会话的 instances 回显映射
+  const activeRoster = sessions.find((s) => s.id === activeSessionId)?.instances ?? [];
+  const instanceNames = new Map(activeRoster.map((instance) => [instance.id, instance.name]));
+
   const speakerOf = (message: ChatMessage): string => {
     if (message.role === 'user') return t('chat.you');
-    return (message.characterId !== null && characters.get(message.characterId)?.name) || '—';
+    return instanceNames.get(message.instanceId) ?? '—';
   };
 
-  // 流式行的说话人 = 会话角色（FR-007：会话归属角色）
-  const sessionCharacterId = sessions.find((s) => s.id === activeSessionId)?.characterId;
-  const sessionSpeaker =
-    (sessionCharacterId !== undefined && characters.get(sessionCharacterId)?.name) || '—';
+  // 流式行说话人：首个 LLM 位实例。D3 逐拍生成的按实例归属待 Rust 事件携带
+  // 实例 id（Task-30 后对齐），事件流 v1 不区分实例，先以主 LLM 位显示；
+  // renderStyle 从该实例的模板溯源卡读取（实例 wire 回显不带快照 renderStyle）。
+  const primaryLlm = activeRoster.find((instance) => !instance.isUser) ?? activeRoster[0];
+  const primaryTemplateId = primaryLlm?.characterId ?? null;
+  const sessionSpeaker = primaryLlm?.name ?? '—';
   const tuning = {
-    style: sessionCharacterId !== undefined ? characters.get(sessionCharacterId)?.renderStyle : undefined,
+    style:
+      primaryTemplateId === null
+        ? undefined
+        : characters.get(primaryTemplateId)?.renderStyle,
     msPerChar: config?.rhythmMsPerChar,
     punctPause: config?.punctPauseEnabled,
     durationMs: config?.animDurationBase,

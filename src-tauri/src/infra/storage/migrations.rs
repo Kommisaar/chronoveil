@@ -1,5 +1,7 @@
 //! 手写顺序迁移（CMP-003）：`schema_version` 表记录已应用版本；同一库重复启动幂等。
-//! 迁移 SQL 放 `src-tauri/migrations/`，按版本号顺序执行，每个迁移单事务。
+//! 迁移 SQL 放 `src-tauri/migrations/`，按版本号顺序执行，每个迁移单事务；
+//! 待应用迁移的整批执行套 FK=OFF 包络（原因见 run 内注释：PRAGMA 事务内 no-op，
+//! 包络必须落在事务边界之外）。
 
 use rusqlite::{params, Connection};
 
@@ -54,23 +56,100 @@ pub(crate) fn run(conn: &Connection) -> Result<(), StorageError> {
         [],
         |row| row.get(0),
     )?;
+    // 幂等重入零副作用：应用每次启动都会走到这里，没有待应用迁移时不碰 PRAGMA、
+    // 也不做全库校验（foreign_key_check 是为迁移批兜底的，空批不需要）。
+    if MIGRATIONS.iter().all(|(version, _)| *version <= current) {
+        return Ok(());
+    }
+    // FK=OFF 包络（C11 加固）：多表重建类迁移（如 0009 的 RENAME + 建新表 + 搬运 +
+    // DROP 序列）在 FK 开启的连接上执行时，过渡态的父表换挂或存量悬空引用会让搬运
+    // INSERT ... SELECT 直接撞外键，迁移成败取决于「库里恰好没有违例数据」。SQLite
+    // 语义：PRAGMA foreign_keys 在事务内设置是 no-op，因此关/开必须落在事务边界之外
+    // ——先记录原值，逐迁移关闭执行（各自单事务，语义不变），跑完恢复。前提：进入
+    // 本函数时连接上没有打开的事务（Storage::open 路径成立）。逐迁移重申 OFF 而非
+    // 批前关一次的理由见 apply_pending。
+    let fk_before: bool = conn
+        .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+        .map(|v| v != 0)
+        .map_err(|e| StorageError::Backend(format!("迁移前读取 foreign_keys 原值失败：{e}")))?;
+    let outcome = apply_pending(conn, current);
+    // 恢复先于报告：迁移半途失败也不能把连接留在 FK 关闭的脏状态。foreign_key_check
+    // 的执行语义不受 foreign_keys 开关影响，放在恢复之后等价，且让恢复点唯一。
+    let restored = conn
+        .pragma_update(None, "foreign_keys", fk_before)
+        .map_err(|e| {
+            StorageError::Backend(format!(
+                "迁移后恢复 foreign_keys 原值（{fk_before}）失败：{e}"
+            ))
+        });
+    outcome?;
+    restored?;
+    // foreign_key_check 兜底：FK=OFF 期间搬运的数据不再受引擎即时校验，迁移批全部
+    // 落地后全库扫一次。报出违例说明某个迁移自身的搬运逻辑有错（对未来多表重建类
+    // 迁移的兜底检测），而非对违例数据的容忍；全库口径不区分违例是迁移引入还是
+    // 迁移前就存在——无论哪种，数据都已损坏，迁移必须报错而不是静默通过。
+    let violation = conn.query_row("PRAGMA foreign_key_check", [], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    });
+    match violation {
+        Ok((table, rowid, parent, fkid)) => {
+            return Err(StorageError::Backend(format!(
+                "迁移后 foreign_key_check 发现违例：表 {table} 行 {rowid} \
+                 违反对 {parent} 的外键约束 #{fkid}"
+            )));
+        }
+        // 无违例行 = 校验通过（PRAGMA 查询空结果即零违例）。
+        Err(rusqlite::Error::QueryReturnedNoRows) => {}
+        Err(e) => {
+            return Err(StorageError::Backend(format!(
+                "迁移后执行 foreign_key_check 失败：{e}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 逐迁移执行待应用项（单迁移单事务：SQL 与版本记录同生共死，半写不可能发生）；
+/// 失败错误带迁移版本号与步骤上下文，定位到具体迁移的具体一步。
+///
+/// 每个迁移开启事务前重申 `foreign_keys = OFF`，而不是批前关一次：迁移 0001 / 0002
+/// 的 SQL 内嵌 `PRAGMA foreign_keys = ON`（`migrations/0001_init.sql:4` /
+/// `0002_scenes_character_state.sql:10`），执行到它们会把连接翻回开启态，批内后续
+/// 重建类迁移（0009 / 0010 的 DROP TABLE + RENAME 序列）就仍在 FK=ON 下跑，包络形同
+/// 虚设。任务约束不改迁移文件内容，只能在执行器侧逐迁移兜住；0001 / 0002 自身批内
+/// 的翻正无法外部干预，但两者均为建表 / 扩列 DDL、无跨表数据搬运，不构成暴露面。
+/// PRAGMA 事务内 no-op，故重申必须落在事务开启之前。
+fn apply_pending(conn: &Connection, current: i64) -> Result<(), StorageError> {
     for (version, sql) in MIGRATIONS {
         if *version <= current {
             continue;
         }
-        // 单迁移单事务：SQL 与版本记录同生共死，半写不可能发生。
+        let context = |step: &str, err: rusqlite::Error| {
+            StorageError::Backend(format!("迁移 {version:04} {step}失败：{err}"))
+        };
+        conn.pragma_update(None, "foreign_keys", false)
+            .map_err(|err| context("预关闭外键开关", err))?;
         let tx = conn
             .unchecked_transaction()
-            .map_err(StorageError::from)?;
-        tx.execute_batch(sql)?;
+            .map_err(|err| context("开启事务", err))?;
+        tx.execute_batch(sql).map_err(|err| context("执行", err))?;
         tx.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (?1, ?2)",
             params![version, now()],
-        )?;
-        tx.commit()?;
+        )
+        .map_err(|err| context("登记版本", err))?;
+        tx.commit().map_err(|err| context("提交", err))?;
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod fk_envelope_tests;

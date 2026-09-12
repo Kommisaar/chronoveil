@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 功能板块与路线图 · 2026-09-12</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --surface: #232323; --surface2: #292929;
+    --border: #383838; --text: #e8e4dc; --dim: #a8a49c;
+    --accent: #93a5c8; --accent2: #e8b06a; --green: #6cc0a0; --blue: #7aa2c8;
+    --done: #4a6b5e; --wip: #6b5e4a; --todo: #4a4f6b;
+    --mono: "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.7; padding: 2rem; max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 600; }
+  h1 .sub { color: var(--dim); font-size: 1rem; font-weight: 400; margin-left: .75rem; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 2.4rem 0 1rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); color: var(--accent2); }
+  .meta { color: var(--dim); font-size: .9rem; margin: .3rem 0 1.5rem; }
+  .meta code, td code, li code, p code { font-family: var(--mono); font-size: .84em; background: var(--surface2); padding: .08em .4em; border-radius: 4px; color: var(--accent2); }
+  /* 功能板块 */
+  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .9rem; margin: 1rem 0; }
+  .module { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1.1rem; }
+  .module h3 { font-size: .95rem; color: var(--accent); margin-bottom: .3rem; }
+  .module p { font-size: .85rem; color: var(--dim); }
+  .module .badge { display: inline-block; font-size: .72rem; padding: .05rem .5rem; border-radius: 10px; margin-left: .4rem; vertical-align: 1px; }
+  .b-core { background: var(--done); color: #dff0e8; }
+  .b-new  { background: var(--accent2); color: #1a1a1a; }
+  /* 路线图泳道 */
+  .lane { margin: 1.2rem 0; }
+  .lane-title { font-size: .95rem; font-weight: 600; margin-bottom: .5rem; }
+  .lane-title .tag { font-size: .75rem; font-weight: 400; color: var(--dim); margin-left: .6rem; }
+  .items { display: flex; flex-wrap: wrap; gap: .6rem; }
+  .item { border-radius: 6px; padding: .45rem .8rem; font-size: .85rem; border: 1px solid var(--border); }
+  .i-done { background: var(--done); color: #dff0e8; }
+  .i-decided { background: var(--wip); color: #f0e8df; border-style: dashed; }
+  .i-todo { background: var(--todo); color: #dfe3f0; }
+  .i-note { color: var(--dim); font-size: .8rem; align-self: center; }
+  /* 待拍板 */
+  .qbox { background: var(--surface); border-left: 3px solid var(--accent2); border-radius: 6px; padding: .7rem 1rem; margin: .5rem 0; font-size: .88rem; }
+  .qbox b { color: var(--accent2); }
+  /* 统计 */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin: 1rem 0 1.5rem; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; text-align: center; padding: .8rem; }
+  .stat .n { font-size: 1.5rem; font-weight: 700; color: var(--accent2); font-family: var(--mono); }
+  .stat .l { font-size: .78rem; color: var(--dim); }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .82rem; }
+</style>
+</head>
+<body>
+
+<h1>ChronoVeil 功能板块与路线图<span class="sub">2026-09-12 · master 8fe733d</span></h1>
+<p class="meta">两夜自主迭代累计 <b>33 个任务</b>（32 合并 + 1 纯验证）· 旧账全清（C1–C10 中仅剩 C9/C10 小卫生）· 本报告替代口头盘点，随里程碑更新</p>
+
+<div class="stats">
+  <div class="stat"><div class="n">33</div><div class="l">迭代任务</div></div>
+  <div class="stat"><div class="n">281+1</div><div class="l">Rust 测试</div></div>
+  <div class="stat"><div class="n">466</div><div class="l">前端用例</div></div>
+  <div class="stat"><div class="n">9</div><div class="l">SQLite 迁移</div></div>
+  <div class="stat"><div class="n">19</div><div class="l">IPC 命令</div></div>
+</div>
+
+<h2>一、功能板块（当前已落地）</h2>
+<div class="board">
+  <div class="module"><h3>🎭 对话核心<span class="badge b-core">稳定</span></h3><p>流式回复 + 思考过程展示、重新生成/断流重试、取消半条落库、markdown-lite 渲染引擎（双主题自适应、语法高亮对比度达 WCAG AA）、模型多渠道配置（MiniMax / OpenRouter，thinking 控制）。</p></div>
+  <div class="module"><h3>🧠 理想五段流水线<span class="badge b-core">稳定</span></h3><p>①记忆探索器（search_history / read_scene 工具循环，0–3 轮自主检索）→ ②场景对齐装配（近景整场逐字 + 远景编年史 + 桥场加厚 + 人物状态快照 + 虚时行）→ ③单次流式生成 → ④导演结算（摘要/状态/关系/日历三账单事务落库，失败重试）→ ⑤全程活动透出。</p></div>
+  <div class="module"><h3>📖 叙事账本<span class="badge b-core">稳定</span><span class="badge b-new">含轨迹</span></h3><p>人物状态（当前状态/关系两组）、场景史（倒序 + 在场角色 + 叙事时间原文 + recap 折叠）、<b>LLM 调用轨迹</b>（每次调用的完整请求/回复/思考/工具调用/token/耗时，实时推送 + 历史回放，会话汇总统计）。终态自动刷新。</p></div>
+  <div class="module"><h3>🎬 导演 / 结算<span class="badge b-core">稳定</span></h3><p>场景线触发线性阻塞结算；边界快照只属于被收束场景（陈旧 recap 根除）；消息 scene_id 库内归属（欠账自愈）；仲裁重试幂等；桥场 recap 两三句加厚。</p></div>
+  <div class="module"><h3>📅 历法系统<span class="badge b-core">稳定</span></h3><p>世界观日历（月/日名/节日）双射换算 date_label；四预设历法 + <b>AI 起草</b>（描述 → 审阅 → 保存，schema 容错 + 越年兜底 + 一次修正重试）；角色卡编辑区块持久化；建会话快照。</p></div>
+  <div class="module"><h3>🗂 角色与会话<span class="badge b-core">稳定</span></h3><p>角色卡 CRUD + JSON 导入导出（原生对话框）；多会话管理（软删/恢复）；FR-014 开局向导（预设历法 + 起始锚 + 首场景 seed）；近景窗口可选（1–6 场，设置页即调）。</p></div>
+  <div class="module"><h3>🔍 透明化体系<span class="badge b-core">稳定</span></h3><p>「正在回忆…」活动条（探索器幕后步骤实时展开）→ 终态让位；结算落库先于 done 放行（ADR-005）；调用轨迹全景（本批新增）。干等的三段黑箱全部点亮。</p></div>
+  <div class="module"><h3>🛡 工程基线<span class="badge b-core">稳定</span></h3><p>四层架构守卫（含 tauri_plugin_* 下划线盲区加固）、check 链含 tsc、依赖/IPC 白名单双向比对、log 插件化（12 处 stderr 归零）、迁移 0001–0008 全带专项测试。</p></div>
+</div>
+
+<h2>二、路线图</h2>
+
+<div class="lane">
+  <div class="lane-title">🟢 已完成（近两夜）<span class="tag">master 234b879 → 8fe733d，23 个合并提交</span></div>
+  <div class="items">
+    <span class="item i-done">场景对齐装配</span><span class="item i-done">记忆探索器</span><span class="item i-done">活动条</span><span class="item i-done">scene_id 归属</span><span class="item i-done">预填裁决</span><span class="item i-done">叙事账本面板</span><span class="item i-done">读命令</span><span class="item i-done">亮色 AA 达标</span><span class="item i-done">AI 起草历法</span><span class="item i-done">历法持久化</span><span class="item i-done">调用轨迹面板</span><span class="item i-done">场景窗口可选</span><span class="item i-done">log 插件化</span><span class="item i-done">flake 根因修复</span><span class="item i-done">守卫盲区加固</span><span class="item i-done">useLayoutEffect</span>
+  </div>
+</div>
+
+<div class="lane">
+  <div class="lane-title">🟡 下一批可开工（无需新决策）<span class="tag">候选池，按推荐排序</span></div>
+  <div class="items">
+    <span class="item i-decided">结算过程透明化（活动条延伸，账本联动）</span>
+    <span class="item i-decided">C9+C10 卫生批（常量绑定 / 回落 warn / error_text 截断 / 轨迹清理）</span>
+    <span class="item i-decided">会话导出 / 备份</span>
+    <span class="item i-decided">账本动效 + present 过滤优化</span>
+    <span class="item i-note">↑ 都是纯增量小切片，随时可派</span>
+  </div>
+</div>
+
+<div class="lane">
+  <div class="lane-title">🔴 大战役：多角色群像<span class="tag">设计备忘已入库，等 6 个决策</span></div>
+  <div class="qbox"><b>已就绪</b>：wire 层角色维度已透传（SceneDto.present / StateDto.character_id）、5 切片泛化草案在 <code>docs/设计备忘-多角色群像.md</code>。真阻塞在单线程生成管道（messages.character_id 是死列）。</div>
+  <div class="qbox"><b>Q1 生成模式</b>：单次生成多角色台词 vs 按角色逐拍独立生成（备忘建议后者）</div>
+  <div class="qbox"><b>Q2 离场状态</b>：不在场角色状态照常清算（建议）还是冻结至回归</div>
+  <div class="qbox"><b>Q3 sessions.character_id 去留</b>：保留「主角」双轨（建议）还是彻底 roster 化</div>
+  <div class="qbox"><b>Q4 roster 规则</b>：同会话角色上限、中途加退人</div>
+  <div class="qbox"><b>Q5 人称与关系键</b>：「对你」的单一用户人称、角色间关系键名约定</div>
+  <div class="qbox"><b>Q6 存量回填</b>：历史消息 character_id 回填主角（建议不回填）还是保持 NULL</div>
+</div>
+
+<div class="lane">
+  <div class="lane-title">⚪ 远期池<span class="tag">有占位、未排期</span></div>
+  <div class="items">
+    <span class="item i-todo">FR-010 场景线三入口（手动分场，需交互设计）</span>
+    <span class="item i-todo">近景预算随窗口联动（6 场 vs 24000 字符的产品取舍）</span>
+    <span class="item i-todo">语音（voice_config 字段空置，等 TTS 渠道）</span>
+    <span class="item i-todo">多会话并行生成</span>
+    <span class="item i-todo">轨迹表归档 / attempt 序号（重度使用后再议）</span>
+  </div>
+</div>
+
+<h2>三、当前待办摘要</h2>
+<ul>
+  <li><b>你侧</b>：实测一轮应用（验 MiniMax 手感 + 轨迹面板 + 场景窗口设置）——真实体感会重排上面的候选；抽空答多角色 Q1–Q6。</li>
+  <li><b>agent 侧（随时可派）</b>：结算透明化 + C9/C10 卫生批是最顺的下一手。</li>
+  <li><b>运维</b>：迭代账本 run <code>20260911T134930Z-292a175d</code> 活跃中（<code>/iter-resume</code> 续用）；OpenRouter key 配额 UTC 0 点重置（备选渠道）。</li>
+</ul>
+
+<footer>ChronoVeil 路线报告 · 2026-09-12 · 数据源：master@8fe733d + 账本 auto-iter/runs/20260911T134930Z-292a175d · 配套报告：<code>docs/报告-窗口2026-09-12.html</code></footer>
+
+</body>
+</html>

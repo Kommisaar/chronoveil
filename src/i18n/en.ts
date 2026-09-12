@@ -14,7 +14,6 @@ export const en = {
     expand: 'Expand sessions pane',
     collapse: 'Collapse sessions pane',
     untitled: 'New session',
-    pickCharacter: 'Pick a character to start a conversation',
     noCharacters: 'No characters yet — create one on the Characters page first',
     delete: 'Delete session',
     deleteBody:
@@ -25,6 +24,13 @@ export const en = {
     deleteFailed: 'Delete failed',
     createFailed: 'Failed to create session',
     wizard: {
+      stepUser: 'Step 1 · Your character',
+      pickUserHint: 'Pick the character you play — your identity in the story',
+      stepRoster: 'Step 2 · LLM cast',
+      rosterHint:
+        'Pick the characters the LLM plays — multiple allowed, your own role included',
+      yourRole: 'Your role',
+      next: 'Next',
       formTitle: 'Opening setup',
       calendar: 'Opening calendar',
       presetFollow: 'Follow character card',

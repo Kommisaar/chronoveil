@@ -3,10 +3,10 @@
 // 相对时间 meta，点击切换当前会话）。选中态为与活动栏同款的共享指示条
 // （位移动画）+ 选中底色。
 // 会话管理（TASK-007 / FR-007 / ADR-009）：
-// - 新建：Fluent Dialog 两段式开局向导（FR-014，表单内聚在 NewSessionDialog）：
-//   选角色 → 开局表单（历法五选 / 起始锚 / 首场景可选字段，「直接开始」= opening
-//   全空降级）→ createSession → store 全量重拉（updated_at 倒序进列表）→
-//   新会话成为当前会话（视图已在聊天）；
+// - 新建：Fluent Dialog 三段式开局向导（FR-014 + 多角色第 1 步两步选人，表单
+//   内聚在 NewSessionDialog）：选扮演位 → 选 LLM 阵容 → 开局表单（历法五选 /
+//   起始锚 / 首场景可选字段，「直接开始」= opening 全空降级）→ createSession →
+//   store 全量重拉（updated_at 倒序进列表）→ 新会话成为当前会话（视图已在聊天）；
 // - 删除：条目删除钮 → Dialog 确认（文案明示「聊天记录软删除」，ADR-009）→
 //   deleteSession → store.removeSession（当前会话指向被删项时置空，回聊天
 //   空态）→ 全量重拉对齐；
@@ -42,14 +42,18 @@ import { useTranslation } from 'react-i18next';
 import {
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react';
 import type { CSSProperties } from 'react';
 import { createSession, deleteSession, listCharacters } from '../../api/commands';
-import type { CharacterSummary, SessionOpeningInput, SessionSummary } from '../../api/types';
+import type {
+  CharacterSummary,
+  SessionOpeningInput,
+  SessionRosterMember,
+  SessionSummary,
+} from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
 import { formatRelative } from '../../lib/relativeTime';
@@ -278,15 +282,13 @@ export function Sidebar() {
     return () => window.clearTimeout(timer);
   }, [hint]);
 
-  const charactersById = useMemo(
-    () => new Map((characters ?? []).map((c) => [c.id, c])),
-    [characters],
-  );
-
-  // 条目标题：库中标题为空（新建会话尚无首条用户消息）时回退角色名
+  // 条目标题：库中标题为空（新建会话尚无首条用户消息）时回退用户位实例名——
+  // 多角色第 1 步起 characterName 派生来源从会话角色改为 roster 回显的用户位
+  // 实例（方案 §2.1「侧栏读 is_user」）；instances 缺席（契约 stub 可选字段
+  // 未回显）时维持「新会话」占位。
   const displayTitle = (session: SessionSummary): string => {
     if (session.title !== '') return session.title;
-    return charactersById.get(session.characterId)?.name ?? t('sessions.untitled');
+    return session.instances?.find((i) => i.isUser)?.name ?? t('sessions.untitled');
   };
 
   // 两段式收起：宽度过渡播完再藏 inner（隐藏后内容不可聚焦），展开时立即可见
@@ -346,17 +348,17 @@ export function Sidebar() {
     }
   };
 
-  // 新建会话（验收 1 / FR-014 开局向导）：createSession（opening = null 即「直接
-  // 开始」降级路径，后端同样 seed 默认锚开场行）→ 全量重拉（updated_at 倒序进列表）
-  // → 成为当前会话（selectSession 同时保证视图切到聊天）
-  const createFromCharacter = async (
-    characterId: number,
+  // 新建会话（验收 1 / FR-014 开局向导两步选人）：createSession（阵容制 members，
+  // opening = null 即「直接开始」降级路径，后端同样 seed 默认锚开场行）→ 全量
+  // 重拉（updated_at 倒序进列表）→ 成为当前会话（selectSession 同时保证视图切到聊天）
+  const createFromRoster = async (
+    members: SessionRosterMember[],
     opening: SessionOpeningInput | null,
   ): Promise<void> => {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createSession(characterId, null, opening);
+      const created = await createSession(members, opening);
       await refreshSessions();
       selectSession(created.id);
       setNewOpen(false);
@@ -461,14 +463,14 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 新建会话（FR-014 两段式开局向导）：选角色 → 开局表单；表单与提交
-          逻辑内聚在 NewSessionDialog（app 层），本组件只负责开关与建会话执行 */}
+      {/* 新建会话（FR-014 三段式开局向导）：选扮演位 → 选 LLM 阵容 → 开局表单；
+          表单与提交逻辑内聚在 NewSessionDialog（app 层），本组件只负责开关与建会话执行 */}
       <NewSessionDialog
         open={newOpen}
         characters={characters}
         creating={creating}
         onOpenChange={setNewOpen}
-        onCreate={(characterId, opening) => void createFromCharacter(characterId, opening)}
+        onCreate={(members, opening) => void createFromRoster(members, opening)}
       />
 
       {/* 删除确认：文案明示「聊天记录软删除」（ADR-009） */}

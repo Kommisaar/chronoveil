@@ -1,19 +1,24 @@
 /**
- * 新建会话对话框（FR-007 / FR-014 开局向导）：侧栏「+」入口的两段式表单——
- * ① 选角色（点击锁定，可「返回重选」）；② 开局设置：历法五选（跟随角色卡 /
- * 现代公历 / 七曜和历 / 干支历 / 旧都历，选中预设显示静态样例行，不与
- * fiction_time::date_label 双写实时换算）、起始锚「第 N 天 · 时段」（六值下拉，
- * 缺省 夜）、首场景地点 / 时间原文（可选）。
+ * 新建会话对话框（FR-007 / FR-014 开局向导，多角色第 1 步两步选人改造）：
+ * 三段式——① 「你的角色」：从角色卡库单选 1 张 = 用户扮演位（D2 必选，不选
+ * 不能下一步）；② 「LLM 阵容」：多选 ≥1 张卡作为 LLM 扮演位（D5 阵容无上限；
+ * D2 允许与扮演位同卡——自己跟自己对话，UI 不禁止，扮演位卡上出「你的扮演位」
+ * 记号）；③ 开局设置：历法五选（跟随角色卡 / 现代公历 / 七曜和历 / 干支历 /
+ * 旧都历，选中预设显示静态样例行，不与 fiction_time::date_label 双写实时换算）、
+ * 起始锚「第 N 天 · 时段」（六值下拉，缺省 夜）、首场景地点 / 时间原文（可选）。
  *
- * 提交语义：「直接开始」= 降级路径，opening 传 null（后端同样无条件 seed 默认锚
- * 开场行，day=1 / part=夜 / 日历走角色卡快照，等价原有单击建会话）；「开局并开始」
- * 携带表单值。四内置预设常量与 Rust `domain/fiction_time::presets` 一一对应——
- * 前端只构造 wire DTO（camelCase），落库存储 JSON 由 Rust 序列化 domain 结构得
- * snake_case，本组件永不手写存储 JSON。预设常量 FR-014 二期起下沉
+ * 选人卡复用角色页海报卡视觉（posterGradientOf 海报渐变 + 首字/头像 + 名字条，
+ * 与 CharactersView 同一事实源），适配为对话框内的可选中迷你卡（aria-pressed
+ * 表达选中态）。提交语义：「直接开始」= 降级路径，opening 传 null（后端同样
+ * 无条件 seed 默认锚开场行，day=1 / part=夜 / 日历走会话快照）；「开局并开始」
+ * 携带表单值。阵容提交为 members（用户位在前 + LLM 位按点选序），后端逐卡
+ * 实例化快照（D1）。四内置预设常量与 Rust `domain/fiction_time::presets` 一一
+ * 对应——前端只构造 wire DTO（camelCase），落库存储 JSON 由 Rust 序列化 domain
+ * 结构得 snake_case，本组件永不手写存储 JSON。预设常量 FR-014 二期起下沉
  * src/components/calendarPresets（角色卡历法编辑共用同一事实源），本组件只消费。
  *
- * 本组件为 app 层内聚（本切片 UI 全在 app 层，不越 feature 边界）；组件全用
- * Fluent v9 既有件，表单惯例对齐 CharacterEditorDialog（Text 标签 + aria-label）。
+ * 本组件为 app 层内聚（本切片 UI 全在 app 层）；组件全用 Fluent v9 既有件，
+ * 表单惯例对齐 CharacterEditorDialog（Text 标签 + aria-label）。
  */
 import {
   Button,
@@ -30,11 +35,14 @@ import {
   RadioGroup,
   Text,
   makeStyles,
+  mergeClasses,
+  shorthands,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CharacterSummary, SessionOpeningInput } from '../../api/types';
+import type { CharacterSummary, SessionOpeningInput, SessionRosterMember } from '../../api/types';
+import { posterGradientOf } from '../../features/characters/posterGradient';
 import { CALENDAR_PRESETS, type CalendarPresetId } from '../../components/calendarPresets';
 
 /** 历法五选项键：follow = 角色卡快照兜底（wire 传 null）。 */
@@ -77,49 +85,101 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
   },
-  characterList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalXXS,
+  stepTitle: {
+    display: 'block',
     marginTop: tokens.spacingVerticalS,
-  },
-  characterItem: {
-    // 原生 button 抹平默认外观（原 Sidebar 条目 buttonReset 语义内联至此）
-    width: '100%',
-    border: 'none',
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
-    backgroundColor: 'transparent',
-    fontFamily: 'inherit',
-    fontSize: tokens.fontSizeBase300,
-    color: tokens.colorNeutralForeground1,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    minHeight: '40px',
-    borderRadius: tokens.borderRadiusMedium,
-    textAlign: 'left',
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
-    ':active': { backgroundColor: tokens.colorNeutralBackground1Pressed },
-    ':disabled': { opacity: 0.5, cursor: 'default' },
-  },
-  characterAvatar: {
-    width: '28px',
-    height: '28px',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: tokens.borderRadiusCircular,
-    backgroundColor: tokens.colorNeutralBackground3,
-    color: tokens.colorNeutralForeground2,
     fontSize: tokens.fontSizeBase300,
     fontWeight: tokens.fontWeightSemibold,
   },
-  characterName: {
+  // 选人卡网格（两步共用）：三列迷你海报卡，限高滚动（卡库可多于首屏）
+  cardGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: tokens.spacingVerticalS,
+    marginTop: tokens.spacingVerticalS,
+    maxHeight: '320px',
+    overflowY: 'auto',
+    paddingRight: tokens.spacingHorizontalXXS,
+  },
+  // 迷你海报卡：复用角色页海报视觉（渐变底 + 首字/头像 + 名字条），适配选中态
+  card: {
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    aspectRatio: '3 / 4',
+    padding: '0px',
+    // 选中圈：常态透明 2px 描边（griffel 禁 border 简写，走 shorthands 展开
+    // longhand——同 ChatView composerCard 的 focus 描边先例），选中换品牌色
+    ...shorthands.border('2px', 'solid', 'transparent'),
+    borderRadius: tokens.borderRadiusMedium,
+    overflow: 'hidden',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    ':hover': { filter: 'brightness(1.12)' },
+  },
+  cardSelected: {
+    // 选中圈：品牌色描边（渐变底上始终可辨）
+    ...shorthands.borderColor(tokens.colorBrandStroke1),
+  },
+  posterImg: {
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  letter: {
+    position: 'absolute',
+    inset: '0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: tokens.colorNeutralForegroundOnBrand,
+    fontSize: tokens.fontSizeBase500,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  // 底部压暗条（角色页 scrim 同语义）：保证名字在海报上可读
+  scrim: {
+    position: 'absolute',
+    right: '0',
+    bottom: '0',
+    left: '0',
+    height: '40%',
+    backgroundImage:
+      'linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)',
+  },
+  name: {
+    position: 'relative',
+    width: '100%',
+    padding: `0 ${tokens.spacingHorizontalS} ${tokens.spacingVerticalXXS}`,
+    color: tokens.colorNeutralForegroundOnBrand,
+    fontSize: tokens.fontSizeBase200,
+    textAlign: 'center',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  // 选中角标（右上角对勾）：aria-pressed 之外的可视冗余
+  check: {
+    position: 'absolute',
+    top: '4px',
+    right: '6px',
+    color: tokens.colorNeutralForegroundOnBrand,
+    fontSize: tokens.fontSizeBase300,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  // 扮演位记号（阵容步的已选扮演卡，左上角小徽标）
+  roleBadge: {
+    position: 'absolute',
+    top: '4px',
+    left: '4px',
+    padding: '1px 5px',
+    borderRadius: tokens.borderRadiusSmall,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    color: tokens.colorNeutralForegroundOnBrand,
+    fontSize: tokens.fontSizeBase100,
   },
   form: {
     display: 'flex',
@@ -151,35 +211,46 @@ export interface NewSessionDialogProps {
   characters: CharacterSummary[] | null;
   creating: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 提交建会话：opening = null 为「直接开始」降级路径（FR-014 §7-6）。 */
-  onCreate: (characterId: number, opening: SessionOpeningInput | null) => void;
+  /** 提交建会话：members = 阵容（用户位在前，D2 恰好一扮演位）；
+   *  opening = null 为「直接开始」降级路径（FR-014 §7-6）。 */
+  onCreate: (members: SessionRosterMember[], opening: SessionOpeningInput | null) => void;
 }
 
-/** 新建会话两段式对话框（FR-014 开局向导）。 */
+/** 新建会话三段式对话框（FR-014 开局向导 + 两步选人）。 */
 export function NewSessionDialog(props: NewSessionDialogProps) {
   const { open, characters, creating, onOpenChange, onCreate } = props;
   const styles = useStyles();
   const { t } = useTranslation();
 
-  const [stage, setStage] = useState<'pick' | 'form'>('pick');
-  const [selected, setSelected] = useState<CharacterSummary | null>(null);
-  // —— 开局表单（切换角色时重置回缺省值）——
+  const [stage, setStage] = useState<'pickUser' | 'pickRoster' | 'form'>('pickUser');
+  const [userId, setUserId] = useState<number | null>(null);
+  // LLM 阵容：点选序（Set 保序去重），可含扮演位同卡（D2）
+  const [roster, setRoster] = useState<number[]>([]);
+  // —— 开局表单（进入表单步时重置回缺省值，不残留上次草稿）——
   const [preset, setPreset] = useState<PresetKey>('follow');
   const [ficDay, setFicDay] = useState('1');
   const [ficPart, setFicPart] = useState('夜');
   const [location, setLocation] = useState('');
   const [timeNote, setTimeNote] = useState('');
 
-  // 每次打开回到选角色态（表单值随选角重置，不残留上次草稿）
+  // 每次打开回到第一步选人态（全部选择与表单草稿重置，不残留上次）
   useEffect(() => {
     if (open) {
-      setStage('pick');
-      setSelected(null);
+      setStage('pickUser');
+      setUserId(null);
+      setRoster([]);
     }
   }, [open]);
 
-  const pickCharacter = (character: CharacterSummary): void => {
-    setSelected(character);
+  const userCharacter = characters?.find((c) => c.id === userId) ?? null;
+
+  const advanceToRoster = (): void => {
+    if (userId !== null) setStage('pickRoster');
+  };
+
+  /** 进入表单步：重置开局草稿（从众原「选角即重置」语义，返回再进不残留）。 */
+  const advanceToForm = (): void => {
+    if (roster.length === 0) return;
     setPreset('follow');
     setFicDay('1');
     setFicPart('夜');
@@ -188,9 +259,12 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
     setStage('form');
   };
 
-  const backToPick = (): void => {
-    setStage('pick');
-    setSelected(null);
+  const toggleRoster = (characterId: number): void => {
+    setRoster((prev) =>
+      prev.includes(characterId)
+        ? prev.filter((id) => id !== characterId)
+        : [...prev, characterId],
+    );
   };
 
   /** 表单值 → wire 开局包。空串/非法数字归 None（= 后端缺省 1 / 夜）。 */
@@ -209,7 +283,16 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
     };
   };
 
-  const followCalendarName = characterCalendarName(selected?.calendarConfig ?? null);
+  /** 阵容 → wire members：用户位在前，LLM 位按点选序（后端按序实例化）。 */
+  const buildMembers = (): SessionRosterMember[] => {
+    if (userId === null) return [];
+    return [
+      { characterId: userId, isUser: true },
+      ...roster.map((characterId) => ({ characterId, isUser: false })),
+    ];
+  };
+
+  const followCalendarName = characterCalendarName(userCharacter?.calendarConfig ?? null);
   const followLabel = followCalendarName
     ? t('sessions.wizard.followWithCalendar', { name: followCalendarName })
     : t('sessions.wizard.followWithoutCalendar');
@@ -220,35 +303,81 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
     return part === undefined ? value : t(part.labelKey);
   };
 
+  /** 选人卡（两步共用）：单选步传 selectedId 与 onSelect(单值语义)，阵容步传
+   *  selectedIds 与 onSelect(切换语义)。userBadge = 阵容步的扮演位记号 id。 */
+  const renderCardGrid = (options: {
+    selectedIds: number[];
+    onToggle: (characterId: number) => void;
+    userBadgeId: number | null;
+  }): ReactNode => {
+    if (characters === null) return null;
+    if (characters.length === 0) {
+      return <div className={styles.dialogHint}>{t('sessions.noCharacters')}</div>;
+    }
+    return (
+      <div className={styles.cardGrid}>
+        {characters.map((character) => {
+          const selected = options.selectedIds.includes(character.id);
+          return (
+            <button
+              key={character.id}
+              type="button"
+              className={mergeClasses(styles.card, selected && styles.cardSelected)}
+              style={{ backgroundImage: posterGradientOf(character) }}
+              aria-pressed={selected}
+              disabled={creating}
+              onClick={() => options.onToggle(character.id)}
+            >
+              {character.avatar ? (
+                <img className={styles.posterImg} src={character.avatar} alt="" />
+              ) : (
+                <span className={styles.letter} aria-hidden="true">
+                  {character.name.slice(0, 1)}
+                </span>
+              )}
+              <span className={styles.scrim} aria-hidden="true" />
+              {options.userBadgeId === character.id && (
+                <span className={styles.roleBadge}>{t('sessions.wizard.yourRole')}</span>
+              )}
+              <span className={styles.name}>{character.name}</span>
+              {selected && (
+                <span className={styles.check} aria-hidden="true">
+                  ✓
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={(_, data) => onOpenChange(data.open)}>
       <DialogSurface aria-describedby={undefined}>
         <DialogBody>
           <DialogTitle>{t('sessions.new')}</DialogTitle>
           <DialogContent>
-            {stage === 'pick' ? (
+            {stage === 'pickUser' ? (
               <>
-                <div className={styles.dialogHint}>{t('sessions.pickCharacter')}</div>
-                {characters === null ? null : characters.length === 0 ? (
-                  <div className={styles.dialogHint}>{t('sessions.noCharacters')}</div>
-                ) : (
-                  <div className={styles.characterList}>
-                    {characters.map((character) => (
-                      <button
-                        key={character.id}
-                        type="button"
-                        className={styles.characterItem}
-                        disabled={creating}
-                        onClick={() => pickCharacter(character)}
-                      >
-                        <span className={styles.characterAvatar} aria-hidden="true">
-                          {character.name.slice(0, 1)}
-                        </span>
-                        <span className={styles.characterName}>{character.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <Text className={styles.stepTitle}>{t('sessions.wizard.stepUser')}</Text>
+                <div className={styles.dialogHint}>{t('sessions.wizard.pickUserHint')}</div>
+                {renderCardGrid({
+                  selectedIds: userId === null ? [] : [userId],
+                  onToggle: (characterId) =>
+                    setUserId((current) => (current === characterId ? null : characterId)),
+                  userBadgeId: null,
+                })}
+              </>
+            ) : stage === 'pickRoster' ? (
+              <>
+                <Text className={styles.stepTitle}>{t('sessions.wizard.stepRoster')}</Text>
+                <div className={styles.dialogHint}>{t('sessions.wizard.rosterHint')}</div>
+                {renderCardGrid({
+                  selectedIds: roster,
+                  onToggle: toggleRoster,
+                  userBadgeId: userId,
+                })}
               </>
             ) : (
               <div className={styles.form}>
@@ -337,26 +466,48 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
               </div>
             )}
           </DialogContent>
-          {stage === 'form' && selected !== null && (
-            <DialogActions>
-              <Button disabled={creating} onClick={backToPick}>
-                {t('sessions.wizard.back')}
-              </Button>
-              <Button
-                disabled={creating}
-                onClick={() => onCreate(selected.id, null)}
-              >
-                {t('sessions.wizard.startDirectly')}
-              </Button>
+          <DialogActions>
+            {stage === 'pickUser' && (
               <Button
                 appearance="primary"
-                disabled={creating}
-                onClick={() => onCreate(selected.id, buildOpening())}
+                disabled={creating || userId === null}
+                onClick={advanceToRoster}
               >
-                {t('sessions.wizard.startWithOpening')}
+                {t('sessions.wizard.next')}
               </Button>
-            </DialogActions>
-          )}
+            )}
+            {stage === 'pickRoster' && (
+              <>
+                <Button disabled={creating} onClick={() => setStage('pickUser')}>
+                  {t('sessions.wizard.back')}
+                </Button>
+                <Button
+                  appearance="primary"
+                  disabled={creating || roster.length === 0}
+                  onClick={advanceToForm}
+                >
+                  {t('sessions.wizard.next')}
+                </Button>
+              </>
+            )}
+            {stage === 'form' && (
+              <>
+                <Button disabled={creating} onClick={() => setStage('pickRoster')}>
+                  {t('sessions.wizard.back')}
+                </Button>
+                <Button disabled={creating} onClick={() => onCreate(buildMembers(), null)}>
+                  {t('sessions.wizard.startDirectly')}
+                </Button>
+                <Button
+                  appearance="primary"
+                  disabled={creating}
+                  onClick={() => onCreate(buildMembers(), buildOpening())}
+                >
+                  {t('sessions.wizard.startWithOpening')}
+                </Button>
+              </>
+            )}
+          </DialogActions>
         </DialogBody>
       </DialogSurface>
     </Dialog>

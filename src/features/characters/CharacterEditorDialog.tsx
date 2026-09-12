@@ -1,16 +1,16 @@
 /**
  * 角色卡编辑器（2026-09-09 推倒重做后用户定稿：左满高海报 + 右设置面板）。
  *
- * - 布局：左侧 280px 电影海报占满整列（渐变 + 首字水印 + 名字 +
- *   出场风格，随输入实时更新，与海报墙语言统一），右侧为中性面板
+ * - 布局：左侧 280px 电影海报占满整列（editor/PosterPane：渐变 + 首字水印 +
+ *   名字 + 出场风格，随输入实时更新，与海报墙语言统一），右侧为中性面板
  *   （标题 / 表单 / 动作；2026-09-09 用户定稿：右栏不带背景色，主题交给
  *   左海报）；
  * - 强调色即角色主色：accent_color（迁移 0003）设了就整卡覆盖（海报墙与
  *   本海报同规则 posterGradientOf），未设按 id 取模；表单内色板可改；
  * - 表单逻辑（状态 / 脏比对 / 模型覆写 / 预览引擎）全部在 editor/useEditorForm，
- *   字段级组件在 editor/pieces——本文件只是排版壳；历法区块（FR-014 二期，
- *   editor/CalendarSection + CalendarDraftDialog）挂在人设与出场动画之间，
- *   应用 AI 草稿只填编辑态，落库仍走保存的整卡流；
+ *   字段级组件在 editor/pieces 与 editor/IdentityField——本文件只是排版壳；
+ *   历法区块（FR-014 二期，editor/CalendarSection + CalendarDraftDialog）挂
+ *   在人设与出场动画之间，应用 AI 草稿只填编辑态，落库仍走保存的整卡流；
  * - Fluent 坑位备忘：非模态对话框的关闭按钮经 DialogTitle action 插槽落为
  *   标题的兄弟节点（flex 流里会折到标题下方），须插槽 + 绝对定位钉右上角；
  *   DialogBody 原生 grid 轨道按内容收缩，子元素满宽须显式接管布局；
@@ -20,13 +20,10 @@
  * - 动画契约：open=false 表示「退场中」——本组件留在挂载树播完出场动画
  *   （keyframes 在 app.css，Griffel 类经 mergeClasses 挂载），计时到点回调
  *   onClosed，父级才真正卸载；因此关闭永远有退场，无论哪条路径发起。
- * - 共享元素过渡：面板本体走 FLIP 行内变换——挂载时把面板钉到触发卡片
- *   的矩形（translate+scale），再过渡回位；退场反向缩回卡片。进场形变
- *   用弹簧曲线 SPRING_CURVE（与卡片入场/悬停同一「弹簧语言」，会过冲
- *   一点点再落定），退场保持减速安静。矩形由父级
- *   getTriggerRect 现测（查不到，如软删后的卡片，退化为纯淡出）；动态值
- *   进不了 Griffel keyframes，所以面板形变是 useLayoutEffect 内的行内
- *   style，keyframes 只管背板淡化与 body 内容交叉淡化。
+ *   面板本体的共享元素 FLIP 形变在 editor/useSurfaceMorph（弹簧进 / 减速
+ *   退，矩形由父级 getTriggerRect 现测）；surface 与背板纯淡化走静态
+ *   keyframes，body 内容交叉淡化（晚于形变淡入，遮住缩放挤压），退场期
+ *   掐交互。reduced-motion 门控在 @media 内。
  */
 import {
   Button,
@@ -36,32 +33,23 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
-  Input,
   Text,
   Textarea,
   makeStyles,
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkmark20Regular, Edit20Regular } from '@fluentui/react-icons';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
-import { SPRING_CURVE } from '../../components/motion';
 import { CalendarDraftDialog } from './editor/CalendarDraftDialog';
 import { CalendarSection } from './editor/CalendarSection';
-import { AccentColorPicker } from './editor/AccentColorPicker';
+import { IdentityField } from './editor/IdentityField';
+import { PosterPane } from './editor/PosterPane';
 import { OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
-
-/** FLIP 时长：进场形变 400ms 弹簧（过冲后落定，与卡片入场同一节奏），
-    退场 200ms 减速安静；EXIT_MS 含余量，到点卸载。 */
-const ENTER_MS = 400;
-const MORPH_MS = 200;
-const EXIT_MS = 210;
-
-const morphable = (): boolean =>
-  !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+import { useSurfaceMorph } from './editor/useSurfaceMorph';
 
 const useStyles = makeStyles({
   // padding 0：海报顶天立地贴满左缘，内边距交给右栏各段
@@ -98,10 +86,9 @@ const useStyles = makeStyles({
       "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.05'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
     backdropFilter: 'blur(18px) saturate(1.4)',
   },
-  // —— 进出场。面板形变是 DialogBody 上的 FLIP 行内变换（见文件头与
-  // runEnter/退场 effect）；surface 与背板纯淡化走静态 keyframes，body
-  // 内容交叉淡化（晚于形变淡入，遮住缩放挤压）、退场期掐交互。
-  // reduced-motion 门控在 @media 内。
+  // —— 进出场。面板形变是 surface 上的 FLIP 行内变换（见文件头与
+  // useSurfaceMorph）；surface 与背板纯淡化走静态 keyframes，body 内容
+  // 交叉淡化（晚于形变淡入，遮住缩放挤压）、退场期掐交互。
   surfaceIn: {
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-fade-in',
@@ -163,66 +150,6 @@ const useStyles = makeStyles({
     alignItems: 'stretch',
     height: '100%',
   },
-  // —— 左：电影海报占满整列 ——
-  poster: {
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  posterLetter: {
-    position: 'absolute',
-    top: '24px',
-    left: '0px',
-    right: '0px',
-    textAlign: 'center',
-    fontSize: '72px',
-    fontWeight: tokens.fontWeightSemibold,
-    lineHeight: 1,
-    color: 'rgba(255, 255, 255, 0.24)',
-    userSelect: 'none',
-    // 与海报墙一致：不加 textShadow（半透明填充透出暗晕像污渍）
-  },
-  posterScrim: {
-    position: 'absolute',
-    left: '0px',
-    right: '0px',
-    bottom: '0px',
-    height: '55%',
-    pointerEvents: 'none',
-    backgroundImage:
-      'linear-gradient(180deg, rgba(14, 13, 22, 0) 0%, rgba(14, 13, 22, 0.55) 45%, rgba(13, 12, 20, 0.92) 100%)',
-  },
-  posterContent: {
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    padding: tokens.spacingVerticalL,
-  },
-  posterName: {
-    fontSize: tokens.fontSizeBase400,
-    fontWeight: tokens.fontWeightSemibold,
-    color: '#ffffff',
-    wordBreak: 'break-word',
-  },
-  posterMeta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    marginTop: '4px',
-  },
-  posterMetaText: {
-    color: 'rgba(255, 255, 255, 0.66)',
-    fontSize: tokens.fontSizeBase200,
-  },
-  posterDot: {
-    width: '8px',
-    height: '8px',
-    borderRadius: tokens.borderRadiusCircular,
-    flexShrink: 0,
-  },
   // —— 右：标题/表单/动作三段；surface padding 归零后由各段给内边距。
   // 关闭按钮经 action 插槽绝对定位右上角（原生会折到标题下一行）。
   rightCol: {
@@ -232,44 +159,18 @@ const useStyles = makeStyles({
     minWidth: '0px',
     minHeight: '0px',
   },
-  // 首行：名称（展示态 + 行内重命名）与强调色板同行（2026-09-09 定稿排版）
-  nameRow: {
+  titleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 56px 0px 24px',
+  },
+  // 人设段标签行：与身份行 nameRow 同一排版约定（标签 + 行内切换按钮同行）
+  labelRow: {
     display: 'flex',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: tokens.spacingHorizontalS,
     rowGap: tokens.spacingVerticalS,
-  },
-  nameValue: {
-    fontSize: tokens.fontSizeBase400,
-    fontWeight: tokens.fontWeightSemibold,
-    // 长名截断防把同行色板挤下折（色板自身 flexWrap 可换行兜底）
-    maxWidth: '260px',
-    overflow: 'hidden',
-    whiteSpace: 'nowrap',
-    textOverflow: 'ellipsis',
-  },
-  nameInput: {
-    width: '200px',
-    minWidth: '0px',
-  },
-  // 性别 / 年龄行内输入：短宽度，空间不足随行折行
-  metaInput: {
-    width: '96px',
-    minWidth: '0px',
-  },
-  ageInput: {
-    width: '72px',
-    minWidth: '0px',
-  },
-  // 展示态元数据文本：次级于名称（常规字重），禁收缩防挤压变形
-  metaItem: {
-    flexShrink: 0,
-  },
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '14px 56px 0px 24px',
   },
   titleAction: {
     position: 'absolute',
@@ -343,29 +244,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   const field = useFieldStyles();
   const { t } = useTranslation();
   const form = useEditorForm({ character, onDirtyChange });
-
-  // 身份行（名称/性别/年龄）行内编辑：编辑态默认展示文本，点铅笔进输入态；
-  // Enter 提交回展示态，Esc 还原进输入前的值。新建（character = null）直接
-  // 以输入态起步。刻意不做失焦提交：Fluent 的焦点管理（tabster）会在开
-  // 面板时挪走焦点，blur 一触发就把输入态弹回展示态；表单值本随键入实时
-  // 更新，「编辑态」只是展示形态，不依赖失焦收口。
-  const [editingName, setEditingName] = useState(character === null);
-  const identityBeforeEditRef = useRef({ name: '', gender: '', age: '' });
-  const startEditName = (): void => {
-    identityBeforeEditRef.current = { name: form.name, gender: form.gender, age: form.age };
-    setEditingName(true);
-  };
-  const commitIdentity = (): void => setEditingName(false);
-  const cancelIdentity = (): void => {
-    form.setName(identityBeforeEditRef.current.name);
-    form.setGender(identityBeforeEditRef.current.gender);
-    form.setAge(identityBeforeEditRef.current.age);
-    setEditingName(false);
-  };
-  const identityKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter') commitIdentity();
-    if (e.key === 'Escape') cancelIdentity();
-  };
+  const { surfaceRef } = useSurfaceMorph({ open, onClosed, getTriggerRect });
 
   // 人设（2026-09-10）：默认 markdown 渲染展示（与聊天同语法语义），按钮
   // 切到输入态——与名称行同一「展示态 + 行内编辑」语言；多行文本没有
@@ -374,58 +253,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
 
   // AI 起草历法对话框：与主对话框同挂载层（非内嵌），关闭 = 放弃在途草稿。
   const [draftOpen, setDraftOpen] = useState(false);
-
-  const surfaceRef = useRef<HTMLDivElement | null>(null);
-  const onClosedRef = useRef(onClosed);
-  onClosedRef.current = onClosed;
-  const getTriggerRectRef = useRef(getTriggerRect);
-  getTriggerRectRef.current = getTriggerRect;
-
-  /** FLIP 起点：把面板钉到触发元素矩形再过渡回原位。用「改起点 →
-      offsetWidth 冲刷提交 → 改终点」的同步节奏触发 transition，不依赖
-      rAF（后台/遮挡标签页 rAF 会被节流，transition 在合成器照常推进）；
-      透明度交给 surface 的 keyframes，这里只动 transform。 */
-  const runEnter = () => {
-    const el = surfaceRef.current;
-    if (!el || !morphable()) return;
-    el.style.transition = 'none';
-    el.style.transform = 'none';
-    void el.offsetWidth; // 冲刷①：提交重置态，排除残留 transform 的测量污染
-    const rect = el.getBoundingClientRect();
-    const tr = getTriggerRectRef.current?.() ?? null;
-    if (!tr || rect.width <= 0 || rect.height <= 0) return;
-    const dx = tr.left + tr.width / 2 - (rect.left + rect.width / 2);
-    const dy = tr.top + tr.height / 2 - (rect.top + rect.height / 2);
-    el.style.transform = `translate(${dx}px, ${dy}px) scale(${tr.width / rect.width}, ${tr.height / rect.height})`;
-    void el.offsetWidth; // 冲刷②：提交钉住态作为过渡起点
-    el.style.transition = `transform ${ENTER_MS}ms ${SPRING_CURVE}`;
-    el.style.transform = 'none';
-  };
-
-  useLayoutEffect(runEnter, []);
-
-  // 退场：反向 FLIP 缩回触发元素（surface 同时 keyframes 淡出），EXIT_MS
-  // 到点通知父级卸载。cleanup 恢复进场起点——退场中途重开同一目标时复播。
-  useEffect(() => {
-    if (open) return;
-    const el = surfaceRef.current;
-    if (el && morphable()) {
-      const rect = el.getBoundingClientRect();
-      const tr = getTriggerRectRef.current?.() ?? null;
-      if (tr && rect.width > 0 && rect.height > 0) {
-        const dx = tr.left + tr.width / 2 - (rect.left + rect.width / 2);
-        const dy = tr.top + tr.height / 2 - (rect.top + rect.height / 2);
-        el.style.transition = `transform ${MORPH_MS}ms var(--curveAccelerateMid)`;
-        void el.offsetWidth; // 冲刷：确保新 transition 从当前态起步
-        el.style.transform = `translate(${dx}px, ${dy}px) scale(${tr.width / rect.width}, ${tr.height / rect.height})`;
-      }
-    }
-    const timer = window.setTimeout(() => onClosedRef.current(), EXIT_MS);
-    return () => {
-      window.clearTimeout(timer);
-      runEnter();
-    };
-  }, [open]);
 
   return (
     <>
@@ -461,26 +288,12 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
           )}
         >
           {/* 左：电影海报占满整列（纯预览随表单输入更新；对读屏隐藏防重复） */}
-          <aside
-            className={styles.poster}
-            style={{ backgroundImage: form.live.posterGradient }}
-            aria-hidden
-          >
-            {/* 首字水印跟随海报名的回退名：新建空名时与海报名一致取
-                「新」，比 72px 的间隔号「·」缩成一粒悬浮小点更成海报 */}
-            <Text className={styles.posterLetter}>{form.live.nameText.slice(0, 1)}</Text>
-            <div className={styles.posterScrim} />
-            <div className={styles.posterContent}>
-              <Text className={styles.posterName}>{form.live.nameText}</Text>
-              <div className={styles.posterMeta}>
-                <span
-                  className={styles.posterDot}
-                  style={{ backgroundImage: form.live.dotGradient }}
-                />
-                <Text className={styles.posterMetaText}>{form.live.styleLabel}</Text>
-              </div>
-            </div>
-          </aside>
+          <PosterPane
+            posterGradient={form.live.posterGradient}
+            nameText={form.live.nameText}
+            dotGradient={form.live.dotGradient}
+            styleLabel={form.live.styleLabel}
+          />
           {/* 右：中性面板上的标题 / 表单 / 动作（主题交给左海报） */}
           <div className={styles.rightCol}>
             <DialogTitle className={styles.titleRow} action={{ className: styles.titleAction }}>
@@ -488,80 +301,25 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
             </DialogTitle>
             <DialogContent className={styles.content}>
               <div className={styles.form}>
-                {/* 首行：名称 + 强调色同行。展示态名称是纯文本 + 铅笔按钮，
-                    输入态经行内 Input（Enter/失焦提交，Esc 还原）；空名时
-                    canSave 关掉并提示，色板提行折行兜底（nameRow flexWrap）。 */}
+                {/* 首行：名称 + 强调色同行（editor/IdentityField 展示态 +
+                    行内编辑；空名时 canSave 关掉并出必填提示，色板提行
+                    折行兜底）。 */}
+                <IdentityField
+                  nameText={form.live.nameText}
+                  name={form.name}
+                  gender={form.gender}
+                  age={form.age}
+                  onNameChange={form.setName}
+                  onGenderChange={form.setGender}
+                  onAgeChange={form.setAge}
+                  accentColor={form.accentColor}
+                  baseColor={form.live.baseColor}
+                  onAccentColorChange={form.setAccentColor}
+                  startInEdit={character === null}
+                  canSave={form.canSave}
+                />
                 <div className={field.field}>
-                  <div className={styles.nameRow}>
-                    <Text size={300} weight="semibold">
-                      {t('characters.nameLabel')}
-                    </Text>
-                    {editingName ? (
-                      <>
-                        <Input
-                          className={styles.nameInput}
-                          value={form.name}
-                          onChange={(_, d) => form.setName(d.value)}
-                          aria-label={t('characters.name')}
-                          autoFocus
-                          onKeyDown={identityKeyDown}
-                        />
-                        <Input
-                          className={styles.metaInput}
-                          value={form.gender}
-                          onChange={(_, d) => form.setGender(d.value)}
-                          aria-label={t('characters.gender')}
-                          placeholder={t('characters.genderPlaceholder')}
-                          onKeyDown={identityKeyDown}
-                        />
-                        <Input
-                          className={styles.ageInput}
-                          value={form.age}
-                          onChange={(_, d) => form.setAge(d.value)}
-                          aria-label={t('characters.age')}
-                          placeholder={t('characters.agePlaceholder')}
-                          onKeyDown={identityKeyDown}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <Text size={300} weight="semibold" className={styles.nameValue}>
-                          {form.live.nameText}
-                        </Text>
-                        {/* 元数据只展示非空项（用户定稿：空值不占位） */}
-                        {form.gender.trim() ? (
-                          <Text size={300} className={styles.metaItem}>
-                            {t('characters.genderLabel')}
-                            {form.gender}
-                          </Text>
-                        ) : null}
-                        {form.age.trim() ? (
-                          <Text size={300} className={styles.metaItem}>
-                            {t('characters.ageLabel')}
-                            {form.age}
-                          </Text>
-                        ) : null}
-                        <Button
-                          appearance="subtle"
-                          size="small"
-                          icon={<Edit20Regular />}
-                          aria-label={t('characters.rename')}
-                          title={t('characters.rename')}
-                          onClick={startEditName}
-                        />
-                      </>
-                    )}
-                    {/* 强调色取色器直接跟在名称后（Office 风格色块下拉） */}
-                    <AccentColorPicker
-                      accentColor={form.accentColor}
-                      baseColor={form.live.baseColor}
-                      onChange={form.setAccentColor}
-                    />
-                  </div>
-                  {!form.canSave ? <Text size={200}>{t('characters.nameRequired')}</Text> : null}
-                </div>
-                <div className={field.field}>
-                  <div className={styles.nameRow}>
+                  <div className={styles.labelRow}>
                     <Text size={300} weight="semibold">
                       {t('characters.persona')}
                     </Text>

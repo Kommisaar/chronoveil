@@ -27,6 +27,10 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // LLM 调用轨迹（透明化功能）：llm_calls 新表——每次 LLM HTTP 请求一条完整
     // 轨迹（kind 四类 / usage 可空 / status 二值），日志性质数据不做软删除
     (8, include_str!("../../../migrations/0008_llm_calls.sql")),
+    // 多角色群像地基（方案《多角色与时间线-最终》§2 第 1 步，D1/D2/D8）：
+    // character_instances 新表 + sessions/messages/character_state 三处换挂
+    // （sessions DROP character_id；messages 死列换 instance_id；状态挂 instance_id）
+    (9, include_str!("../../../migrations/0009_character_instances.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。
@@ -122,7 +126,7 @@ mod tests {
             let rows = stmt.query_map([], |r| r.get(0)).unwrap();
             rows.collect::<Result<Vec<_>, _>>().unwrap()
         };
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8], "旧版本记录保留，新版本追加");
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9], "旧版本记录保留，新版本追加");
 
         // 旧数据逐字段原样（验收 1：迁移不丢数据）
         let (name, persona): (String, String) = conn
@@ -146,30 +150,34 @@ mod tests {
             .unwrap();
         assert_eq!((content.as_str(), count), ("你好", 1), "消息行数不增不减");
 
-        // 新列就位且对旧行为 NULL（可空扩列）
+        // 新列就位且对旧行为 NULL（可空扩列）；
+        // 0009 起 messages.character_id 死列移除、换挂 instance_id（方案 §2.2）。
         let column_names = |table: &str| -> Vec<String> {
             let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
             let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
             rows.map(|r| r.unwrap()).collect()
         };
         let msg_cols = column_names("messages");
-        for col in ["scene_id", "character_id"] {
-            assert!(msg_cols.iter().any(|c| c == col), "messages.{col} 缺失");
-        }
+        assert!(msg_cols.iter().any(|c| c == "scene_id"), "messages.scene_id 缺失");
+        assert!(msg_cols.iter().any(|c| c == "instance_id"), "messages.instance_id 缺失");
+        assert!(
+            !msg_cols.iter().any(|c| c == "character_id"),
+            "messages.character_id 死列应已移除（迁移 0009）"
+        );
         for table in ["characters", "sessions"] {
             assert!(
                 column_names(table).iter().any(|c| c == "calendar_config"),
                 "{table}.calendar_config 缺失"
             );
         }
-        let (msg_scene, msg_char): (Option<i64>, Option<i64>) = conn
+        let (msg_scene, msg_inst): (Option<i64>, Option<i64>) = conn
             .query_row(
-                "SELECT scene_id, character_id FROM messages WHERE id = 300",
+                "SELECT scene_id, instance_id FROM messages WHERE id = 300",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!((msg_scene, msg_char), (None, None), "旧行扩列为 NULL");
+        assert_eq!((msg_scene, msg_inst), (None, None), "旧行扩列为 NULL");
         let old_cal: Option<String> = conn
             .query_row(
                 "SELECT calendar_config FROM characters WHERE id = 1",
@@ -381,5 +389,148 @@ mod tests {
         ] {
             assert!(conn.execute_batch(bad).is_err(), "值域外的值必须被 CHECK 拒绝：{bad}");
         }
+    }
+
+    /// 0009（多角色群像地基，方案 §2 第 1 步）：character_instances 新表形状与值域、
+    /// 三处换挂（sessions 无 character_id / messages 挂 instance_id / 状态挂
+    /// instance_id + (instance_id, key) 唯一）、旧行数据平移不丢（D8 不回填新列）。
+    #[test]
+    fn migration_0009_builds_instances_and_rewires_ownership() {
+        let conn = Connection::open_in_memory().unwrap();
+        // 手工推进到版本 8（0008 形态既有库），预置数据后让 run() 只应用 0009。
+        for (version, sql) in &MIGRATIONS[..8] {
+            conn.execute_batch(sql).unwrap();
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?1, 0)",
+                [version],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO characters (id, name, persona, render_style, created_at, updated_at) \
+             VALUES (1, '苏鸢', '守夜人', 'type', 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, character_id, title, created_at, updated_at) \
+             VALUES (20, 1, '旧会话', 2, 3)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, content, created_at) \
+             VALUES (300, 20, 'user', '你好', 4)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scenes (id, session_id, idx, present) VALUES (500, 20, 0, '[1]')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO character_state (character_id, session_id, scope, \"key\", value, updated_at) \
+             VALUES (1, 20, 'state', '情绪', '警觉', 6)",
+            [],
+        )
+        .unwrap();
+
+        run(&conn).unwrap();
+
+        // 数据平移：sessions / messages / scenes 逐行幸存；character_state 旧行不搬运
+        // （instance_id NOT NULL 无法机械回填，D8 预发布无存量数据）。
+        let title: String = conn
+            .query_row("SELECT title FROM sessions WHERE id = 20", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "旧会话");
+        let (content, instance): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT content, instance_id FROM messages WHERE id = 300",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((content.as_str(), instance), ("你好", None), "消息行幸存，instance_id 旧行 NULL");
+        let present: String = conn
+            .query_row("SELECT present FROM scenes WHERE id = 500", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(present, "[1]", "scenes 行原样平移（内容语义升级不回填，D8）");
+        let states: i64 = conn.query_row("SELECT COUNT(*) FROM character_state", [], |r| r.get(0)).unwrap();
+        assert_eq!(states, 0, "状态旧行不迁移（D8）");
+
+        // 换挂断言：sessions / messages 无 character_id 残留；character_state 挂 instance_id。
+        let column_names = |table: &str| -> Vec<String> {
+            let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert!(
+            !column_names("sessions").iter().any(|c| c == "character_id"),
+            "sessions.character_id 应已移除（D2 扮演位由 is_user 表达）"
+        );
+        assert!(
+            !column_names("messages").iter().any(|c| c == "character_id"),
+            "messages.character_id 死列应已移除"
+        );
+        for table in ["sessions", "character_instances", "messages", "scenes"] {
+            assert!(
+                column_names(table).iter().any(|c| c == "deleted_at"),
+                "{table}.deleted_at 缺失（ADR-009）"
+            );
+        }
+        // 实例表形状与值域（CHECK is_user IN (0,1)）。
+        let inst_cols = column_names("character_instances");
+        for col in [
+            "id", "session_id", "character_id", "name", "persona", "render_style", "is_user",
+            "created_at", "deleted_at",
+        ] {
+            assert!(inst_cols.iter().any(|c| c == col), "character_instances.{col} 缺失");
+        }
+        conn.execute(
+            "INSERT INTO character_instances (session_id, name, persona, render_style, is_user, created_at) \
+             VALUES (20, '旅人', '', 'type', 1, 10)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            conn.execute_batch(
+                "INSERT INTO character_instances (session_id, name, persona, render_style, is_user, created_at) \
+                 VALUES (20, '坏位', '', 'type', 2, 11)"
+            )
+            .is_err(),
+            "is_user 值域外必须被 CHECK 拒绝"
+        );
+        // 状态唯一索引：同 (instance_id, key) 在世行冲突；键挂新表外键。
+        conn.execute(
+            "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+             VALUES (1, 'state', '情绪', '释然', 12)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            conn.execute_batch(
+                "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+                 VALUES (1, 'relation', '情绪', 'x', 13)"
+            )
+            .is_err(),
+            "(instance_id, key) 唯一索引必须约束在世行"
+        );
+        assert!(
+            conn.execute_batch(
+                "INSERT INTO character_state (instance_id, scope, \"key\", value, updated_at) \
+                 VALUES (999, 'state', 'k', 'v', 14)"
+            )
+            .is_err(),
+            "状态外键必须指向 character_instances"
+        );
+        // 自增序列随重建延续（消息表重建后新 id 不与旧行撞号）。
+        conn.execute(
+            "INSERT INTO messages (session_id, role, content, created_at) VALUES (20, 'user', '新', 15)",
+            [],
+        )
+        .unwrap();
+        let next_id: i64 = conn.query_row("SELECT MAX(id) FROM messages", [], |r| r.get(0)).unwrap();
+        assert!(next_id > 300, "重建后自增续号：实际 {next_id}");
     }
 }

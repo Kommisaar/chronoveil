@@ -309,6 +309,9 @@ export function ChatView() {
               textarea={{
                 className: styles.input,
                 onKeyDown: (event) => {
+                  // IME 组合期（中文等输入法确认候选词）的 Enter 属编辑行为，
+                  // 不触发发送（U1），否则会发出半截消息
+                  if (event.nativeEvent.isComposing) return;
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault();
                     void onSend();

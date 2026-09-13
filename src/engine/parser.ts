@@ -44,6 +44,8 @@ export class StreamParser {
   private closerStars = 0;
   /** 连续换行计数：≥2 即段落边界（demo split(/\n{2,}/)） */
   private nlRun = 0;
+  /** 包尾挂起的 \r（可能是被网络切分的 \r\n 前半）：下一包拼回头部重走归一路，flush 按 \n 收尾 */
+  private pendingCr = false;
   /** 当前块是否已有实质内容（场景线候选只在块首成立） */
   private blockHasContent = false;
   /** 下一个非换行字符是否处于行首（流首 / 单换行后 / 空行分段后）——列表标记只在行首成立 */
@@ -54,7 +56,23 @@ export class StreamParser {
   /** 喂入到达的文本片段（网络包粒度任意），返回可立即出队的单元 */
   push(text: string): StreamUnit[] {
     const out: StreamUnit[] = [];
-    for (const ch of text) {
+    let body = text;
+    if (this.pendingCr) {
+      // 上包尾 \r 拼回头部重走同一条归一路：下包以 \n 开头则 \r\n 合并为
+      // 单个 \n，否则按孤立 \r 归 \n——跨包与同包结果逐位一致
+      body = '\r' + body;
+      this.pendingCr = false;
+    }
+    if (body.endsWith('\r')) {
+      // 包尾 \r 可能是下一包行首 \n 的前半，挂起不喂（空包不解挂起）
+      this.pendingCr = true;
+      body = body.slice(0, -1);
+    }
+    // 换行归一（2026-09-14）：\r\n → 单个 \n、孤立 \r → \n。容器 pre-wrap
+    // 渲染把 U+000D 视作换行而下方 nlRun 只计 \n，CRLF 原样进入会视觉成双换行。
+    // 纯 LF 输入此行无操作，行为逐字节不变。
+    body = body.replace(/\r\n?/g, '\n');
+    for (const ch of body) {
       if (ch === '\n') {
         this.nlRun++;
         continue;
@@ -99,6 +117,12 @@ export class StreamParser {
   /** 流结束（finish）：封存未决边界，并把最后攒住的尾巴按字面吐出 */
   flush(): StreamUnit[] {
     const out: StreamUnit[] = [];
+    if (this.pendingCr) {
+      // 流末挂起的 \r 确认为孤立换行：并入 nlRun 走既有收尾语义
+      // （单换行 → 字面 \n 单元，与前一换行连计 ≥2 → 分段），与 \n 结尾同构
+      this.pendingCr = false;
+      this.nlRun++;
+    }
     if (this.nlRun >= 2) {
       out.push(...this.sealParagraph());
       this.nlRun = 0;
@@ -121,6 +145,7 @@ export class StreamParser {
   reset(): void {
     this.clearMarker();
     this.nlRun = 0;
+    this.pendingCr = false;
     this.blockHasContent = false;
     this.lineStart = true;
   }

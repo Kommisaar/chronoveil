@@ -308,3 +308,50 @@ describe('markdown-lite 流式解析：扁平列表（2026-09-10 扩展）', () 
     expect(text(units)).toBe('- - 甲');
   });
 });
+
+describe('markdown-lite 流式解析：换行归一（\\r → \\n，2026-09-14）', () => {
+  it('CRLF 同包归一：\\r\\n 出单个换行单元，与 \\n 输入逐位一致', () => {
+    const p = new StreamParser();
+    expect(p.push('甲\r\n乙')).toEqual(new StreamParser().push('甲\n乙'));
+  });
+
+  it('CRLF 跨包切分：包尾 \\r 挂起，与下包行首 \\n 合并为单个换行', () => {
+    const p = new StreamParser();
+    expect(p.push('甲\r')).toEqual([{ t: '甲', a: false, b: false }]);
+    expect(p.push('\n乙')).toEqual([
+      { t: '\n', a: false, b: false },
+      { t: '乙', a: false, b: false },
+    ]);
+    expect(p.flush()).toEqual([]);
+  });
+
+  it('孤立 \\r 归一为换行；\\r\\r\\n 连计为空行分段（≡ \\n\\n）', () => {
+    const p = new StreamParser();
+    expect(p.push('甲\r乙')).toEqual([
+      { t: '甲', a: false, b: false },
+      { t: '\n', a: false, b: false },
+      { t: '乙', a: false, b: false },
+    ]);
+    const q = new StreamParser();
+    expect(q.push('甲\r\r\n乙')).toEqual([
+      { t: '甲', a: false, b: false },
+      { para: true },
+      { t: '乙', a: false, b: false },
+    ]);
+  });
+
+  it('挂起 \\r 与 nlRun 衔接：上包 \\n 结尾 + 下包孤立 \\r 成分段（≡ \\n\\n）', () => {
+    const p = new StreamParser();
+    expect(p.push('甲\n')).toEqual([{ t: '甲', a: false, b: false }]);
+    expect(p.push('\r乙')).toEqual([{ para: true }, { t: '乙', a: false, b: false }]);
+  });
+
+  it('流末以 \\r 结尾：flush 按 \\n 收尾，与 \\n 结尾同构', () => {
+    const p = new StreamParser();
+    expect(text(p.push('甲\r'))).toBe('甲');
+    expect(text(p.flush())).toBe('\n');
+    const q = new StreamParser();
+    q.push('甲\n');
+    expect(text(q.flush())).toBe('\n');
+  });
+});

@@ -172,8 +172,6 @@ export const zh = {
     animFollowingGlobal: '跟随全局 · 当前 {{value}}',
     animDurationUnit: 'ms',
     animRhythmUnit: 'ms/字',
-    sectionLook: '外观',
-    back: '返回角色',
     modelOverride: '模型覆写',
     overrideHint: '留空跟随全局设置',
     accentColor: '强调色',

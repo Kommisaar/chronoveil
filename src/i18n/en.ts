@@ -176,8 +176,6 @@ export const en = {
     animFollowingGlobal: 'Follow global · currently {{value}}',
     animDurationUnit: 'ms',
     animRhythmUnit: 'ms/char',
-    sectionLook: 'Appearance',
-    back: 'Back to characters',
     modelOverride: 'Model override',
     overrideHint: 'Leave blank to follow global',
     accentColor: 'Accent color',

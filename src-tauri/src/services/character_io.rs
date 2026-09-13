@@ -8,7 +8,7 @@
 //!   "version": 1,
 //!   "character": {
 //!     "name": "…", "avatar": null, "persona": "…", "gender": null, "age": null,
-//!     "renderStyle": "typewriter", "modelConfig": null, "accentColor": null,
+//!     "renderStyle": "type", "modelConfig": null, "accentColor": null,
 //!     "voiceConfig": null
 //!   }
 //! }

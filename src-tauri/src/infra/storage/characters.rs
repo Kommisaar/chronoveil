@@ -178,7 +178,7 @@ mod tests {
             persona: String::new(),
             gender: None,
             age: None,
-            render_style: "typewriter".into(),
+            render_style: "type".into(),
             model_config: None,
             accent_color: None,
             anim_duration_ms: None,

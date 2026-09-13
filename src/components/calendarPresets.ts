@@ -1,10 +1,11 @@
 /**
  * 内置四预设历法常量（FR-014，FR-014 二期起自开局向导下沉至此）：
- * 角色卡历法编辑（features/characters）与新建会话开局向导（app/layout）
- * 共用同一事实源——下沉理由：预设原先是 app 层 NewSessionDialog 的模块内
+ * 单一事实源——下沉理由：预设原先是 app 层 NewSessionDialog 的模块内
  * 常量，feature 依赖 app 被 ADR-010 单向依赖守卫（no-app-from-lower）禁止，
- * 按「跨域复用下沉 components」的既有出路移到本层，向导与编辑器都只消费
- * 这一份。
+ * 按「跨域复用下沉 components」的既有出路移到本层。原设计消费方之一的
+ * 角色卡历法编辑（features/characters）已随 2026-09-13 历法裁撤移除，
+ * 现行唯一生产消费方为 app/layout/NewSessionDialog；若二期历法编辑回归，
+ * 届时再评估布局，仍只消费这一份。
  *
  * 与 Rust `domain/fiction_time::presets` 一一对应；前端只构造 wire DTO
  * （camelCase），落库存储 JSON 由 Rust 序列化 domain 结构得 snake_case，

@@ -56,7 +56,7 @@ Rust 四层（`src-tauri/src/`）：`interfaces → services → domain ← infr
 - **跨文件常量互指**：同一约束的边界常量在多处出现（如历法月天数 1..=999 同时存在于校验、持久化与 AI 钳制路径）时，必须注释互指，优先编译期引用单一事实源。
 - **数据迁移兼容性暂不适用（用户指令 2026-09-12）**：应用未发布、无存量数据要保护——schema 可破坏性变更（改列/删列/重建），行为变更不需要迁移桥接，迁移文件只需保证全新库能按序建到最新。**移除条件：用户说明已发布需要考虑存量数据时，本条失效**，届时所有 schema 变更恢复「旧数据可升级」约束。
 - **cargo fmt --check 基线不净（工具链漂移，2026-09-12 实锤）**：本机 rustfmt（style-edition 2024）对全仓库约 497 文件报红，含 `build.rs` 等从未触碰的基线文件——格式基线是旧版 rustfmt 产物。例行处置：验证链以 `cargo clippy --all-targets -- -D warnings` + `cargo test` 为准，`cargo fmt --check` 不作门禁；**禁止顺手全仓库重排**（会污染纯搬移 diff 的可比对性）。移除条件：用户拍板统一升级格式基线（一次性专批全仓库 rustfmt，此后恢复 fmt 门禁）。
-- **clippy 门禁必须带 --all-targets**：`cargo clippy -- -D warnings` 不覆盖 `#[cfg(test)]` 代码——Task-34 外置的 `calendar_draft/tests.rs` lint 因此漏网，三日后被后续任务门禁暴露。例行处置：任何声称「clippy 全绿」的验证报告必须确认命令含 `--all-targets`。
+- **clippy 门禁必须带 --all-targets**：`cargo clippy -- -D warnings` 不覆盖 `#[cfg(test)]` 代码——外置测试的 lint 因此漏网（历史实锤：Task-34 外置的 `calendar_draft/tests.rs`，三日后被后续任务门禁暴露，该模块现已裁撤；现存同形态先例：`src-tauri/src/services/director/tests.rs`）。例行处置：任何声称「clippy 全绿」的验证报告必须确认命令含 `--all-targets`。
 - **vitest shared 组 isolate: false（2026-09-13 提速实锤）**：除 `isolated-styles` 组 8 个文件外，同 worker 内 jsdom 环境与 Fluent 依赖树跨文件复用；RTL 不自动 cleanup（vitest globals 未开），受前序文件 DOM 残留影响的测试文件须自行 `afterEach(cleanup)`。纯逻辑 .ts 测试可在文件头加 `// @vitest-environment node` 跳过 jsdom 创建；依赖 window / Tauri mock 的测试（如 `src/api/events.test.ts`）必须保持 jsdom。
 
 <!-- user-guidelines:start -->

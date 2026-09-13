@@ -260,6 +260,8 @@ export const zh = {
     deleteConfirmTitle: '删除模型服务',
     deleteConfirmBody: '确定删除「{{name}}」？删除后立即落盘生效。',
     deleteActiveBlocked: '该服务是当前默认，请先把「设为默认」转移到其他服务，再删除它。',
+    deleteModelConfirmTitle: '删除模型',
+    deleteModelConfirmBody: '确定删除模型「{{model}}」？该模型是本服务唯一模型或当前全局默认，删除后立即落盘生效。',
     rhythmCard: '节奏与动效',
     rhythm: '节奏（{{value}}ms/字）',
     rhythmDesc: '角色出字的间隔，值越小节奏越快',

@@ -3,7 +3,8 @@
 // 行内删除，底部添加行）+ 删除服务。全局默认是 (provider, model) 二元组，选中
 // 某模型行的单选即写入整对值；api_key 默认掩码、可见性切换（OQ-001：明文本机
 // 存储，掩码仅为输入防窥）。删除确认（含激活占用拦截）与默认选中回落由父级
-// SettingsView 承担，本组件只上报意图。
+// SettingsView 承担，本组件只上报意图。模型行删除（U4）：唯一模型或全局默认
+// 模型的行先弹确认（防抖自动落盘下误触会静默丢配置），普通行直接删保持轻快。
 import {
   Button,
   Input,
@@ -23,6 +24,7 @@ import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../api/types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { validateProvider } from './preferences';
 
 const useStyles = makeStyles({
@@ -103,6 +105,10 @@ export function ProviderCard({
   const { t } = useTranslation();
   const [keyVisible, setKeyVisible] = useState(false);
   const [newModel, setNewModel] = useState('');
+  // 待确认的模型行删除目标（U4）：null = 无；确认前不触碰 draft。
+  const [removeTarget, setRemoveTarget] = useState<{ index: number; model: string } | null>(
+    null,
+  );
 
   const validity = validateProvider(provider);
   const issues: string[] = [];
@@ -133,6 +139,19 @@ export function ProviderCard({
       e.preventDefault();
       addModel();
     }
+  };
+
+  /** 模型行删除意图入口（U4）：唯一模型或全局默认模型先弹确认（误触静默丢
+   *  配置的高危行），普通行直接删保持轻快。 */
+  const requestRemoveModel = (index: number, model: string): void => {
+    const isOnlyModel = provider.models.length === 1;
+    const isGlobalDefault =
+      isActiveProvider && activeModel !== null && activeModel === model;
+    if (isOnlyModel || isGlobalDefault) {
+      setRemoveTarget({ index, model });
+      return;
+    }
+    onRemoveModel(index);
   };
 
   return (
@@ -216,7 +235,7 @@ export function ProviderCard({
                   appearance="subtle"
                   icon={<Delete16Regular />}
                   aria-label={`${t('settings.deleteModel')} ${model}`}
-                  onClick={() => onRemoveModel(index)}
+                  onClick={() => requestRemoveModel(index, model)}
                 />
               </div>
             );
@@ -248,6 +267,28 @@ export function ProviderCard({
           {issues.join('；')}
         </Text>
       ) : null}
+
+      {/* U4 高危模型行删除确认：取消不触碰 draft；确认才上报父级（回落逻辑
+          留在父级 SettingsView 的 removeModel）。 */}
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+        title={t('settings.deleteModelConfirmTitle')}
+        content={
+          removeTarget
+            ? t('settings.deleteModelConfirmBody', { model: removeTarget.model })
+            : ''
+        }
+        confirmLabel={t('settings.deleteModel')}
+        cancelLabel={t('settings.cancel')}
+        destructive
+        onConfirm={() => {
+          if (removeTarget) onRemoveModel(removeTarget.index);
+          setRemoveTarget(null);
+        }}
+      />
     </div>
   );
 }

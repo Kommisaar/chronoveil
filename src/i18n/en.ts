@@ -267,6 +267,8 @@ export const en = {
     deleteConfirmTitle: 'Delete model service',
     deleteConfirmBody: 'Delete "{{name}}"? This takes effect immediately.',
     deleteActiveBlocked: 'This service is the current default. Move "Set as default" to another service before deleting it.',
+    deleteModelConfirmTitle: 'Delete model',
+    deleteModelConfirmBody: 'Delete model "{{model}}"? It is the only model of this service or the current global default; deletion takes effect immediately.',
     rhythmCard: 'Rhythm & motion',
     rhythm: 'Rhythm ({{value}}ms/char)',
     rhythmDesc: 'Delay between characters; lower is faster',

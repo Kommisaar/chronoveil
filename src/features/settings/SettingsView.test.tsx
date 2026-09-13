@@ -154,7 +154,7 @@ describe('SettingsView（TASK-009）', () => {
     }, AUTOSAVE_WAIT);
   });
 
-  it('验收 2：删除全局默认模型 → activeModel 回落置 null 并落盘', async () => {
+  it('验收 2：删除全局默认模型 → 确认对话框拦截（U4），确认后 activeModel 回落置 null 并落盘', async () => {
     await saveConfig(
       seedConfig({
         providers: [fullProvider({ models: ['keep', 'gone'] })],
@@ -164,6 +164,9 @@ describe('SettingsView（TASK-009）', () => {
     );
     renderSettings();
     fireEvent.click(await screen.findByRole('button', { name: '删除模型 gone' }));
+    // U4：全局默认模型是高危行，先弹确认（确认文案指明删除对象）
+    expect(await screen.findByText(/确定删除模型「gone」？/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '删除模型' }));
     await waitFor(async () => {
       const saved = await getConfig();
       expect(saved.providers[0]!.models).toEqual(['keep']);

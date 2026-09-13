@@ -335,7 +335,12 @@ export function ChatView() {
             )}
           </div>
         </div>
-        {notice !== null && <div className={styles.notice}>{notice}</div>}
+        {/* role="alert"（A1）：发送 / 生成失败的提示即时播报给读屏 */}
+        {notice !== null && (
+          <div className={styles.notice} role="alert">
+            {notice}
+          </div>
+        )}
         <div className={styles.composer}>
           {/* composer-card：全局类挂点，app.css 的 Textarea 中和样式按此收窄作用域 */}
           <div className={mergeClasses(styles.composerCard, 'composer-card')}>

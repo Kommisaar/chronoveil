@@ -206,6 +206,17 @@ it('U5：零会话空态提供「新建会话」直达钮，点击置位 store �
   expect(useUiStore.getState().newSessionOpen).toBe(true);
 });
 
+it('A1：发送失败的错误通知以 role="alert" 呈现（读屏可达）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.sendMessage.mockRejectedValue(new Error('生成服务不可达'));
+  renderView();
+  const textbox = await screen.findByRole('textbox');
+  fireEvent.change(textbox, { target: { value: '你好' } });
+  fireEvent.keyDown(textbox, { key: 'Enter' });
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('生成服务不可达');
+});
+
 it('U1：IME 组合期的 Enter 不发送，草稿保留', async () => {
   useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
   mocks.sendMessage.mockResolvedValue(USER_MESSAGE);

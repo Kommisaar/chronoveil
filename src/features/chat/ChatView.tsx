@@ -22,12 +22,14 @@ import { useTranslation } from 'react-i18next';
 import {
   cancelGeneration,
   getConfig,
+  listCharacters,
   listMessages,
   regenerateLast,
   sendMessage,
 } from '../../api/commands';
 import { isTauri } from '../../api/client';
 import type {
+  CharacterSummary,
   ChatMessage,
   ConfigDto,
 } from '../../api/types';
@@ -71,6 +73,9 @@ export function ChatView() {
   const openNewSession = useUiStore((s) => s.openNewSession);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [config, setConfig] = useState<ConfigDto | null>(null);
+  // 角色卡清单（2026-09-13 演出参数）：主 LLM 位模板卡的动画参数覆写实时
+  // 读取（不随建会话快照，区别于 D1 的 style）；拉取失败回落全局配置路径。
+  const [characterCards, setCharacterCards] = useState<CharacterSummary[]>([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -88,6 +93,11 @@ export function ChatView() {
       .then(setConfig)
       .catch(() => {
         // 渲染参数取引擎默认即可，不阻塞聊天
+      });
+    void listCharacters()
+      .then(setCharacterCards)
+      .catch(() => {
+        // 同上：卡覆写缺失时演出参数走全局配置
       });
   }, []);
 
@@ -253,11 +263,16 @@ export function ChatView() {
   // 归属，缺位就诚实缺省（'—' / 无动效参数）。
   const primaryLlm = activeRoster.find((instance) => !instance.isUser);
   const sessionSpeaker = primaryLlm?.name ?? '—';
+  // 演出参数（2026-09-13）：卡覆写优先，留空跟随全局配置，均缺省走引擎默认。
+  const primaryCard =
+    primaryLlm?.characterId != null
+      ? characterCards.find((c) => c.id === primaryLlm.characterId)
+      : undefined;
   const tuning = {
     style: primaryLlm?.renderStyle,
-    msPerChar: config?.rhythmMsPerChar,
-    punctPause: config?.punctPauseEnabled,
-    durationMs: config?.animDurationBase,
+    msPerChar: primaryCard?.animRhythmMs ?? config?.rhythmMsPerChar,
+    punctPause: primaryCard?.animPunctPause ?? config?.punctPauseEnabled,
+    durationMs: primaryCard?.animDurationMs ?? config?.animDurationBase,
   };
   const lastIsAssistant = messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
 

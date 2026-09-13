@@ -250,6 +250,11 @@ gender: string | null; age: string | null; renderStyle: string; modelConfig: str
  */
 accentColor: string | null; 
 /**
+ * 演出参数覆写（2026-09-13）：None = 跟随全局设置；范围越界经
+ * [`CharacterInput::validate`] 快速失败。
+ */
+animDurationMs: number | null; animRhythmMs: number | null; animPunctPause: boolean | null; 
+/**
  * TTS 预留缝（CON-003），前端恒传 null。
  */
 voiceConfig: string | null }
@@ -321,7 +326,12 @@ modelConfig: string | null;
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
  */
-accentColor: string | null; updatedAt: number; 
+accentColor: string | null; 
+/**
+ * 演出参数覆写（2026-09-13）：None = 跟随全局设置；聊天流按卡现值实时
+ * 读取（不随建会话快照，区别于 name / persona / render_style 的 D1）。
+ */
+animDurationMs: number | null; animRhythmMs: number | null; animPunctPause: boolean | null; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */

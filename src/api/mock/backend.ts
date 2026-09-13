@@ -372,6 +372,9 @@ export async function createCharacter(
     renderStyle: input.renderStyle,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
+    animDurationMs: input.animDurationMs,
+    animRhythmMs: input.animRhythmMs,
+    animPunctPause: input.animPunctPause,
     updatedAt: Date.now(),
     sessionCount: 0,
   };
@@ -393,6 +396,9 @@ export async function updateCharacter(
   character.renderStyle = input.renderStyle;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;
+  character.animDurationMs = input.animDurationMs;
+  character.animRhythmMs = input.animRhythmMs;
+  character.animPunctPause = input.animPunctPause;
   character.updatedAt = Date.now();
 }
 
@@ -416,6 +422,9 @@ const SAMPLE_IMPORT: CharacterInput = {
   renderStyle: 'rise',
   modelConfig: null,
   accentColor: null,
+  animDurationMs: null,
+  animRhythmMs: null,
+  animPunctPause: null,
   voiceConfig: null,
 };
 

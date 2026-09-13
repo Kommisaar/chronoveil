@@ -1,7 +1,10 @@
 /**
  * 编辑器共享 UI 件（2026-09-09 编辑器重做时抽出）：字段级组件与样式——
- * 预览框、人设预览、出场动画字段、模型覆写折叠段，由 CharacterEditorDialog
- * 排版壳复用。强调色取色器已按字段域拆至 AccentColorPicker（沿用本文件的
+ * 预览框、人设预览、输出动画卡内容、模型覆写行，由 CharacterEditorDialog
+ * 排版壳复用。2026-09-13 用户定稿：右侧表单收敛为三张分组设置卡（基础
+ * 信息 / 输出动画 / 其他配置），本文件的行级组件改用
+ * components/SettingsCard 的行语言（SettingsRow 行 + 行下全宽 cardBody）。
+ * 强调色取色器已按字段域拆至 AccentColorPicker（沿用本文件的
  * useFieldStyles）。
  */
 import { Button, Dropdown, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
@@ -11,6 +14,7 @@ import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
 import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
+import { SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
 import type { ModelOverrideFields } from './useEditorForm';
 
 /** 三壳共用的字段级样式（makeStyles 可跨组件调用）。 */
@@ -29,19 +33,22 @@ export const useFieldStyles = makeStyles({
     flexGrow: 1,
     minWidth: 0,
   },
-  sectionTitle: {
+  // 出场动画行控件：风格下拉定宽（行内控制槽右对齐，与基础信息卡行同语言）
+  stageSelect: {
+    width: '160px',
+    minWidth: '0px',
+  },
+  // 输出动画卡行 1：预览容器满宽贴卡面内距（无标题，空态提示自解释）
+  previewRow: {
+    padding: '12px 20px',
+  },
+  // 分组卡内行下的全宽内容区（演出预览框 / 覆写下拉）：随卡面 20px 内距，
+  // 底部留白到分隔线
+  cardBody: {
     display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    marginTop: tokens.spacingVerticalS,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
-    fontWeight: tokens.fontWeightSemibold,
-    '::after': {
-      content: '""',
-      flexGrow: 1,
-      borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
-    },
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalM,
+    padding: '0px 20px 12px',
   },
   // —— 强调色取色器（Office 风格下拉，2026-09-09）：无开合动画，瞬时开合。
   chipWrapper: {
@@ -204,18 +211,6 @@ export const useFieldStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
-  collapseBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    padding: '0px',
-    border: 'none',
-    backgroundColor: 'transparent',
-    color: tokens.colorNeutralForeground1,
-    cursor: 'pointer',
-    textAlign: 'left',
-    ':hover': { color: tokens.colorBrandForeground1 },
-  },
   chevron: {
     // 旋转过渡收进 no-preference 媒体块（同 useCardLiftStyles 的 reduce
     // 门控）；chevronOpen 的 transform 不门控——旋转是 aria-expanded 的
@@ -229,19 +224,12 @@ export const useFieldStyles = makeStyles({
   chevronOpen: {
     transform: 'rotate(90deg)',
   },
-  collapseBody: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalM,
-    paddingLeft: tokens.spacingHorizontalL,
-    borderLeft: `2px solid ${tokens.colorNeutralStroke2}`,
-  },
   error: {
     color: tokens.colorPaletteRedForeground1,
   },
 });
 
-/** 预览演出渲染容器 + 空态提示。 */
+/** 预览动画渲染容器 + 空态提示。 */
 export function PreviewBox(props: {
   previewRef: (node: HTMLDivElement | null) => void;
   previewed: boolean;
@@ -301,7 +289,8 @@ export function PersonaPreviewBox(props: { text: string; showHint?: boolean }) {
   );
 }
 
-/** 出场动画字段：风格下拉 + 播一次预览 + 渲染框。 */
+/** 输出动画卡内容（2026-09-13 用户定稿独立成卡）：行 1 = 预览（渲染容器
+ *  满宽），行 2 = 动画样式（风格下拉 + 播一次预览，点播上行 1）。 */
 export function PerformanceField(props: {
   renderStyle: string;
   onStyleChange: (value: string) => void;
@@ -314,30 +303,39 @@ export function PerformanceField(props: {
   const selectedStyle = ANIM_STYLES.find((s) => s.id === props.renderStyle);
   return (
     <>
-      <div className={styles.row}>
-        <Dropdown
-          className={styles.grow}
-          value={selectedStyle ? selectedStyle.label : props.renderStyle}
-          selectedOptions={selectedStyle ? [selectedStyle.id] : []}
-          onOptionSelect={(_, d) => props.onStyleChange(d.optionValue ?? '')}
-          aria-label={t('characters.renderStyle')}
-        >
-          {ANIM_STYLES.map((s) => (
-            <Option key={s.id} value={s.id} text={s.label}>
-              {s.label} · {s.id}
-            </Option>
-          ))}
-        </Dropdown>
-        <Button onClick={props.onPlay}>{t('characters.preview')}</Button>
+      <div className={styles.previewRow}>
+        <PreviewBox previewRef={props.previewRef} previewed={props.previewed} />
       </div>
-      <PreviewBox previewRef={props.previewRef} previewed={props.previewed} />
+      <SettingsDivider />
+      <SettingsRow
+        title={t('characters.renderStyle')}
+        control={
+          <div className={styles.row}>
+            <Dropdown
+              className={styles.stageSelect}
+              value={selectedStyle ? selectedStyle.label : props.renderStyle}
+              selectedOptions={selectedStyle ? [selectedStyle.id] : []}
+              onOptionSelect={(_, d) => props.onStyleChange(d.optionValue ?? '')}
+              aria-label={t('characters.renderStyle')}
+            >
+              {ANIM_STYLES.map((s) => (
+                <Option key={s.id} value={s.id} text={s.label}>
+                  {s.label} · {s.id}
+                </Option>
+              ))}
+            </Dropdown>
+            <Button onClick={props.onPlay}>{t('characters.preview')}</Button>
+          </div>
+        }
+      />
     </>
   );
 }
 
-/** 模型覆写折叠段（双层级 2026-09-09）：服务 + 该服务的模型下拉，留空跟随全局。
- *  旧数据里的 baseUrl/apiKey 覆写键不再提供输入框（连接信息归属服务级），但
- *  parse/serialize 对未知/遗留键原样保留，编辑往返不丢失。 */
+/** 模型覆写行（2026-09-13 并入「其他配置」分组卡）：行尾 chevron 开合
+ *  （aria-expanded 挂按钮），行下全宽双层级下拉（服务 + 模型），留空跟随
+ *  全局。旧数据里的 baseUrl/apiKey 覆写键不再提供输入框（连接信息归属服务
+ *  级），但 parse/serialize 对未知/遗留键原样保留，编辑往返不丢失。 */
 export function OverrideSection(props: {
   open: boolean;
   onToggle: () => void;
@@ -358,23 +356,27 @@ export function OverrideSection(props: {
       ? props.override.model
       : null;
   return (
-    <div className={styles.field}>
-      <button
-        type="button"
-        className={styles.collapseBtn}
-        aria-expanded={props.open}
-        onClick={props.onToggle}
-      >
-        <ChevronRight20Regular
-          className={mergeClasses(styles.chevron, props.open && styles.chevronOpen)}
-        />
-        <Text size={300} weight="semibold">
-          {t('characters.modelOverride')}
-        </Text>
-        <Text size={200}>{t('characters.overrideHint')}</Text>
-      </button>
+    <>
+      <SettingsRow
+        title={t('characters.modelOverride')}
+        description={t('characters.overrideHint')}
+        control={
+          <Button
+            appearance="subtle"
+            size="small"
+            aria-label={t('characters.modelOverride')}
+            aria-expanded={props.open}
+            icon={
+              <ChevronRight20Regular
+                className={mergeClasses(styles.chevron, props.open && styles.chevronOpen)}
+              />
+            }
+            onClick={props.onToggle}
+          />
+        }
+      />
       {props.open ? (
-        <div className={styles.collapseBody}>
+        <div className={styles.cardBody}>
           <label className={styles.field}>
             <Text size={200}>{t('characters.provider')}</Text>
             <Dropdown
@@ -422,6 +424,6 @@ export function OverrideSection(props: {
           </label>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

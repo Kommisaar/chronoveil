@@ -7,8 +7,12 @@
  *   左海报）；
  * - 强调色即角色主色：accent_color（迁移 0003）设了就整卡覆盖（海报墙与
  *   本海报同规则 posterGradientOf），未设按 id 取模；表单内色板可改；
- * - 表单逻辑（状态 / 脏比对 / 模型覆写 / 预览引擎）全部在 editor/useEditorForm，
+ * - 表单逻辑（状态 / 修改即保存 / 模型覆写 / 预览引擎）全部在 editor/useEditorForm，
  *   字段级组件在 editor/pieces 与 editor/IdentityField——本文件只是排版壳；
+ *   右栏 = 三张分组设置卡（2026-09-13 用户定稿）：基础信息（身份行 + 强调色 +
+ *   人设）、输出动画（预览 + 动画样式）与其他配置（模型覆写）；
+ *   2026-09-13 用户定稿：取消 / 保存按钮移除，改动经表单钩子防抖自动落库，
+ *   本文件在全部关闭路径（背板 / × / Esc）先 flushSave 补存最后一拍再请求关闭；
  *   历法不属角色卡（2026-09-13 产品裁剪），会话历法在开局向导按会话配置；
  * - Fluent 坑位备忘：非模态对话框的关闭按钮经 DialogTitle action 插槽落为
  *   标题的兄弟节点（flex 流里会折到标题下方），须插槽 + 绝对定位钉右上角；
@@ -22,7 +26,8 @@
  *   面板本体的共享元素 FLIP 形变在 editor/useSurfaceMorph（弹簧进 / 减速
  *   退，矩形由父级 getTriggerRect 现测）；surface 与背板纯淡化走静态
  *   keyframes，body 内容交叉淡化（晚于形变淡入，遮住缩放挤压），退场期
- *   掐交互。reduced-motion 门控在 @media 内。
+ *   掐交互。reduced-motion 门控在 @media 内。自动保存后无「未保存修改」，
+ *   关闭不再有丢弃确认。
  */
 import {
   Button,
@@ -33,16 +38,14 @@ import {
   DialogSurface,
   DialogTitle,
   Text,
-  Textarea,
-  Tooltip,
   makeStyles,
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Checkmark20Regular, Edit20Regular } from '@fluentui/react-icons';
+import { DUR_DEFAULT_MS, RHYTHM_DEFAULT_MS } from '../../engine';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
+import { SettingsCard, SettingsDivider } from '../../components/SettingsCard';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import {
   ACCELERATE_CURVE,
@@ -54,8 +57,10 @@ import {
   EDITOR_FADE_MS,
 } from '../../components/motion';
 import { IdentityField } from './editor/IdentityField';
+import { AnimParamRows } from './editor/AnimParamRows';
+import type { AnimDefaults } from './editor/useEditorForm';
 import { PosterPane } from './editor/PosterPane';
-import { OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
+import { OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
 import { useSurfaceMorph } from './editor/useSurfaceMorph';
 
@@ -177,14 +182,6 @@ const useStyles = makeStyles({
     alignItems: 'center',
     padding: '14px 56px 0px 24px',
   },
-  // 人设段标签行：与身份行 nameRow 同一排版约定（标签 + 行内切换按钮同行）
-  labelRow: {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: tokens.spacingHorizontalS,
-    rowGap: tokens.spacingVerticalS,
-  },
   titleAction: {
     position: 'absolute',
     top: '12px',
@@ -216,8 +213,9 @@ const useStyles = makeStyles({
 });
 
 export interface CharacterEditorDialogProps {
-  /** null = 新建；否则编辑该角色（全量字段预填，含 persona / modelConfig）。 */
-  character: CharacterSummary | null;
+  /** 编辑目标（全量字段预填，含 persona / modelConfig）；新建由父级先建卡
+   *  再进编辑器，本组件只服务编辑既有卡。 */
+  character: CharacterSummary;
   /** 可见性：false 时本组件播退场动画（仍挂载），到点回调 onClosed。 */
   open: boolean;
   /** 退场动画播完（EXIT_MS）后回调；父级据此真正卸载本组件。 */
@@ -227,15 +225,15 @@ export interface CharacterEditorDialogProps {
   getTriggerRect?: () => DOMRect | null;
   /** providers 下拉数据源（getConfig 的 providers）。 */
   providers: ProviderDto[];
-  saving: boolean;
-  /** 保存 / 删除失败的行内错误文案（父组件设置）。 */
+  /** 演出参数「跟随全局」基准（全局配置派生）；缺省回落模板默认。 */
+  animDefaults?: AnimDefaults | undefined;
+  /** 保存失败的行内错误文案（父组件设置）。 */
   errorText: string | null;
-  /** 脏状态上报（父级据此拦截切换选中项 / 关闭）。 */
-  onDirtyChange: (dirty: boolean) => void;
-  onSave: (input: CharacterInput) => void;
-  /** 关闭请求（背板 / 取消 / × / Esc）：父级过脏守卫后把 open 翻 false。 */
+  /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示）。 */
+  onAutosave: (input: CharacterInput) => Promise<void>;
+  /** 关闭请求（背板 / × / Esc）：本组件先 flushSave 补存最后一拍。 */
   onClose: () => void;
-  /** 删除按钮（仅编辑态）：父组件弹就地确认对话框，本组件不直接删。 */
+  /** 删除按钮：父组件弹就地确认对话框，本组件不直接删。 */
   onDelete: (character: CharacterSummary) => void;
 }
 
@@ -246,38 +244,38 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
     onClosed,
     getTriggerRect,
     providers,
-    saving,
+    animDefaults,
     errorText,
-    onDirtyChange,
-    onSave,
+    onAutosave,
     onClose,
     onDelete,
   } = props;
   const styles = useStyles();
   const field = useFieldStyles();
   const { t } = useTranslation();
-  const form = useEditorForm({ character, onDirtyChange });
+  const form = useEditorForm({ character, onAutosave, animDefaults });
   const { surfaceRef } = useSurfaceMorph({ open, onClosed, getTriggerRect });
 
-  // 人设（2026-09-10）：默认 markdown 渲染展示（与聊天同语法语义），按钮
-  // 切到输入态——与名称行同一「展示态 + 行内编辑」语言；多行文本没有
-  // Enter 提交语义，收起走同一按钮（编辑中变对钩）。新建以输入态起步。
-  const [editingPersona, setEditingPersona] = useState(character === null);
+  // 全部关闭路径共用：先补存最后一拍（无在途防抖即 no-op），再请求关闭。
+  const requestClose = (): void => {
+    form.flushSave();
+    onClose();
+  };
 
   return (
     <>
-      {/* 毛玻璃背板：surface 之外的独立 fixed 层；点击 = 关闭（脏守卫在父级） */}
+      {/* 毛玻璃背板：surface 之外的独立 fixed 层；点击 = 关闭（先补存最后一拍） */}
       <div
         aria-hidden
         className={mergeClasses(styles.backdrop, open ? styles.backdropIn : styles.backdropOut)}
-        onClick={onClose}
+        onClick={requestClose}
       />
       <Dialog
       open
       modalType="non-modal"
       onOpenChange={(_, data) => {
-        // 标题栏 ×（Fluent 非模态自动注入）走父级 onClose：脏守卫照常拦截。
-        if (!data.open) onClose();
+        // 标题栏 ×（Fluent 非模态自动注入）：先补存最后一拍，再走父级关闭。
+        if (!data.open) requestClose();
       }}
     >
       <DialogSurface
@@ -307,66 +305,31 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
           {/* 右：中性面板上的标题 / 表单 / 动作（主题交给左海报） */}
           <div className={styles.rightCol}>
             <DialogTitle className={styles.titleRow} action={{ className: styles.titleAction }}>
-              {character ? t('characters.editTitle') : t('characters.createTitle')}
+              {t('characters.editTitle')}
             </DialogTitle>
             <DialogContent className={styles.content}>
               <div className={styles.form}>
-                {/* 首行：名称 + 强调色同行（editor/IdentityField 展示态 +
-                    行内编辑；空名时 canSave 关掉并出必填提示，色板提行
-                    折行兜底）。 */}
+                {/* 基础信息卡（editor/IdentityField）：名称 / 性别 / 年龄 /
+                    强调色行 + 人设块（2026-09-13 用户定稿并入本卡），空名时
+                    canSave 关掉并出必填提示。 */}
                 <IdentityField
-                  nameText={form.live.nameText}
                   name={form.name}
                   gender={form.gender}
                   age={form.age}
                   onNameChange={form.setName}
                   onGenderChange={form.setGender}
                   onAgeChange={form.setAge}
+                  persona={form.persona}
+                  onPersonaChange={form.setPersona}
                   accentColor={form.accentColor}
                   baseColor={form.live.baseColor}
                   onAccentColorChange={form.setAccentColor}
-                  startInEdit={character === null}
                   canSave={form.canSave}
                 />
-                <div className={field.field}>
-                  <div className={styles.labelRow}>
-                    <Text size={300} weight="semibold">
-                      {t('characters.persona')}
-                    </Text>
-                    {/* C3 收编：原生 title → Fluent Tooltip（relationship="label"
-                        注入 aria-label，随编辑态切换文案，可访问名与收编前一致） */}
-                    <Tooltip
-                      content={
-                        editingPersona
-                          ? t('characters.personaDone')
-                          : t('characters.personaEdit')
-                      }
-                      relationship="label"
-                    >
-                      <Button
-                        appearance="subtle"
-                        size="small"
-                        icon={editingPersona ? <Checkmark20Regular /> : <Edit20Regular />}
-                        onClick={() => setEditingPersona((v) => !v)}
-                      />
-                    </Tooltip>
-                  </div>
-                  {editingPersona ? (
-                    <Textarea
-                      value={form.persona}
-                      rows={4}
-                      onChange={(_, d) => form.setPersona(d.value)}
-                      aria-label={t('characters.persona')}
-                      placeholder={t('characters.personaPlaceholder')}
-                    />
-                  ) : (
-                    <PersonaPreviewBox text={form.persona} />
-                  )}
-                </div>
-                <div className={field.field}>
-                  <Text size={300} weight="semibold">
-                    {t('characters.renderStyle')}
-                  </Text>
+                {/* 输出动画卡（2026-09-13 用户定稿独立成卡）：行 1 预览、行 2
+                    动画样式（风格下拉 + 预览动画）、行 3–5 演出参数（卡可覆写，
+                    留空跟随全局）；其他配置卡放模型覆写。同一分组卡语言 */}
+                <SettingsCard title={t('characters.sectionAnim')}>
                   <PerformanceField
                     renderStyle={form.renderStyle}
                     onStyleChange={form.setRenderStyle}
@@ -374,14 +337,32 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     previewRef={form.previewRef}
                     previewed={form.previewed}
                   />
-                </div>
-                <OverrideSection
-                  open={form.overrideOpen}
-                  onToggle={() => form.setOverrideOpen((o) => !o)}
-                  override={form.override}
-                  onOverrideChange={form.setOverride}
-                  providers={providers}
-                />
+                  <SettingsDivider />
+                  <AnimParamRows
+                    durationMs={form.animDurationMs}
+                    rhythmMs={form.animRhythmMs}
+                    punctPause={form.animPunctPause}
+                    defaults={
+                      animDefaults ?? {
+                        durationMs: DUR_DEFAULT_MS,
+                        msPerChar: RHYTHM_DEFAULT_MS,
+                        punctPause: true,
+                      }
+                    }
+                    onDurationChange={form.setAnimDurationMs}
+                    onRhythmChange={form.setAnimRhythmMs}
+                    onPunctChange={form.setAnimPunctPause}
+                  />
+                </SettingsCard>
+                <SettingsCard title={t('characters.sectionOther')}>
+                  <OverrideSection
+                    open={form.overrideOpen}
+                    onToggle={() => form.setOverrideOpen((o) => !o)}
+                    override={form.override}
+                    onOverrideChange={form.setOverride}
+                    providers={providers}
+                  />
+                </SettingsCard>
                 {errorText ? (
                   <Text role="alert" size={200} className={field.error}>
                     {errorText}
@@ -390,24 +371,11 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
               </div>
             </DialogContent>
             <DialogActions className={styles.actionsRow}>
-              {character ? (
-                <Button
-                  className={styles.deleteAction}
-                  disabled={saving}
-                  onClick={() => onDelete(character)}
-                >
-                  {t('characters.delete')}
-                </Button>
-              ) : null}
-              <Button disabled={saving} onClick={onClose}>
-                {t('characters.cancel')}
-              </Button>
               <Button
-                appearance="primary"
-                disabled={!form.canSave || saving}
-                onClick={() => onSave(form.buildInput())}
+                className={styles.deleteAction}
+                onClick={() => onDelete(character)}
               >
-                {saving ? t('characters.saving') : t('characters.save')}
+                {t('characters.delete')}
               </Button>
             </DialogActions>
           </div>

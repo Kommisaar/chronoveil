@@ -219,19 +219,19 @@ describe('PersonaPreviewBox（人设展示态）', () => {
   });
 });
 
-describe('PreviewBox（预览演出容器）', () => {
+describe('PreviewBox（预览动画容器）', () => {
   it('挂载即回传容器节点；未播过出空态提示，播过后隐藏', () => {
     const previewRef = vi.fn();
     const { rerender } = renderUi(<PreviewBox previewRef={previewRef} previewed={false} />);
     expect(previewRef).toHaveBeenCalledTimes(1);
     expect(previewRef.mock.calls[0]![0]).toBeInstanceOf(HTMLDivElement);
-    expect(screen.getByText('点击「预览演出」，在这里试播样例文本')).toBeTruthy();
+    expect(screen.getByText('点击「预览动画」，在这里试播样例文本')).toBeTruthy();
     rerender(
       <FluentProvider theme={webLightTheme}>
         <PreviewBox previewRef={previewRef} previewed />
       </FluentProvider>,
     );
-    expect(screen.queryByText('点击「预览演出」，在这里试播样例文本')).toBeNull();
+    expect(screen.queryByText('点击「预览动画」，在这里试播样例文本')).toBeNull();
   });
 
   it('场景线挖空底按框表面注入：容器行内 --cv-scene-line-bg = 主题 bg2（preview 框显式 bg2 底）', () => {
@@ -249,7 +249,7 @@ describe('PreviewBox（预览演出容器）', () => {
 });
 
 describe('PerformanceField（出场演出字段）', () => {
-  it('合法风格回显中文标签；点「预览演出」上报 onPlay', () => {
+  it('合法风格回显中文标签；点「预览动画」上报 onPlay', () => {
     const onPlay = vi.fn();
     renderUi(
       <PerformanceField
@@ -260,11 +260,11 @@ describe('PerformanceField（出场演出字段）', () => {
         previewed={false}
       />,
     );
-    expect(screen.getByRole('combobox', { name: '出场动画' }).textContent).toContain('墨晕沉淀');
-    fireEvent.click(screen.getByRole('button', { name: '预览演出' }));
+    expect(screen.getByRole('combobox', { name: '动画样式' }).textContent).toContain('墨晕沉淀');
+    fireEvent.click(screen.getByRole('button', { name: '预览动画' }));
     expect(onPlay).toHaveBeenCalledTimes(1);
     // 内嵌预览框空态提示在位
-    expect(screen.getByText('点击「预览演出」，在这里试播样例文本')).toBeTruthy();
+    expect(screen.getByText('点击「预览动画」，在这里试播样例文本')).toBeTruthy();
   });
 
   it('表外遗留风格串：下拉原样回显原始串（不猜别名）', () => {
@@ -277,6 +277,6 @@ describe('PerformanceField（出场演出字段）', () => {
         previewed={false}
       />,
     );
-    expect(screen.getByRole('combobox', { name: '出场动画' }).textContent).toContain('typewriter');
+    expect(screen.getByRole('combobox', { name: '动画样式' }).textContent).toContain('typewriter');
   });
 });

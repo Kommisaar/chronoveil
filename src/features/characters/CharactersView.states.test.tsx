@@ -31,6 +31,9 @@ const LIN: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: null,
   accentColor: null,
+    animDurationMs: null,
+    animRhythmMs: null,
+    animPunctPause: null,
   updatedAt: 100,
   sessionCount: 3,
 };

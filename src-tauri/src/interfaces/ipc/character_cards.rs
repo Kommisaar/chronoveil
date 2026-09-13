@@ -105,6 +105,9 @@ mod tests {
                 render_style: "typewriter".into(),
                 model_config: None,
                 accent_color: None,
+                anim_duration_ms: None,
+                anim_rhythm_ms: None,
+                anim_punct_pause: None,
                 voice_config: None,
             },
         )
@@ -181,6 +184,9 @@ mod tests {
                 render_style: "ink".into(),
                 model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
                 accent_color: Some("#123456".into()),
+                anim_duration_ms: Some(600),
+                anim_rhythm_ms: Some(80),
+                anim_punct_pause: Some(false),
                 voice_config: None,
             },
         )
@@ -188,7 +194,7 @@ mod tests {
 
         let (_, json) = export_character_data(&app, created.id).unwrap();
         let imported = import_character_data(&app, &json).unwrap();
-        // 卡内九字段逐一保真；id / updated_at / session_count 属新卡事实，不保真。
+        // 卡内十二字段逐一保真；id / updated_at / session_count 属新卡事实，不保真。
         assert_eq!(imported.name, "林深");
         assert_eq!(imported.avatar.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(imported.persona, "旧书店老板");
@@ -196,6 +202,10 @@ mod tests {
         assert_eq!(imported.render_style, "ink");
         assert_eq!(imported.model_config.as_deref(), Some(r#"{"providerId":"p1","model":"m1"}"#));
         assert_eq!(imported.accent_color.as_deref(), Some("#123456"));
+        // 演出参数（0013）随卡保真
+        assert_eq!(imported.anim_duration_ms, Some(600));
+        assert_eq!(imported.anim_rhythm_ms, Some(80));
+        assert_eq!(imported.anim_punct_pause, Some(false));
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }

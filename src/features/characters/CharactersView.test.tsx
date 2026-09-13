@@ -43,32 +43,32 @@ it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
   ).toBeTruthy();
 });
 
-it('新建：name 必填（空则禁用保存），保存后新卡入列（验收 2）', async () => {
+it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
   renderView();
   await screen.findByText('苏鸢');
 
   fireEvent.click(screen.getByRole('button', { name: '新建角色' }));
-  expect(screen.getByRole('heading', { name: '新建角色' })).toBeTruthy();
+  // 先建卡（异步）再进编辑器：编辑既有卡形态，标题「编辑角色」
+  expect(
+    await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
+  ).toBeTruthy();
+  // 新卡已落库入列（网格卡 + 编辑器展示 ≥2 处同名）
+  const newCard = await screen.findAllByText('新建角色', undefined, { timeout: 3000 });
+  expect(newCard.length).toBeGreaterThanOrEqual(2);
 
-  const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement;
-  expect(save.disabled).toBe(true);
-
+  // 名称行展示态起步：进一次输入态（输入框预填默认名），改名 → 防抖后自动保存
+  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  expect(inputOf('名称').value).toBe('新建角色');
   fireEvent.change(inputOf('名称'), { target: { value: '乌鸦' } });
-  expect(save.disabled).toBe(false);
-  fireEvent.click(save);
-
-  // 退场动画契约：保存后对话框播放 210ms 退场才卸载（editorOpen 两段式
-  // 关闭），并发全量跑时定时器可能被拖过默认 1s，放宽等待
   await waitFor(
     () => {
-      expect(screen.queryByRole('heading', { name: '新建角色' })).toBeNull();
+      expect(screen.getAllByText('乌鸦').length).toBeGreaterThanOrEqual(2);
     },
     { timeout: 3000 },
   );
-  expect(screen.getByText('乌鸦')).toBeTruthy();
 });
 
-it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），render_style 下拉 18 项，「预览演出」经引擎播放所选风格（验收 2/3/4）', async () => {
+it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），render_style 下拉 18 项，「预览动画」经引擎播放所选风格（验收 2/3/4）', async () => {
   renderView();
   fireEvent.click(await screen.findByText('林深'));
 
@@ -76,60 +76,48 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
   const personaPreview = document.querySelector('[data-persona-preview]');
   expect(personaPreview?.textContent).toContain('旧书店老板');
 
-  // 「编辑人设」切到纯文本输入态：textarea 预填原文（CharacterSummary 扩字段
-  // 随列表返回，TASK-008 Rust 侧）；编辑态不渲染不着色，渲染只在展示态发生
-  fireEvent.click(screen.getByRole('button', { name: '编辑人设' }));
-  expect(textareaOf('人设（系统提示词）').value).toContain('旧书店老板');
+  // 点铅笔进统一编辑会话，人设切纯文本输入态：textarea 预填原文
+  // （CharacterSummary 扩字段随列表返回，TASK-008 Rust 侧）；编辑态不渲染
+  // 不着色，渲染只在展示态发生
+  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  expect(textareaOf('人设').value).toContain('旧书店老板');
   expect(document.querySelector('[data-persona-syntax]')).toBeNull();
 
-  // render_style 下拉消费 engine 的 ANIM_STYLES（18 选 1）
-  fireEvent.click(screen.getByRole('combobox', { name: '出场动画' }));
+  // render_style 下拉消费 engine 的 ANIM_STYLES（18 选 1）——会话仍开着，
+  // 不影响其他区块的交互
+  fireEvent.click(screen.getByRole('combobox', { name: '动画样式' }));
   expect(screen.getAllByRole('option')).toHaveLength(18);
 
-  // 「预览演出」：预览容器的 data-anim 切到该角色的风格（引擎公开 API）
-  fireEvent.click(screen.getByRole('button', { name: '预览演出' }));
+  // 「预览动画」：预览容器的 data-anim 切到该角色的风格（引擎公开 API）
+  fireEvent.click(screen.getByRole('button', { name: '预览动画' }));
   const preview = document.querySelector('[data-anim]');
   expect(preview?.getAttribute('data-anim')).toBe('ink');
 });
 
-it('未保存切换选中项提示丢弃确认：放弃后换载目标角色（验收 3）', async () => {
+it('修改即保存：编辑中切换目标卡无丢弃确认，最后一拍经卸载补存落到原卡', async () => {
   renderView();
   fireEvent.click(await screen.findByText('林深'));
-  // 名称默认展示态：点铅笔（重命名）进入行内输入态后再改值
+  // 名称默认展示态：点铅笔（重命名）进入行内输入态后再改值（防抖窗口内切换）
   fireEvent.click(screen.getByRole('button', { name: '重命名' }));
   fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
 
+  // 直接切换到苏鸢：不再弹「放弃未保存的修改？」，切换放行
   fireEvent.click(screen.getByText('苏鸢'));
-  expect(screen.getByText('放弃未保存的修改？')).toBeTruthy();
+  expect(screen.queryByText('放弃未保存的修改？')).toBeNull();
 
-  // 继续编辑：仍处输入态，行内输入保留未提交值
-  fireEvent.click(screen.getByRole('button', { name: '继续编辑' }));
-  expect(inputOf('名称').value).toBe('林深（改）');
+  // 卸载补存：林深的最后一拍已落库（refresh 后网格出改名卡）
+  expect(await screen.findByText('林深（改）', undefined, { timeout: 3000 })).toBeTruthy();
 
-  // 放弃修改：切换到苏鸢（key 重挂、表单换绑初值，回到展示态）
-  fireEvent.click(screen.getByText('苏鸢'));
-  fireEvent.click(screen.getByRole('button', { name: '放弃修改' }));
+  // 复原（本文件 mock 种子跨用例共享，破坏性改动需还原供后续用例）
+  fireEvent.click(screen.getByText('林深（改）'));
   fireEvent.click(screen.getByRole('button', { name: '重命名' }));
-  expect(inputOf('名称').value).toBe('苏鸢');
-});
-
-it('丢弃确认打开时按 Esc 取消：不执行切换，编辑器与未提交值保留（C1 收编修复）', async () => {
-  renderView();
-  fireEvent.click(await screen.findByText('林深'));
-  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
-  fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
-
-  fireEvent.click(screen.getByText('苏鸢'));
-  expect(screen.getByText('放弃未保存的修改？')).toBeTruthy();
-
-  // 收编前该对话框无 onOpenChange，Esc 无法取消；收编后 Esc = 取消（不授权
-  // 切换）。Esc 派发到对话框正文节点，冒泡至 DialogSurface 的 keydown 处理。
-  fireEvent.keyDown(screen.getByText('当前修改尚未保存，切换后将丢失。'), {
-    key: 'Escape',
-  });
-  await waitFor(() => expect(screen.queryByText('放弃未保存的修改？')).toBeNull());
-  // 取消语义：编辑器留在原角色，行内输入的未提交值原样保留
-  expect(inputOf('名称').value).toBe('林深（改）');
+  fireEvent.change(inputOf('名称'), { target: { value: '林深' } });
+  await waitFor(
+    () => {
+      expect(screen.getAllByText('林深').length).toBeGreaterThanOrEqual(2);
+    },
+    { timeout: 3000 },
+  );
 });
 
 it('删除：软删 + 确认对话框（文案明示历史保留），卡片消失且历史会话保留（验收 5）', async () => {

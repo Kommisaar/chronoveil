@@ -44,6 +44,9 @@ pub(super) fn upd_input(name: &str, base: &CharacterInput) -> CharacterInput {
         render_style: base.render_style.clone(),
         model_config: base.model_config.clone(),
         accent_color: base.accent_color.clone(),
+        anim_duration_ms: base.anim_duration_ms,
+        anim_rhythm_ms: base.anim_rhythm_ms,
+        anim_punct_pause: base.anim_punct_pause,
         voice_config: base.voice_config.clone(),
     }
 }

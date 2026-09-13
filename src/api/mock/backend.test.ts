@@ -78,6 +78,9 @@ function characterInput(overrides: Partial<CharacterInput> = {}): CharacterInput
     renderStyle: 'typewriter',
     modelConfig: '{"providerId":"p1","model":"m1"}',
     accentColor: '#5e2347',
+    animDurationMs: null,
+    animRhythmMs: null,
+    animPunctPause: null,
     voiceConfig: null, // CON-003 TTS 预留缝，前端恒传 null
     ...overrides,
   };

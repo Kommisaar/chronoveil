@@ -52,6 +52,14 @@ pub struct Character {
     pub model_config: Option<String>,
     /// 强调色（编辑器右栏渐变背景等界面着色），#RRGGBB；None = 跟随海报派生色。
     pub accent_color: Option<String>,
+    /// 演出参数覆写（2026-09-13 用户定稿）：动效时长 ms（150–1200，命令层
+    /// 校验，与 TS 引擎 DUR_MIN_MS/DUR_MAX_MS 互指）；None = 跟随全局设置。
+    pub anim_duration_ms: Option<i64>,
+    /// 打字节奏 ms/字（10–160，与 TS 引擎 RHYTHM_MIN_MS/RHYTHM_MAX_MS 互指）；
+    /// None = 跟随全局设置。
+    pub anim_rhythm_ms: Option<i64>,
+    /// 标点微停开关；None = 跟随全局设置。
+    pub anim_punct_pause: Option<bool>,
     /// TTS 预留缝（CON-003），恒 None。
     pub voice_config: Option<String>,
     pub created_at: i64,
@@ -123,6 +131,9 @@ pub struct NewCharacter {
     pub render_style: String,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
+    pub anim_duration_ms: Option<i64>,
+    pub anim_rhythm_ms: Option<i64>,
+    pub anim_punct_pause: Option<bool>,
     pub voice_config: Option<String>,
 }
 
@@ -137,6 +148,9 @@ impl Default for NewCharacter {
             render_style: "type".to_string(),
             model_config: None,
             accent_color: None,
+            anim_duration_ms: None,
+            anim_rhythm_ms: None,
+            anim_punct_pause: None,
             voice_config: None,
         }
     }
@@ -153,6 +167,10 @@ pub struct UpdateCharacter {
     pub render_style: String,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
+    /// 传 None 即清除覆写（跟随全局）。
+    pub anim_duration_ms: Option<i64>,
+    pub anim_rhythm_ms: Option<i64>,
+    pub anim_punct_pause: Option<bool>,
     pub voice_config: Option<String>,
 }
 

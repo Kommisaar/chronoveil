@@ -7,7 +7,7 @@
 import { Input, Slider, Switch, Text, makeStyles, tokens } from '@fluentui/react-components';
 import { Pause20Regular, Sparkle20Regular, Timer20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
-import { SettingsCard, SettingsDivider, SettingsRow } from './SettingsCard';
+import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
 
 const useStyles = makeStyles({
   slider: {

@@ -44,12 +44,17 @@ pub struct CharacterCardPayload {
     pub render_style: String,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
+    /// 演出参数覆写（2026-09-13，可选项随卡携带；旧卡文件缺省 = None = 跟随
+    /// 全局，serde 缺字段即 None，格式版本仍为 1 向前兼容）。
+    pub anim_duration_ms: Option<i64>,
+    pub anim_rhythm_ms: Option<i64>,
+    pub anim_punct_pause: Option<bool>,
     /// TTS 预留缝（CON-003），当前恒 None，仍随卡携带以保持形状对称。
     pub voice_config: Option<String>,
 }
 
 impl From<&Character> for CharacterCardPayload {
-    /// 领域角色卡 → 卡负载：只取 CharacterInput 同形九字段，库侧字段（id /
+    /// 领域角色卡 → 卡负载：只取 CharacterInput 同形十二字段，库侧字段（id /
     /// 时间戳 / 墓碑）不导出。
     fn from(c: &Character) -> Self {
         Self {
@@ -61,6 +66,9 @@ impl From<&Character> for CharacterCardPayload {
             render_style: c.render_style.clone(),
             model_config: c.model_config.clone(),
             accent_color: c.accent_color.clone(),
+            anim_duration_ms: c.anim_duration_ms,
+            anim_rhythm_ms: c.anim_rhythm_ms,
+            anim_punct_pause: c.anim_punct_pause,
             voice_config: c.voice_config.clone(),
         }
     }
@@ -190,6 +198,9 @@ mod tests {
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
+            anim_duration_ms: Some(600),
+            anim_rhythm_ms: None,
+            anim_punct_pause: Some(false),
             voice_config: None,
             // 库侧字段：不应出现在卡文件里。
             created_at: 1,

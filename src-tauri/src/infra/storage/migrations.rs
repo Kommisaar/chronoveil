@@ -43,6 +43,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // 角色卡历法裁撤（2026-09-13 产品裁剪，先例同 0004 丢 greeting）：历法不属
     // 角色卡，sessions.calendar_config 是会话历法唯一归属
     (12, include_str!("../../../migrations/0012_drop_character_calendar.sql")),
+    // 角色卡演出参数（2026-09-13 用户定稿）：动效时长 / 打字节奏 / 标点微停
+    // 三列可空（NULL = 跟随全局设置），取值范围在命令层校验
+    (13, include_str!("../../../migrations/0013_add_character_anim_params.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

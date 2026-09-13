@@ -161,7 +161,6 @@ describe('挂载回放积压（切回会话重挂）', () => {
     await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
 
     expect(bodyText(view)).toBe('回放新词');
-    expect(view.container.querySelector('.stream-cursor')).toBeNull(); // 定格摘光标
     expect(onSettled).toHaveBeenCalledTimes(1); // 收尾闸门：不重复
   });
 });
@@ -227,7 +226,6 @@ describe('终态与静止（FR-001 界面立即静止）', () => {
     emit(7, tok(7, '没来得及上屏的后续'));
     emit(7, err(7, 'provider 崩了'));
     expect(bodyText(view)).toBe('半条'); // 冻结：排队内容不播
-    expect(view.container.querySelector('.stream-cursor')).toBeNull();
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
@@ -252,7 +250,6 @@ describe('终态与静止（FR-001 界面立即静止）', () => {
     streamHub.markStopping(9);
     view.rerender(messageTree(state, onSettled));
 
-    expect(view.container.querySelector('.stream-cursor')).toBeNull(); // 冻结摘光标
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(bodyText(view)).toBe('已上屏'); // 排队内容不再播出
     expect(onSettled).not.toHaveBeenCalled(); // 静止 ≠ 收尾：等取消终态
@@ -439,15 +436,14 @@ describe('tuning 中途热更（TASK-12 / 审计问题 8）', () => {
     const view = render(treeWithTuning(state, { msPerChar: 160, punctPause: false }, onSettled));
     emit(23, tok(23, '一二三四五六七八九十')); // beginTurn 开演，16ms tick 消费
 
-    vi.advanceTimersByTime(320); // 慢节奏下仅约 2 个粒度块（4 字）上屏
-    expect(bodyText(view)).toBe('一二三四');
+    vi.advanceTimersByTime(320); // 慢节奏下仅约 2 字上屏（默认粒度逐字，2026-09-13）
+    expect(bodyText(view)).toBe('一二');
 
     // 热更到 10ms/字：余下内容迅速排空，done 定格收尾
     view.rerender(treeWithTuning(state, { msPerChar: 10, punctPause: false }, onSettled));
     emit(23, fin(23, null));
     vi.advanceTimersByTime(200);
     expect(bodyText(view)).toBe('一二三四五六七八九十');
-    expect(view.container.querySelector('.stream-cursor')).toBeNull(); // 定格摘光标
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,8 @@
 /* ============================================================
    渲染引擎样式 —— 从 docs/streaming-animations.html 搬家（TASK-004）
    18 种出场动画（FR-005）命名与关键帧与 demo 逐一对照一致；
-   段落/场景线（FR-004）、光标、思考胶囊（FR-003）同源搬运。
+   段落/场景线（FR-004）、思考胶囊（FR-003）同源搬运；流式光标已按
+   2026-09-13 用户定稿整体移除（动画不出光标）。
    引擎容器持有 data-anim 与内联 --dur；此处不含页面布局，主题色
    收敛为下方引擎命名空间变量（默认 = demo 暗色硬编码）。
    ============================================================ */
@@ -21,7 +22,7 @@
    改色值须同步 theme.ts 的 ENGINE_SYNTAX_PALETTES 并跑对比度守卫测试
    （theme.test.ts 双主题 × 三样式 ≥4.5 锁死）。挂载侧直接声明的字色
    （personaMarkdown 的 .tok.bold → colorNeutralForeground1）优先级更高，
-   不受注入影响；思考胶囊 / 光标 / 点阵 / 霓虹辉光等点缀色保持 demo 观感。 */
+   不受注入影响；思考胶囊 / 点阵 / 霓虹辉光等点缀色保持 demo 观感。 */
 :root {
   --cv-scene-line-bg: #141822;   /* hr.scene::after ✦ 挖空底色（须随所在表面背景） */
   --cv-scene-line-ink: #39415a;  /* hr.scene 线体渐变 */
@@ -45,7 +46,7 @@
 [data-anim=fade] .tok { opacity: 0; transition: opacity var(--dur) ease-out; }
 [data-anim=fade] .tok.show { opacity: 1; }
 
-/* 2 光标随行（Claude 系）：词块微淡 + 常驻光标（保持利落，取短比例） */
+/* 2 光标随行（Claude 系）：词块微淡（流式光标已移除，仅留词块淡入节奏） */
 [data-anim=caret] .tok { opacity: 0; transition: opacity calc(var(--dur)*.45) linear; }
 [data-anim=caret] .tok.show { opacity: 1; }
 
@@ -186,23 +187,6 @@ hr.scene::after {
 }
 .para.uli + .para.uli, .para.uli + .para.oli,
 .para.oli + .para.uli, .para.oli + .para.oli { margin-top: .25em; }
-
-/* 光标 */
-.stream-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  vertical-align: text-bottom;
-  background: #e8b06a;
-  margin-left: 2px;
-  border-radius: 1px;
-  animation: blink 1.05s steps(1) infinite;
-}
-[data-anim=type] .stream-cursor { width: .55em; margin-left: 1px; }
-@keyframes blink {
-  0%, 55% { opacity: 1; }
-  56%, 100% { opacity: 0; }
-}
 
 /* 思考阶段：独立后台通道——快滚直出，结束后收拢成一行，点开可回看（FR-003） */
 .think { margin: 0 0 .55em; font-size: 12.5px; }

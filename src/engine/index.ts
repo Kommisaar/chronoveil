@@ -4,7 +4,7 @@
  * 动画仪式全部交给 CSS（容器 data-anim + --dur 基准），高频更新直插 DOM。
  *
  * 回合生命周期：beginTurn()（直接开演）或 think(text)（思考收拢后自动开演）；
- * 生产者 finish() 后队列排空即收尾（定格、摘光标、清乱码）；done 落在思考阶段
+ * 生产者 finish() 后队列排空即收尾（定格、清乱码）；done 落在思考阶段
  * 时先收拢胶囊再收尾，不瞬时拆除（审计发现 4）。
  */
 import './engine.css';
@@ -67,10 +67,8 @@ export interface RendererOptions {
   msPerChar?: number;
   /** 标点微停开关，默认开 */
   punctPause?: boolean;
-  /** 发射粒度 1/2/4，内部默认 2（不暴露 UI，FR-002） */
+  /** 发射粒度 1/2/4，内部默认 1（逐字；2026-09-13 用户定稿，原为 2） */
   granularity?: Granularity;
-  /** 光标随行，默认开 */
-  cursor?: boolean;
   /** 思考贴士池，默认内置 12 条 */
   thinkTips?: readonly string[];
   /** 回合收尾（正文排空定格）回调 */
@@ -120,8 +118,6 @@ export interface Renderer {
   setRhythm(msPerChar: number, punctPauseEnabled: boolean): void;
   /** 调发射粒度（1/2/4） */
   setGranularity(n: Granularity): void;
-  /** 开关光标随行 */
-  setCursorEnabled(visible: boolean): void;
 }
 
 class StreamRenderer implements Renderer {
@@ -129,7 +125,6 @@ class StreamRenderer implements Renderer {
   private readonly parser = new StreamParser();
   private readonly clock = new CreditClock();
   private readonly sealer: ParagraphStream;
-  private readonly cursorEl: HTMLSpanElement;
   private readonly thinkTips: readonly string[];
   private readonly onFinish: ((info: { chars: number }) => void) | undefined;
 
@@ -137,7 +132,6 @@ class StreamRenderer implements Renderer {
   private msPerChar: number;
   private punctPause: boolean;
   private granularity: Granularity;
-  private cursorEnabled: boolean;
 
   private runIdN = 0;
   private chars = 0;
@@ -152,13 +146,10 @@ class StreamRenderer implements Renderer {
     this.styleId = options.style && isAnimStyle(options.style) ? options.style : 'fade';
     this.msPerChar = clampRhythm(options.msPerChar ?? RHYTHM_DEFAULT_MS);
     this.punctPause = options.punctPause ?? true;
-    this.granularity = options.granularity ?? 2;
-    this.cursorEnabled = options.cursor ?? true;
+    this.granularity = options.granularity ?? 1;
     this.thinkTips = options.thinkTips ?? DEFAULT_THINK_TIPS;
     this.onFinish = options.onFinish;
 
-    this.cursorEl = document.createElement('span');
-    this.cursorEl.className = 'stream-cursor';
     applyStyle(root, this.styleId);
     applyDuration(root, options.durationMs ?? DUR_DEFAULT_MS);
     // 语法配色随所在表面明暗注入（亮色对比度达标；详见 theme.ts）
@@ -281,11 +272,6 @@ class StreamRenderer implements Renderer {
     this.granularity = n;
   }
 
-  setCursorEnabled(visible: boolean): void {
-    this.cursorEnabled = visible;
-    if (!visible) this.cursorEl.remove();
-  }
-
   /** 新回合：拆旧（含 runId++）→ 清屏 → 复位计数 */
   private newTurn(): void {
     this.cancel();
@@ -317,7 +303,6 @@ class StreamRenderer implements Renderer {
       this.consumerTimer = null;
     }
     settleAllScrambles();
-    this.cursorEl.remove();
     this.removeDots();
     if (this.thinkChannel) {
       this.thinkChannel.cancel();
@@ -330,7 +315,7 @@ class StreamRenderer implements Renderer {
     this.dotsEl = null;
   }
 
-  /** 回合收尾：定格一切（乱码、光标、思考点）并回报字数 */
+  /** 回合收尾：定格一切（乱码、思考点）并回报字数 */
   private finishTurn(): void {
     this.stopAll();
     this.producerDone = false;
@@ -382,8 +367,7 @@ class StreamRenderer implements Renderer {
     s.style.setProperty('--dy', landing.dy);
     s.style.setProperty('--rot', landing.rot);
     const tail = this.sealer.tail();
-    tail.insertBefore(s, this.cursorEl.parentNode === tail ? this.cursorEl : null);
-    if (this.cursorEnabled) tail.appendChild(this.cursorEl);
+    tail.appendChild(s);
     // 解码：乱码快速轮换后定格，像破译一行密文
     if (this.root.dataset.anim === 'decode' && u.t.trim()) startDecodeScramble(s, u.t);
     revealAfterDoubleRaf(s);

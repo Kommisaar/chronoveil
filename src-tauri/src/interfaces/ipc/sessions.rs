@@ -378,6 +378,9 @@ mod tests {
                 render_style: "ink".into(),
                 model_config: llm_card.model_config.clone(),
                 accent_color: llm_card.accent_color.clone(),
+                anim_duration_ms: llm_card.anim_duration_ms,
+                anim_rhythm_ms: llm_card.anim_rhythm_ms,
+                anim_punct_pause: llm_card.anim_punct_pause,
                 voice_config: None,
             },
         ).unwrap();

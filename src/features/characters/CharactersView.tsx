@@ -5,8 +5,10 @@
 // - 入场动画定稿弹性（card-enter-pop）：视口内触发（useRevealOnScroll），
 //   首屏手动判交立即成批、折叠线以下滚入才播，批内 60ms 错峰；
 // - 氛围层：fixed 环境光晕（靛紫，呼应应用图标），仅本视图挂载期间存在；
-// - 交互与测试契约不变：点击进编辑、脏守卫照旧（卡片上的「开新会话」入口
-//   已移除，建会话走侧栏新建）。
+// - 交互与测试契约：点击进编辑；修改即保存（2026-09-13 用户定稿）——新建
+//   改为「先建卡再进编辑器」（默认名落库后编辑），脏守卫 / 丢弃确认随
+//   「取消/保存」按钮一并移除（卡片上的「开新会话」入口已移除，建会话走
+//   侧栏新建）。
 import {
   Button,
   Text,
@@ -15,7 +17,7 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { ArrowUploadRegular } from '@fluentui/react-icons';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
@@ -33,10 +35,26 @@ import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
+import type { AnimDefaults } from './editor/useEditorForm';
 import { CharacterPosterCard } from './CharacterPosterCard';
 
-/** 编辑目标：create 无预填；edit 携带全量摘要（key 重挂换绑表单）。 */
-type EditorTarget = { mode: 'create' } | { mode: 'edit'; character: CharacterSummary };
+/** 新建卡的默认负载：先落库再进编辑器（修改即保存），后续编辑自动保存到该卡。 */
+function newCharacterInput(name: string): CharacterInput {
+  return {
+    name,
+    avatar: null,
+    persona: '',
+    gender: null,
+    age: null,
+    renderStyle: 'type',
+    modelConfig: null,
+    accentColor: null,
+    animDurationMs: null,
+    animRhythmMs: null,
+    animPunctPause: null,
+    voiceConfig: null,
+  };
+}
 
 const useStyles = makeStyles({
   // —— 氛围层与页面骨架 ——
@@ -102,21 +120,20 @@ export function CharactersView() {
   // 导入/导出（Task-04）的操作错误：与列表加载错误同款就地红字（None 取消不提示）。
   const [actionError, setActionError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderDto[]>([]);
-  const [editor, setEditor] = useState<EditorTarget | null>(null);
+  // 演出参数「跟随全局」基准（2026-09-13）：全局配置里的三项，编辑器预览与
+  // 行描述据此展示；加载失败回落 undefined → 表单钩子取模板默认。
+  const [animDefaults, setAnimDefaults] = useState<AnimDefaults | undefined>(undefined);
+  // 编辑目标（既有卡）：新建走「先建卡再编辑」，本视图不再有 create 模式。
+  const [editor, setEditor] = useState<CharacterSummary | null>(null);
   // 可见性与挂载分离：editorOpen=false 只触发退场动画，播完 onClosed 才卸载。
   const [editorOpen, setEditorOpen] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
-  const [discardOpen, setDiscardOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CharacterSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
   // 以下滚入才播；同批 60ms 级错峰。本视图内无重挂触发源，resetKey 恒定。
   const { reveal, register } = useRevealOnScroll(characters.length, 'characters');
-
-  // 待确认的切换动作：丢弃确认放行后执行（引用稳定，不进渲染）。
-  const pendingActionRef = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -140,7 +157,13 @@ export function CharactersView() {
     let cancelled = false;
     getConfig()
       .then((config) => {
-        if (!cancelled) setProviders(config.providers);
+        if (cancelled) return;
+        setProviders(config.providers);
+        setAnimDefaults({
+          durationMs: config.animDurationBase,
+          msPerChar: config.rhythmMsPerChar,
+          punctPause: config.punctPauseEnabled,
+        });
       })
       .catch(() => {});
     return () => {
@@ -148,73 +171,55 @@ export function CharactersView() {
     };
   }, []);
 
-  const onDirtyChange = useCallback((value: boolean) => setDirty(value), []);
+  const openEditor = useCallback((character: CharacterSummary) => {
+    setEditorError(null);
+    setEditor(character);
+    setEditorOpen(true);
+  }, []);
 
-  /** 编辑器有未保存修改时，先弹就地丢弃确认，放行后才执行目标动作（验收 3）。 */
-  const guarded = useCallback(
-    (action: () => void) => {
-      if (editor !== null && dirty) {
-        pendingActionRef.current = action;
-        setDiscardOpen(true);
-        return;
-      }
-      action();
-    },
-    [editor, dirty],
-  );
+  const closeEditor = useCallback(() => setEditorOpen(false), []);
 
-  const openEditor = useCallback(
-    (target: EditorTarget) => {
-      guarded(() => {
-        setEditorError(null);
-        setEditor(target);
-        setEditorOpen(true);
-      });
-    },
-    [guarded],
-  );
-
-  const closeEditor = useCallback(() => {
-    guarded(() => setEditorOpen(false));
-  }, [guarded]);
-
-  /** 共享元素过渡用：当前编辑目标对应的触发元素（卡片 / 新建按钮）矩形。
+  /** 共享元素过渡用：当前编辑目标对应的触发元素（卡片）矩形。
       关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
       自行退化为纯淡出。 */
   const getTriggerRect = useCallback(() => {
-    const key = editor?.mode === 'edit' ? String(editor.character.id) : 'create';
-    const el = document.querySelector<HTMLElement>(
-      `[data-editor-trigger="${key}"]`,
-    );
+    const el = editor
+      ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
+      : null;
     return el ? el.getBoundingClientRect() : null;
   }, [editor]);
 
-  /** 保存成功 / 删除成功后的静默关闭（目标已消失，无需丢弃确认）；
-      仍走退场动画，播完 onClosed 卸载。 */
-  const closeEditorSilently = useCallback(() => {
-    setDirty(false);
-    setEditorOpen(false);
-  }, []);
+  /** 新建 = 先以默认名落库再进编辑器（修改即保存，无独立 create 表单态）。 */
+  const handleNew = useCallback(async () => {
+    setCreating(true);
+    setActionError(null);
+    try {
+      const created = await createCharacter(newCharacterInput(t('characters.new')));
+      await refresh();
+      setEditor(created);
+      setEditorOpen(true);
+    } catch (e) {
+      setActionError(`${t('characters.saveFailed')}：${describeError(e)}`);
+    } finally {
+      setCreating(false);
+    }
+  }, [refresh, t]);
 
-  const handleSave = useCallback(
+  /** 修改即保存的上送出口：落库 + refresh；失败就地红字并上抛——编辑器
+   *  表单钩子据此不推进已保存基线，下一拍改动自然重试。 */
+  const handleAutosave = useCallback(
     async (input: CharacterInput) => {
-      setSaving(true);
+      if (!editor) return;
       setEditorError(null);
       try {
-        if (editor?.mode === 'create') {
-          await createCharacter(input);
-        } else if (editor) {
-          await updateCharacter(editor.character.id, input);
-        }
+        await updateCharacter(editor.id, input);
         await refresh();
-        closeEditorSilently();
       } catch (e) {
         setEditorError(`${t('characters.saveFailed')}：${describeError(e)}`);
-      } finally {
-        setSaving(false);
+        throw e;
       }
     },
-    [editor, refresh, closeEditorSilently, t],
+    [editor, refresh, t],
   );
 
   const confirmDelete = useCallback(async () => {
@@ -224,11 +229,8 @@ export function CharactersView() {
       // 软删（ADR-009）：卡片消失；历史会话与消息保留，聊天侧仍可查看。
       await deleteCharacter(deleteTarget.id);
       await refresh();
-      if (
-        editor?.mode === 'edit' &&
-        editor.character.id === deleteTarget.id
-      ) {
-        closeEditorSilently();
+      if (editor?.id === deleteTarget.id) {
+        setEditorOpen(false);
       }
     } catch (e) {
       setEditorError(`${t('characters.deleteFailed')}：${describeError(e)}`);
@@ -236,19 +238,7 @@ export function CharactersView() {
       setDeleting(false);
       setDeleteTarget(null);
     }
-  }, [deleteTarget, editor, refresh, closeEditorSilently, t]);
-
-  const discardAndContinue = (): void => {
-    setDiscardOpen(false);
-    const action = pendingActionRef.current;
-    pendingActionRef.current = null;
-    action?.();
-  };
-
-  const cancelDiscard = (): void => {
-    setDiscardOpen(false);
-    pendingActionRef.current = null;
-  };
+  }, [deleteTarget, editor, refresh, t]);
 
   // ---- 角色卡导入/导出（Task-04）：对话框在 Rust 侧原生弹出 ----
 
@@ -291,8 +281,8 @@ export function CharactersView() {
             </Button>
             <Button
               appearance="primary"
-              data-editor-trigger="create"
-              onClick={() => openEditor({ mode: 'create' })}
+              disabled={creating}
+              onClick={() => void handleNew()}
             >
               {t('characters.new')}
             </Button>
@@ -340,7 +330,7 @@ export function CharactersView() {
                   index={index}
                   revealDelay={reveal[index]}
                   register={register}
-                  onOpen={(target) => openEditor({ mode: 'edit', character: target })}
+                  onOpen={openEditor}
                   onExport={(id) => void handleExport(id)}
                 />
               ))}
@@ -351,36 +341,19 @@ export function CharactersView() {
 
       {editor ? (
         <CharacterEditorDialog
-          key={editor.mode === 'edit' ? `edit-${editor.character.id}` : 'create'}
+          key={`edit-${editor.id}`}
           open={editorOpen}
-          character={editor.mode === 'edit' ? editor.character : null}
+          character={editor}
           getTriggerRect={getTriggerRect}
           providers={providers}
-          saving={saving}
+          animDefaults={animDefaults}
           errorText={editorError}
-          onDirtyChange={onDirtyChange}
-          onSave={(input) => void handleSave(input)}
+          onAutosave={handleAutosave}
           onClose={closeEditor}
           onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}
         />
       ) : null}
-
-      {/* 丢弃确认（验收 3）：切换选中项 / 关闭编辑器且有未保存修改时弹出。
-          C1 收编：Esc/背板可取消（此前无 onOpenChange 不可取消），放弃键
-          红色弱化、继续编辑为主键（安全动作优先）。 */}
-      <ConfirmDialog
-        open={discardOpen}
-        onOpenChange={(open) => {
-          if (!open) cancelDiscard();
-        }}
-        title={t('characters.discardTitle')}
-        content={t('characters.discardText')}
-        confirmLabel={t('characters.discard')}
-        cancelLabel={t('characters.keepEditing')}
-        destructive
-        onConfirm={discardAndContinue}
-      />
 
       {/* 删除确认（验收 5）：文案明示软删语义；C1 收编后 Esc/背板可取消。 */}
       <ConfirmDialog

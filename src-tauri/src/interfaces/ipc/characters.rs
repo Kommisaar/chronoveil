@@ -35,6 +35,11 @@ pub struct CharacterSummary {
     pub model_config: Option<String>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
     pub accent_color: Option<String>,
+    /// 演出参数覆写（2026-09-13）：None = 跟随全局设置；聊天流按卡现值实时
+    /// 读取（不随建会话快照，区别于 name / persona / render_style 的 D1）。
+    pub anim_duration_ms: Option<i64>,
+    pub anim_rhythm_ms: Option<i64>,
+    pub anim_punct_pause: Option<bool>,
     pub updated_at: i64,
     /// 该角色开启的会话数（在世会话）。
     pub session_count: i64,
@@ -52,6 +57,9 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         render_style: c.render_style,
         model_config: c.model_config,
         accent_color: c.accent_color,
+        anim_duration_ms: c.anim_duration_ms,
+        anim_rhythm_ms: c.anim_rhythm_ms,
+        anim_punct_pause: c.anim_punct_pause,
         updated_at: c.updated_at,
         session_count: 0,
     }
@@ -96,6 +104,7 @@ pub(super) fn create_character_impl(
     app: &AppState,
     input: CharacterInput,
 ) -> Result<CharacterSummary, IpcError> {
+    input.validate().map_err(|message| IpcError::Conflict { message })?;
     let created = app.storage.create_character(&models::NewCharacter {
         name: input.name,
         avatar: input.avatar,
@@ -105,6 +114,9 @@ pub(super) fn create_character_impl(
         render_style: input.render_style,
         model_config: input.model_config,
         accent_color: input.accent_color,
+        anim_duration_ms: input.anim_duration_ms,
+        anim_rhythm_ms: input.anim_rhythm_ms,
+        anim_punct_pause: input.anim_punct_pause,
         voice_config: input.voice_config,
     })?;
     Ok(CharacterSummary {
@@ -123,6 +135,7 @@ pub fn create_character(
 }
 
 fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Result<(), IpcError> {
+    input.validate().map_err(|message| IpcError::Conflict { message })?;
     // 整卡覆盖（FR-006：编辑表单全量提交）；目标不存在 / 已软删报 NotFound。
     app.storage.update_character(
         id,
@@ -135,6 +148,9 @@ fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Resu
             render_style: input.render_style,
             model_config: input.model_config,
             accent_color: input.accent_color,
+            anim_duration_ms: input.anim_duration_ms,
+            anim_rhythm_ms: input.anim_rhythm_ms,
+            anim_punct_pause: input.anim_punct_pause,
             voice_config: input.voice_config,
         },
     )?;
@@ -182,6 +198,9 @@ mod tests {
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
+            anim_duration_ms: Some(600),
+            anim_rhythm_ms: None,
+            anim_punct_pause: Some(false),
             updated_at: 42,
             session_count: 2,
         };
@@ -189,7 +208,10 @@ mod tests {
         assert_eq!(json["persona"], "雨夜电话亭的守夜人");
         assert_eq!(json["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
         assert_eq!(json["accentColor"], "#5e2347", "强调色 camelCase wire");
+        assert_eq!(json["animDurationMs"], 600, "演出参数 camelCase wire");
+        assert_eq!(json["animPunctPause"], false);
         assert!(json["avatar"].is_null(), "avatar 可空透传");
+        assert!(json["animRhythmMs"].is_null(), "演出参数 None = 跟随全局 → null");
         // model_config = None（跟随全局）时 wire 为 null。
         let follower = CharacterSummary { model_config: None, ..summary };
         assert!(serde_json::to_value(&follower).unwrap()["modelConfig"].is_null());
@@ -208,6 +230,9 @@ mod tests {
             render_style: "typewriter".into(),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: None,
+            anim_duration_ms: Some(600),
+            anim_rhythm_ms: None,
+            anim_punct_pause: Some(true),
             voice_config: None,
         };
         let created = create_character_impl(&app, input.clone()).unwrap();
@@ -219,6 +244,8 @@ mod tests {
             created.model_config.as_deref(),
             Some(r#"{"providerId":"p1","model":"m1"}"#)
         );
+        assert_eq!(created.anim_duration_ms, Some(600));
+        assert_eq!(created.anim_punct_pause, Some(true));
 
         // 会话计数汇总（关系侧；多角色换挂后经实例溯源统计——created 卡作两个
         // 会话的 LLM 位，各实例化一次）。
@@ -256,13 +283,16 @@ mod tests {
         let lin = listed.iter().find(|c| c.id == other.id).unwrap();
         assert_eq!(lin.session_count, 0);
 
-        // 整卡覆盖更新（含清除 avatar；model_config 置回 None = 跟随全局）。
+        // 整卡覆盖更新（含清除 avatar；model_config 置回 None = 跟随全局；
+        // 演出参数覆写清除 = 跟随全局）。
         update_character_impl(
             &app,
             created.id,
             CharacterInput {
                 avatar: None,
                 model_config: None,
+                anim_duration_ms: None,
+                anim_punct_pause: None,
                 ..upd_input("苏鸢（改）", &input)
             },
         )
@@ -272,7 +302,20 @@ mod tests {
         assert_eq!(updated.name, "苏鸢（改）");
         assert!(updated.avatar.is_none(), "avatar 传 None 即清除");
         assert!(updated.model_config.is_none(), "model_config 传 None 即跟随全局");
+        assert!(updated.anim_duration_ms.is_none(), "演出参数传 None 即跟随全局");
         assert_eq!(updated.persona, "雨夜电话亭的守夜人");
+
+        // 演出参数范围校验：越界快速失败（Conflict），不静默钳制。
+        let bad = CharacterInput { anim_duration_ms: Some(100), ..upd_input("越界", &input) };
+        assert!(matches!(
+            create_character_impl(&app, bad),
+            Err(IpcError::Conflict { .. })
+        ));
+        let bad_upd = CharacterInput { anim_rhythm_ms: Some(200), ..upd_input("越界", &input) };
+        assert!(matches!(
+            update_character_impl(&app, created.id, bad_upd),
+            Err(IpcError::Conflict { .. })
+        ));
 
         // 软删 + NotFound 语义。
         delete_character_impl(&app, other.id).unwrap();

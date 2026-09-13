@@ -132,8 +132,6 @@ const USAGES: readonly UsageEntry[] = [
   { file: 'src/components/StateBlock.tsx', line: 52, style: 'root', token: 'colorNeutralForeground3',
     context: '加载/错误态文案（Text 默认 base300）', backgrounds: ['colorNeutralBackground1'] },
   // —— features/characters（编辑器对话框 = DialogSurface 默认 bg1）——
-  { file: 'src/features/characters/editor/pieces.tsx', line: 36, style: 'sectionTitle', token: 'colorNeutralForeground3',
-    context: '折叠段小标（base200 semibold）', backgrounds: ['colorNeutralBackground1'] },
   // 取色 chip 显式 bg1，hover 染 bg2 不变色
   { file: 'src/features/characters/editor/pieces.tsx', line: 60, style: 'chipTrigger', token: 'colorNeutralForeground2',
     context: '强调色取色器触发钮', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground2'] },
@@ -149,8 +147,6 @@ const USAGES: readonly UsageEntry[] = [
     context: '人设预览加粗字', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/characters/editor/pieces.tsx', line: 196, style: 'personaHint', token: 'colorNeutralForeground3',
     context: '空人设提示（base200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/characters/editor/pieces.tsx', line: 206, style: 'collapseBtn', token: 'colorNeutralForeground1',
-    context: '覆写折叠钮（hover 换品牌色，不在本清单）', backgrounds: ['colorNeutralBackground1'] },
   // —— features/chat（聊天流与账本面板均为显式 bg1）——
   { file: 'src/features/chat/ActivityBar.tsx', line: 43, style: 'hit', token: 'colorNeutralForeground3',
     context: '幕后活动折叠行（base200）', backgrounds: ['colorNeutralBackground1'] },
@@ -201,12 +197,13 @@ const USAGES: readonly UsageEntry[] = [
     context: '账本段标题（base200 semibold）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/useLedgerSectionStyles.ts', line: 24, style: 'groupTitle', token: 'colorNeutralForeground3',
     context: '状态分组小标/段空态（base200）', backgrounds: ['colorNeutralBackground1'] },
-  // —— features/settings（SettingsCard 显式 bg1；页面容器无底色透到 content bg1）——
-  { file: 'src/features/settings/SettingsCard.tsx', line: 42, style: 'icon', token: 'colorNeutralForeground2',
+  // —— components/SettingsCard（自 features/settings 下沉；显式 bg1，页面容器
+  // 无底色透到 content bg1）——
+  { file: 'src/components/SettingsCard.tsx', line: 42, style: 'icon', token: 'colorNeutralForeground2',
     context: '设置行图标（20px）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/settings/SettingsCard.tsx', line: 50, style: 'desc', token: 'colorNeutralForeground3',
+  { file: 'src/components/SettingsCard.tsx', line: 50, style: 'desc', token: 'colorNeutralForeground3',
     context: '设置项描述（Text size 200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/settings/SettingsCard.tsx', line: 69, style: 'footerHint', token: 'colorNeutralForeground3',
+  { file: 'src/components/SettingsCard.tsx', line: 69, style: 'footerHint', token: 'colorNeutralForeground3',
     context: '卡片底部提示位（base200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/settings/SettingsView.tsx', line: 99, style: 'empty', token: 'colorNeutralForeground3',
     context: '无 provider 空态（SettingsCard 内）', backgrounds: ['colorNeutralBackground1'] },

@@ -47,7 +47,7 @@ import {
 } from './preferences';
 import { RhythmSettingsCard } from './RhythmSettingsCard';
 import { ProviderCard } from './ProviderCard';
-import { SettingsCard, SettingsDivider, SettingsRow } from './SettingsCard';
+import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
 
 /** 自动保存防抖：停止修改后延迟落盘（滑杆拖动/逐键输入不逐帧写盘）。 */
 const AUTOSAVE_DEBOUNCE_MS = 600;

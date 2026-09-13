@@ -22,7 +22,16 @@ const useStyles = makeStyles({
     borderRadius: tokens.borderRadiusLarge,
   },
   header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: tokens.spacingHorizontalM,
     padding: '14px 20px 12px',
+  },
+  headerAction: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
   },
   sep: {
     height: '1px',
@@ -34,20 +43,22 @@ const useStyles = makeStyles({
     flexDirection: 'column',
   },
   row: {
-    display: 'grid',
-    gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+    display: 'flex',
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
     padding: '12px 20px',
   },
   icon: {
     display: 'flex',
+    flexShrink: 0,
     fontSize: '20px',
     color: tokens.colorNeutralForeground2,
   },
   labels: {
     display: 'flex',
     flexDirection: 'column',
+    flex: 1,
+    minWidth: 0,
     gap: '2px',
   },
   desc: {
@@ -55,6 +66,7 @@ const useStyles = makeStyles({
   },
   control: {
     display: 'flex',
+    flexShrink: 0,
     justifyContent: 'flex-end',
     minWidth: 0,
   },
@@ -81,6 +93,8 @@ const useStyles = makeStyles({
 
 export function SettingsCard(props: {
   title: string;
+  /** 标题栏右侧动作位（如行内编辑的进入 / 提交按钮） */
+  headerAction?: ReactNode;
   children: ReactNode;
   /** 底部动作行：hint 左（常放状态/说明），actions 右（常放主按钮） */
   footer?: { hint?: ReactNode; actions?: ReactNode };
@@ -92,6 +106,9 @@ export function SettingsCard(props: {
         <Text size={400} weight="semibold">
           {props.title}
         </Text>
+        {props.headerAction ? (
+          <div className={styles.headerAction}>{props.headerAction}</div>
+        ) : null}
       </div>
       <div className={styles.sep} role="presentation" />
       <div className={styles.body}>{props.children}</div>
@@ -108,17 +125,17 @@ export function SettingsCard(props: {
   );
 }
 
-/** 单行：左图标 + 标题/描述两行文字 + 右侧控件（垂直居中） */
+/** 单行：左图标（可省）+ 标题/描述两行文字 + 右侧控件（可省，垂直居中） */
 export function SettingsRow(props: {
-  icon: ReactNode;
+  icon?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
-  control: ReactNode;
+  control?: ReactNode;
 }) {
   const styles = useStyles();
   return (
     <div className={styles.row}>
-      <div className={styles.icon}>{props.icon}</div>
+      {props.icon !== undefined ? <div className={styles.icon}>{props.icon}</div> : null}
       <div className={styles.labels}>
         <Text size={300} weight="semibold">
           {props.title}
@@ -129,7 +146,7 @@ export function SettingsRow(props: {
           </Text>
         ) : null}
       </div>
-      <div className={styles.control}>{props.control}</div>
+      {props.control !== undefined ? <div className={styles.control}>{props.control}</div> : null}
     </div>
   );
 }

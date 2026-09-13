@@ -11,7 +11,8 @@ use super::now;
 pub(crate) const ENTITY: &str = "character";
 
 const COLS: &str = "id, name, avatar, persona, gender, age, render_style, model_config, \
-                    voice_config, accent_color, created_at, updated_at, deleted_at";
+                    accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
+                    voice_config, created_at, updated_at, deleted_at";
 
 fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
     Ok(Character {
@@ -23,11 +24,14 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         age: row.get(5)?,
         render_style: row.get(6)?,
         model_config: row.get(7)?,
-        voice_config: row.get(8)?,
-        accent_color: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-        deleted_at: row.get(12)?,
+        accent_color: row.get(8)?,
+        anim_duration_ms: row.get(9)?,
+        anim_rhythm_ms: row.get(10)?,
+        anim_punct_pause: row.get::<_, Option<i64>>(11)?.map(|v| v != 0),
+        voice_config: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        deleted_at: row.get(15)?,
     })
 }
 
@@ -35,8 +39,9 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
     let ts = now();
     conn.execute(
                 "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
-             model_config, voice_config, accent_color, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+             model_config, accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
+             voice_config, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
         params![
             new.name,
             new.avatar,
@@ -45,8 +50,11 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
             new.age,
             new.render_style,
             new.model_config,
-            new.voice_config,
             new.accent_color,
+            new.anim_duration_ms,
+            new.anim_rhythm_ms,
+            new.anim_punct_pause.map(i64::from),
+            new.voice_config,
             ts,
         ],
     )?;
@@ -59,8 +67,11 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         age: new.age.clone(),
         render_style: new.render_style.clone(),
         model_config: new.model_config.clone(),
-        voice_config: new.voice_config.clone(),
         accent_color: new.accent_color.clone(),
+        anim_duration_ms: new.anim_duration_ms,
+        anim_rhythm_ms: new.anim_rhythm_ms,
+        anim_punct_pause: new.anim_punct_pause,
+        voice_config: new.voice_config.clone(),
         created_at: ts,
         updated_at: ts,
         deleted_at: None,
@@ -98,8 +109,9 @@ pub(crate) fn update(
 ) -> Result<(), StorageError> {
     let n = conn.execute(
                "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, gender = ?4, age = ?5, \
-             render_style = ?6, model_config = ?7, voice_config = ?8, accent_color = ?9, \
-             updated_at = ?10 WHERE id = ?11 AND deleted_at IS NULL",
+             render_style = ?6, model_config = ?7, accent_color = ?8, anim_duration_ms = ?9, \
+             anim_rhythm_ms = ?10, anim_punct_pause = ?11, voice_config = ?12, updated_at = ?13 \
+             WHERE id = ?14 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
@@ -108,8 +120,11 @@ pub(crate) fn update(
             upd.age,
             upd.render_style,
             upd.model_config,
-            upd.voice_config,
             upd.accent_color,
+            upd.anim_duration_ms,
+            upd.anim_rhythm_ms,
+            upd.anim_punct_pause.map(i64::from),
+            upd.voice_config,
             now(),
             id,
         ],
@@ -166,6 +181,9 @@ mod tests {
             render_style: "typewriter".into(),
             model_config: None,
             accent_color: None,
+            anim_duration_ms: None,
+            anim_rhythm_ms: None,
+            anim_punct_pause: None,
             voice_config: None,
         }
     }
@@ -190,6 +208,9 @@ mod tests {
             render_style: "fade".to_string(),
             model_config: Some(r#"{"temperature":0.8}"#.to_string()),
             accent_color: Some("#6b46b8".to_string()),
+            anim_duration_ms: Some(600),
+            anim_rhythm_ms: Some(80),
+            anim_punct_pause: Some(false),
             voice_config: None,
         };
         storage.update_character(id, &upd).unwrap();
@@ -202,6 +223,21 @@ mod tests {
         assert_eq!(got.render_style, "fade");
         assert_eq!(got.model_config.as_deref(), Some(r#"{"temperature":0.8}"#));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));
+        // 演出参数覆写（0013）：上面 upd 已带 Some 值，直接断言全字段覆盖结果
+        assert_eq!(got.anim_duration_ms, Some(600));
+        assert_eq!(got.anim_rhythm_ms, Some(80));
+        assert_eq!(got.anim_punct_pause, Some(false));
+        // 覆写清除（None = 跟随全局）
+        let upd_clear_anim = UpdateCharacter {
+            anim_duration_ms: None,
+            anim_rhythm_ms: None,
+            anim_punct_pause: None,
+            ..upd.clone()
+        };
+        storage.update_character(id, &upd_clear_anim).unwrap();
+        let got = storage.get_character(id).unwrap();
+        assert_eq!(got.anim_duration_ms, None);
+        assert_eq!(got.anim_punct_pause, None);
         // 强调色清除（None = 跟随海报派生）
         let upd_clear_accent = UpdateCharacter { accent_color: None, ..upd.clone() };
         storage.update_character(id, &upd_clear_accent).unwrap();

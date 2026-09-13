@@ -6,7 +6,9 @@ import { THINK_PHASE } from './think';
 function mount(): { container: HTMLDivElement; r: Renderer } {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const r = createRenderer(container);
+  // 本组用例断言「粒度 2 合并」的分块形状，显式传 2（引擎默认 2026-09-13
+  // 用户定稿改逐字 1，默认值由下方 default-granularity 组单独锁定）
+  const r = createRenderer(container, { granularity: 2 });
   renderers.push(r);
   return { container, r };
 }
@@ -29,7 +31,7 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     r.cancel();
   });
 
-  it('enqueue + finish：全部吐出（粒度 2 合并）、单一段落、光标移除', async () => {
+  it('enqueue + finish：全部吐出（粒度 2 合并）、单一段落', async () => {
     const { container, r } = mount();
     r.beginTurn();
     r.enqueue('你好世界');
@@ -37,7 +39,6 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     await vi.waitFor(() => {
       expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['你好', '世界']);
       expect(container.querySelectorAll('.para')).toHaveLength(1);
-      expect(container.querySelector('.stream-cursor')).toBeNull();
     });
     expect(r.pending).toBe(0);
     expect(r.charsEmitted).toBe(4);
@@ -133,7 +134,7 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
   it('decode 风格：乱码轮换最终定格真文（finish 统一收尾）', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const r = createRenderer(container, { style: 'decode' });
+    const r = createRenderer(container, { style: 'decode', granularity: 2 });
     renderers.push(r);
     r.beginTurn();
     r.enqueue('密文');
@@ -143,6 +144,19 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
       expect(toks).toHaveLength(1); // 粒度 2：'密文' 合并为一个 token
       expect(toks.every((t) => t.classList.contains('settled'))).toBe(true);
       expect(toks.map((t) => t.textContent).join('')).toBe('密文');
+    });
+  });
+
+  it('默认粒度逐字（2026-09-13 用户定稿，原为 2）：不传 granularity 时 CJK 逐字上屏', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const r = createRenderer(container, { msPerChar: 10 });
+    renderers.push(r);
+    r.beginTurn();
+    r.enqueue('甲乙丙丁');
+    r.finish();
+    await vi.waitFor(() => {
+      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['甲', '乙', '丙', '丁']);
     });
   });
 
@@ -192,14 +206,13 @@ describe('渲染引擎公开 API（CMP-001 / TASK-004）', () => {
     await vi.waitFor(() => expect(container.querySelectorAll('.tok')).toHaveLength(1));
   });
 
-  it('cancel：停消费、清队列、摘光标', () => {
-    const { container, r } = mount();
+  it('cancel：停消费、清队列', () => {
+    const { r } = mount();
     r.beginTurn();
     r.enqueue('一大段还没播完的文字');
     expect(r.pending).toBeGreaterThan(0);
     r.cancel();
     expect(r.pending).toBe(0);
-    expect(container.querySelector('.stream-cursor')).toBeNull();
   });
 
   it('finish 回报字数（onFinish）', async () => {
@@ -277,7 +290,6 @@ describe('流式思考与积压回放（TASK-006 / FR-003 / ADR-007）', () => {
     r.finish();
     vi.advanceTimersByTime(TICK_MS * 8);
     expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['正文']);
-    expect(container.querySelector('.stream-cursor')).toBeNull();
   });
 
   it('replayInstant：积压正文立即上屏（不经节奏队列），后续 enqueue 正常续播', async () => {
@@ -327,13 +339,12 @@ describe('回合控制与口径补遗（TASK-06）', () => {
 
   it('finish 兜底开演：未 beginTurn 直接 enqueue+finish 也完整播完并回报', async () => {
     const onFinish = vi.fn();
-    const { container, r } = mountWith({ onFinish, msPerChar: 10 });
+    const { container, r } = mountWith({ onFinish, msPerChar: 10, granularity: 2 });
     r.enqueue('兜底');
     expect(container.querySelectorAll('.tok')).toHaveLength(0); // 无消费者：未开演不上屏
     r.finish(); // 队列非空、无思考、正文未开演 → 兜底 beginBody 排空
     await vi.waitFor(() => {
       expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['兜底']);
-      expect(container.querySelector('.stream-cursor')).toBeNull();
     });
     expect(onFinish).toHaveBeenCalledWith({ chars: 2 });
   });
@@ -341,7 +352,7 @@ describe('回合控制与口径补遗（TASK-06）', () => {
   it('finish 落在思考中：胶囊走完落定+收拢动画再收尾，不瞬时拆除（发现 4）', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
     const onFinish = vi.fn();
-    const { container, r } = mountWith({ onFinish });
+    const { container, r } = mountWith({ onFinish, granularity: 2 });
     r.thinkStreaming();
     expect(container.querySelector('.think')).not.toBeNull();
 
@@ -359,7 +370,7 @@ describe('回合控制与口径补遗（TASK-06）', () => {
   it('finish 落在思考中且正文已入队：收拢后开演、排空再收尾（发现 4）', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
     const onFinish = vi.fn();
-    const { container, r } = mountWith({ onFinish });
+    const { container, r } = mountWith({ onFinish, granularity: 2 });
     r.thinkStreaming();
     r.enqueue('正文');
     r.finish();
@@ -370,12 +381,11 @@ describe('回合控制与口径补遗（TASK-06）', () => {
     vi.advanceTimersByTime(THINK_PHASE.settlePauseMs + THINK_PHASE.beginAfterCollapseMs + TICK_MS * 8);
     expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['正文']);
     expect(onFinish).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.stream-cursor')).toBeNull();
   });
 
   it('cancel 后 pending 清零，onFinish 不再触发', async () => {
     const onFinish = vi.fn();
-    const { container, r } = mountWith({ onFinish, msPerChar: 10 });
+    const { container, r } = mountWith({ onFinish, msPerChar: 10, granularity: 2 });
     r.beginTurn();
     r.enqueue('一大段还没播完的文字');
     r.cancel();
@@ -387,7 +397,7 @@ describe('回合控制与口径补遗（TASK-06）', () => {
 
   it('onFinish 的 chars 口径不含空白：空格与换行不计', async () => {
     const onFinish = vi.fn();
-    const { r } = mountWith({ onFinish, msPerChar: 10 });
+    const { r } = mountWith({ onFinish, msPerChar: 10, granularity: 2 });
     r.beginTurn();
     r.enqueue('甲 乙\n丙');
     r.finish();
@@ -409,19 +419,17 @@ describe('回合控制与口径补遗（TASK-06）', () => {
   it('setRhythm 关标点微停，下一拍生效：中段停顿消失、提前收尾', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
     const onFinish = vi.fn();
-    const { container, r } = mountWith({ onFinish });
+    const { container, r } = mountWith({ onFinish, granularity: 2 });
     r.beginTurn();
     r.enqueue('甲。乙。丙');
     r.finish();
 
     vi.advanceTimersByTime(240); // 15 拍：句末微停（150+节奏×0.8）压信用，仅出「甲。」
     expect(container.querySelectorAll('.tok')).toHaveLength(1);
-    expect(container.querySelector('.stream-cursor')).not.toBeNull(); // 回合未收尾
 
     r.setRhythm(45, false); // 关微停，下一拍生效
     vi.advanceTimersByTime(192); // 共 t=432：关停路径应在 t≈352 播完（微停未关则 t≈544）
     expect(container.querySelectorAll('.tok')).toHaveLength(3); // 「甲。」「乙。」「丙」
-    expect(container.querySelector('.stream-cursor')).toBeNull();
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(onFinish).toHaveBeenCalledWith({ chars: 5 });
   });
@@ -444,25 +452,6 @@ describe('回合控制与口径补遗（TASK-06）', () => {
     expect(container.style.getPropertyValue('--dur')).toBe('150ms');
     r.setDuration(Number.NaN);
     expect(container.style.getPropertyValue('--dur')).toBe('450ms');
-  });
-
-  it('cursor:false：全程不挂光标', async () => {
-    const { container, r } = mountWith({ cursor: false, msPerChar: 10 });
-    r.beginTurn();
-    r.enqueue('无光标');
-    r.finish();
-    await vi.waitFor(() => expect(container.querySelectorAll('.tok')).toHaveLength(2));
-    expect(container.querySelector('.stream-cursor')).toBeNull();
-  });
-
-  it('setCursorEnabled(false)：运行中即时摘除光标', async () => {
-    const { container, r } = mountWith({ msPerChar: 10 });
-    r.beginTurn();
-    r.enqueue('光标开关');
-    r.setCursorEnabled(false);
-    r.finish();
-    await vi.waitFor(() => expect(container.querySelectorAll('.tok')).toHaveLength(2));
-    expect(container.querySelector('.stream-cursor')).toBeNull();
   });
 
   it('enqueueUnit：外部预解析单元直入队列，结构单元原子上屏', async () => {

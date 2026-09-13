@@ -1,11 +1,9 @@
 // CharacterEditorDialog 主交互流补测（审计批次 C：全仓最复杂交互组件）。
-// 经真实父级 CharactersView 挂载：脏守卫与「放弃未保存修改」确认对话框
-// 是父级接线（guarded / onDirtyChange / pendingActionRef），只挂对话框壳
-// 测不到关闭确认流。api 层整体 vi.mock（ADR-010 允许 UI 层测试替换数据
-// 入口；本文件独立于 CharactersView.test 的共享 mock 种子，互不影响）。
-// i18n 固定中文（i18n/index 以 lng:'zh' 初始化），断言用 zh 文案。
-// 退场动画契约：关闭后组件留树播完 210ms 才 onClosed 卸载，等待放宽到 3s
-// （与 CharactersView.test 同款）。
+// 经真实父级 CharactersView 挂载：行内编辑、修改即保存（2026-09-13 定稿，
+// 取消/保存按钮已移除，改名经防抖自动落库）、Tooltip 收编与删除确认流。
+// api 层整体 vi.mock（ADR-010 允许 UI 层测试替换数据入口；本文件独立于
+// CharactersView.test 的共享 mock 种子，互不影响）。i18n 固定中文（i18n/index
+// 以 lng:'zh' 初始化），断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,6 +33,9 @@ const LIN: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: null,
   accentColor: null,
+    animDurationMs: null,
+    animRhythmMs: null,
+    animPunctPause: null,
   updatedAt: 100,
   sessionCount: 3,
 };
@@ -72,10 +73,6 @@ function startRename(): HTMLInputElement {
   return screen.getByLabelText('名称') as HTMLInputElement;
 }
 
-function saveButton(): HTMLButtonElement {
-  return screen.getByRole('button', { name: '保存' }) as HTMLButtonElement;
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.listCharacters.mockResolvedValue([LIN]);
@@ -99,36 +96,33 @@ describe('CharacterEditorDialog 打开与回填（编辑既有卡）', () => {
     expect(document.querySelector('[data-persona-preview]')?.textContent).toContain(
       '旧书店老板',
     );
-    // 保存可用（既有卡名称非空）
-    expect(saveButton().disabled).toBe(false);
   });
 });
 
-describe('CharacterEditorDialog 改名与 canSave', () => {
-  it('清空名称禁用保存并提示必填，改回有值恢复可用', async () => {
+describe('CharacterEditorDialog 修改即保存', () => {
+  it('清空名称出必填提示且不落库，改回有值恢复并自动保存', async () => {
     renderView();
     await openEditorOf('林深');
     const name = startRename();
     expect(name.value).toBe('林深');
-    expect(saveButton().disabled).toBe(false);
 
     fireEvent.change(name, { target: { value: '' } });
-    expect(saveButton().disabled).toBe(true);
     expect(screen.getByText('名称必填')).toBeTruthy();
 
     fireEvent.change(name, { target: { value: '林深·改' } });
-    expect(saveButton().disabled).toBe(false);
     expect(screen.queryByText('名称必填')).toBeNull();
   });
 
-  it('保存：表单载荷交给 updateCharacter（角色 id + buildInput 序列化值）', async () => {
+  it('改名即自动落库：防抖后载荷交给 updateCharacter（角色 id + 整卡字段）', async () => {
     renderView();
     await openEditorOf('林深');
     const name = startRename();
     fireEvent.change(name, { target: { value: '林深·改' } });
-    fireEvent.click(saveButton());
 
-    await waitFor(() => expect(mocks.updateCharacter).toHaveBeenCalledTimes(1));
+    await waitFor(
+      () => expect(mocks.updateCharacter).toHaveBeenCalledTimes(1),
+      { timeout: 3000 },
+    );
     expect(mocks.updateCharacter).toHaveBeenCalledWith(
       2,
       expect.objectContaining({
@@ -139,13 +133,8 @@ describe('CharacterEditorDialog 改名与 canSave', () => {
         age: '31',
       }),
     );
-    // 保存成功走静默关闭：退场动画播完对话框卸载（文本断言避免 role 假阴性）
-    await waitFor(
-      () => {
-        expect(screen.queryByText('编辑角色')).toBeNull();
-      },
-      { timeout: 3000 },
-    );
+    // 自动保存不关闭编辑器（不再有「保存即退出」语义）
+    expect(screen.getByText('编辑角色')).toBeTruthy();
   });
 });
 
@@ -164,76 +153,43 @@ describe('CharacterEditorDialog 身份行行内编辑收口', () => {
     expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('林深');
   });
 
-  it('Enter 提交：回展示态且保留新值（改名生效、未落库）', async () => {
+  it('Enter 提交：回展示态且保留新值（自动保存随后落库）', async () => {
     renderView();
     await openEditorOf('林深');
     const name = startRename();
     fireEvent.change(name, { target: { value: '林深·改' } });
     fireEvent.keyDown(name, { key: 'Enter' });
     expect(screen.queryByLabelText('名称')).toBeNull();
-    // 展示态文本 + 左海报同时跟随新名
-    expect(screen.getAllByText('林深·改').length).toBeGreaterThanOrEqual(2);
-    // 未点保存不发请求
-    expect(mocks.updateCharacter).not.toHaveBeenCalled();
+    // 展示态回显新名：身份卡标题合并为「名称：林深·改」，左海报独立一份跟随
+    expect(screen.getByText('名称：林深·改')).toBeTruthy();
+    expect(screen.getAllByText('林深·改').length).toBeGreaterThanOrEqual(1);
+    // 修改即保存：防抖后落库
+    await waitFor(
+      () => expect(mocks.updateCharacter).toHaveBeenCalledTimes(1),
+      { timeout: 3000 },
+    );
+    expect(mocks.updateCharacter).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ name: '林深·改' }),
+    );
   });
 });
 
 describe('C3 Tooltip 收编（原生 title → Fluent Tooltip）', () => {
-  it('重命名/人设按钮不再携带原生 title，可访问名由 Tooltip 注入保留', async () => {
+  it('重命名按钮不再携带原生 title，可访问名由 Tooltip 注入；人设编辑随同一会话开合', async () => {
     renderView();
     await openEditorOf('林深');
     const rename = screen.getByRole('button', { name: '重命名' }) as HTMLButtonElement;
     expect(rename.getAttribute('title')).toBeNull();
     expect(rename.getAttribute('aria-label')).toBe('重命名');
 
-    // 人设按钮：无原生 title；切编辑态后可访问名随 Tooltip 文案切换
-    const persona = screen.getByRole('button', { name: '编辑人设' }) as HTMLButtonElement;
-    expect(persona.getAttribute('title')).toBeNull();
-    fireEvent.click(persona);
-    expect(screen.getByRole('button', { name: '完成编辑' }).getAttribute('title')).toBeNull();
+    // 统一编辑会话（2026-09-13）：人设不再单独挂切换钮——进会话后人设切
+    // 输入框，标题栏对钩（保存）提交回渲染展示态
+    fireEvent.click(rename);
+    expect(screen.getByLabelText('人设')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(screen.queryByLabelText('人设')).toBeNull();
+    expect(document.querySelector('[data-persona-preview]')).toBeTruthy();
   });
 });
 
-describe('放弃未保存修改确认流（父级脏守卫 × 编辑器关闭路径）', () => {
-  it('改动后取消关闭 → 确认对话框出现；「继续编辑」保留改动留在编辑器', async () => {
-    renderView();
-    await openEditorOf('林深');
-    const name = startRename();
-    fireEvent.change(name, { target: { value: '林深（改）' } });
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
-
-    // 父级 guarded 拦截 onClose，弹就地确认。确认框按钮用文本定位：编辑器
-    // （非模态 Dialog）与确认框（模态 Dialog）同开时，Fluent/tabster 的
-    // modalizer 竞态会把确认框 a11y 隐藏（时序偶发），role 查询会被过滤，
-    // 文本查询不受影响；后续卸载断言同理不用 role（避免对隐藏态假阴性）。
-    await screen.findByText('放弃未保存的修改？');
-    fireEvent.click(await screen.findByText('继续编辑'));
-    await waitFor(() => {
-      expect(screen.queryByText('放弃未保存的修改？')).toBeNull();
-    });
-    // 编辑器未关，行内输入态与未提交值原样保留
-    expect(screen.getByText('编辑角色')).toBeTruthy();
-    expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('林深（改）');
-  });
-
-  it('改动后取消关闭 → 「放弃修改」→ 编辑器退场关闭、列表名保持原值、不发保存请求', async () => {
-    renderView();
-    await openEditorOf('林深');
-    const name = startRename();
-    fireEvent.change(name, { target: { value: '林深（改）' } });
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
-    await screen.findByText('放弃未保存的修改？');
-    fireEvent.click(await screen.findByText('放弃修改'));
-
-    await waitFor(
-      () => {
-        // 文本断言而非 role：确认框 a11y 隐藏竞态下 role 查询可能假阴性
-        expect(screen.queryByText('编辑角色')).toBeNull();
-      },
-      { timeout: 3000 },
-    );
-    // 丢弃 = 不落库：卡片名原样
-    expect(mocks.updateCharacter).not.toHaveBeenCalled();
-    expect(screen.getByText('林深')).toBeTruthy();
-  });
-});

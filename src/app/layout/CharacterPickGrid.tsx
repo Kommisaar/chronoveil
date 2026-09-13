@@ -2,7 +2,8 @@
  * 新建会话对话框两步共用的选人迷你海报卡网格（从 NewSessionDialog 抽出的
  * 纯展示件，行为零变化）：复用角色页海报卡视觉（posterGradientOf 海报渐变 +
  * 首字/头像 + 名字条，与 CharactersView 同一事实源），适配为对话框内的可选
- * 中迷你卡（aria-pressed 表达选中态）。加载中不出网格，空库出一行提示；
+ * 中迷你卡（aria-pressed 表达选中态）。加载中出 StateBlock loading 占位
+ * （A1 收编，此前不出网格直接留白），空库出一行提示；
  * 「你的扮演位」记号只标在 userBadgeId 指向的卡上（阵容步）。
  *
  * 对比度：OnBrand 白字的四个承载元素（名字条/首字徽标/对勾角标/扮演位徽标）
@@ -12,6 +13,7 @@
 import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
 import type { CharacterSummary } from '../../api/types';
+import { StateBlock } from '../../components/StateBlock';
 import { posterGradientOf } from '../../features/characters/posterGradient';
 
 /**
@@ -54,9 +56,10 @@ const useStyles = makeStyles({
     // 选中圈：常态透明 2px 描边（griffel 禁 border 简写，走 shorthands 展开
     // longhand——同 ChatView composerCard 的 focus 描边先例），选中换品牌色
     ...shorthands.border('2px', 'solid', 'transparent'),
-    // 行内档圆角 = borderRadiusMedium（三档圆角规范最内档：分组卡 =
-    // borderRadiusLarge 见 SettingsCard，页面级卡片表面 = 16px 见
-    // CharacterEditorDialog surface / CharacterPosterCard cardB）
+    // 行内档圆角 = borderRadiusMedium（Fluent v9 实测 4px；三档圆角规范
+    // 最内档，同 ProviderCard；页面级卡片表面 = 16px 见
+    // CharacterEditorDialog surface，规范常量 SURFACE_RADIUS_PAGE_CARD
+    // 在 src/components/surfaceSpec.ts）
     borderRadius: tokens.borderRadiusMedium,
     overflow: 'hidden',
     cursor: 'pointer',
@@ -162,7 +165,11 @@ export function CharacterPickGrid(props: CharacterPickGridProps) {
   const { t } = useTranslation();
   const { characters, selectedIds, onToggle, userBadgeId, disabled } = props;
 
-  if (characters === null) return null;
+  if (characters === null) {
+    // A1 三态收编：加载中出 StateBlock loading 占位（此前返回 null，对话框
+    // 该区域整块空白）；对话框内无固定高度容器，占位按内容收紧
+    return <StateBlock state="loading" label={t('sessions.wizard.loadingCharacters')} />;
+  }
   if (characters.length === 0) {
     return <div className={styles.hint}>{t('sessions.noCharacters')}</div>;
   }

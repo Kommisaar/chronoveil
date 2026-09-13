@@ -29,6 +29,7 @@ import {
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
+import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
@@ -94,6 +95,9 @@ export function CharactersView() {
   const { t } = useTranslation();
 
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
+  // 列表在途标记（A1 三态收编）：true 且列表为空时出 loading 占位，堵住
+  // 此前「初始 [] 闪空态」的窗口；列表在手时的重取不换占位（网格保持）。
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 导入/导出（Task-04）的操作错误：与列表加载错误同款就地红字（None 取消不提示）。
   const [actionError, setActionError] = useState<string | null>(null);
@@ -115,11 +119,14 @@ export function CharactersView() {
   const pendingActionRef = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       setCharacters(await listCharacters());
       setLoadError(null);
     } catch (e) {
       setLoadError(`${t('characters.loadFailed')}：${describeError(e)}`);
+    } finally {
+      setLoading(false);
     }
   }, [t]);
 
@@ -291,34 +298,54 @@ export function CharactersView() {
             </Button>
           </div>
         </div>
-        {loadError ? (
-          <Text role="alert" className={styles.errorText}>
-            {loadError}
-          </Text>
-        ) : null}
         {actionError ? (
           <Text role="alert" className={styles.errorText}>
             {actionError}
           </Text>
         ) : null}
+        {/* A1 三态收编：列表为空时 loading（StateBlock Spinner + 文案）/
+            错误（StateBlock role="alert" + 重试钮，重试走现有 refresh 单点
+            重拉）/ 空库（EmptyState）三选一；列表在手时保留红字 + 网格
+            （重取失败不清空既有内容）。 */}
         {sorted.length === 0 ? (
-          <div className={styles.empty}>
-            <EmptyState message={t('characters.empty')} />
-          </div>
-        ) : (
-          <div className={styles.gridPoster}>
-            {sorted.map((character, index) => (
-              <CharacterPosterCard
-                key={character.id}
-                character={character}
-                index={index}
-                revealDelay={reveal[index]}
-                register={register}
-                onOpen={(target) => openEditor({ mode: 'edit', character: target })}
-                onExport={(id) => void handleExport(id)}
+          loading ? (
+            <div className={styles.empty}>
+              <StateBlock state="loading" label={t('characters.loading')} />
+            </div>
+          ) : loadError !== null ? (
+            <div className={styles.empty}>
+              <StateBlock
+                state="error"
+                label={loadError}
+                onRetry={{ label: t('characters.retry'), onClick: () => void refresh() }}
               />
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className={styles.empty}>
+              <EmptyState message={t('characters.empty')} />
+            </div>
+          )
+        ) : (
+          <>
+            {loadError ? (
+              <Text role="alert" className={styles.errorText}>
+                {loadError}
+              </Text>
+            ) : null}
+            <div className={styles.gridPoster}>
+              {sorted.map((character, index) => (
+                <CharacterPosterCard
+                  key={character.id}
+                  character={character}
+                  index={index}
+                  revealDelay={reveal[index]}
+                  register={register}
+                  onOpen={(target) => openEditor({ mode: 'edit', character: target })}
+                  onExport={(id) => void handleExport(id)}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 

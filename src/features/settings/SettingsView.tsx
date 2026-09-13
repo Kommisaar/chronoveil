@@ -34,6 +34,7 @@ import { getConfig, saveConfig } from '../../api/commands';
 import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
+import { StateBlock } from '../../components/StateBlock';
 import { useUiStore } from '../../stores/ui';
 import {
   isProviderValid,
@@ -82,7 +83,9 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     padding: '16px 20px',
   },
-  // 无 provider 空态（验收 7）：虚线框引导新建
+  // 无 provider 空态（验收 7）：虚线框引导新建。引导型空态的合理特例——
+  // 不收编进 EmptyState/StateBlock（那是「无数据可看」的占位语义）；这里
+  // 是表单区内的「下一步行动引导」，需要虚线框 + 行内新建钮的分量感
   empty: {
     display: 'flex',
     flexDirection: 'column',
@@ -110,6 +113,14 @@ const useStyles = makeStyles({
     marginTop: tokens.spacingVerticalL,
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
+  },
+  // 配置加载中的占位容器（A1 三态收编，此前整页空白）：给 StateBlock 一个
+  // 视觉上有分量的留白高度
+  loading: {
+    display: 'flex',
+    minHeight: '200px',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 
@@ -292,12 +303,9 @@ export function SettingsView() {
         {t('settings.title')}
       </Title1>
 
-      {loadError ? (
-        <Text className={styles.issues} role="alert">
-          {t('settings.loadFailed')}: {loadError}
-        </Text>
-      ) : null}
-
+      {/* A1 三态收编：草稿未就绪时 loading 占位（此前整页空白）或载入失败
+          红字；错误态保留原有 Text 形态（载入失败无自动重试路径，重试 =
+          重新进入设置页） */}
       {draft && loaded ? (
         <>
           <div className={styles.stack}>
@@ -473,7 +481,15 @@ export function SettingsView() {
             onConfirm={confirmDelete}
           />
         </>
-      ) : null}
+      ) : loadError !== null ? (
+        <Text className={styles.issues} role="alert">
+          {t('settings.loadFailed')}: {loadError}
+        </Text>
+      ) : (
+        <div className={styles.loading}>
+          <StateBlock state="loading" label={t('settings.loading')} />
+        </div>
+      )}
 
       <Text className={styles.hint}>{t('settings.hint')}</Text>
     </div>

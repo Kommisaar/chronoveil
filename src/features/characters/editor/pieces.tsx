@@ -104,10 +104,14 @@ export const useFieldStyles = makeStyles({
     borderRadius: '4px',
     border: `1px solid ${tokens.colorNeutralStrokeAlpha2}`,
     cursor: 'pointer',
-    // 选中环用短过渡：色块本身的增减无动画，动在状态反馈上
-    transitionProperty: 'box-shadow',
-    transitionDuration: tokens.durationFast,
     ':hover': { boxShadow: `0 0 0 2px ${tokens.colorNeutralStroke2}` },
+    // 选中环用短过渡：色块本身的增减无动画，动在状态反馈上。transition
+    // 收进 no-preference 媒体块（同 useCardLiftStyles 的 reduce 门控）：
+    // 减弱动态时悬停环瞬时出现，不做补间
+    '@media (prefers-reduced-motion: no-preference)': {
+      transitionProperty: 'box-shadow',
+      transitionDuration: tokens.durationFast,
+    },
   },
   paletteSwatchSelected: {
     boxShadow: `0 0 0 2px ${tokens.colorNeutralBackground1}, 0 0 0 4px ${tokens.colorBrandForeground1}`,
@@ -209,9 +213,14 @@ export const useFieldStyles = makeStyles({
     ':hover': { color: tokens.colorBrandForeground1 },
   },
   chevron: {
-    transitionProperty: 'transform',
-    transitionDuration: tokens.durationNormal,
-    transitionTimingFunction: tokens.curveEasyEase,
+    // 旋转过渡收进 no-preference 媒体块（同 useCardLiftStyles 的 reduce
+    // 门控）；chevronOpen 的 transform 不门控——旋转是 aria-expanded 的
+    // 可视冗余，减弱动态下瞬时切换（保留状态反馈，只去补间）
+    '@media (prefers-reduced-motion: no-preference)': {
+      transitionProperty: 'transform',
+      transitionDuration: tokens.durationNormal,
+      transitionTimingFunction: tokens.curveEasyEase,
+    },
   },
   chevronOpen: {
     transform: 'rotate(90deg)',

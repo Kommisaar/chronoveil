@@ -10,7 +10,9 @@
  *   600ms 防抖后串行上送（上一拍完成才发下一拍，防乱序覆盖）；载荷与上次
  *   已保存值相同则跳过；名称为空（canSave=false）暂不发送，恢复有效名后
  *   随下一拍落库（清空期间在途的旧有效载荷照发，避免丢用户输入）；关闭前
- *   由排版壳调 flushSave 补存最后一拍；
+ *   由排版壳调 flushSave 补存最后一拍；「过期载荷不得落库」覆盖两个窗口：
+ *   防抖窗口由还原取消防抖拍保证，串行链在途窗口由落库后的纠正拍补齐
+ *   （scheduleCorrectiveBeat——在途期间改回原值/改新的差异不会停在旧拍）；
  * - avatar 不做编辑 UI：编辑原样带回（TASK-008 验收 2）；voiceConfig 恒
  *   null（CON-003 TTS 留缝不留壳）；
  * - model_config 覆写序列化为 camelCase 键 JSON（Rust resolve_effective_llm 消费），
@@ -235,6 +237,8 @@ export function useEditorForm(props: {
   const initialInputJson = useMemo(() => JSON.stringify(buildInput()), []);
   const lastSavedRef = useRef(initialInputJson);
   const timerRef = useRef<number | null>(null);
+  // 卸载标记：纠正拍在卸载后改为直入串行链（scheduleCorrectiveBeat）。
+  const mountedRef = useRef(true);
   // 串行链：上一拍上送完成才发下一拍（IPC 无序完成时防旧载荷覆盖新载荷）。
   const chainRef = useRef<Promise<void>>(Promise.resolve());
   // latest-ref 模式（渲染期赋值，幂等只读）：串行链与卸载补存执行时必须取
@@ -246,13 +250,40 @@ export function useEditorForm(props: {
   buildInputRef.current = buildInput;
   canSaveRef.current = canSave;
 
-  /** 上送一拍：入链串行执行；成功后推进已保存基线。失败已在父级就地
-   *  红字展示，链吞掉 rejection 不断链（下一拍改动自然重试）。 */
+  /** 纠正拍（在途窗口守护）：比对当前表单与已保存基线，不一致则补一拍。
+   *  还原路径只能取消防抖拍（json 已等于旧基线），串行链在途窗口的差异
+   *  由此补齐，保证「过期载荷不得落库」在还原+挂机 / 还原+关闭 / 还原+
+   *  卸载三条路径全部成立。已卸载时不能等防抖（无渲染驱动、窗口随时可关），
+   *  直入串行链补齐最终意图（ref 冻结在原卡，不误写他卡）。 */
+  const scheduleCorrectiveBeat = (): void => {
+    if (timerRef.current !== null) return; // 已有待发拍：自然携带最新表单值
+    const input = buildInputRef.current();
+    const json = JSON.stringify(input);
+    if (json === lastSavedRef.current || !canSaveRef.current) return;
+    if (!mountedRef.current) {
+      persist(input, json);
+      return;
+    }
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      const latest = buildInputRef.current();
+      persist(latest, JSON.stringify(latest));
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+
+  /** 上送一拍：入链串行执行；成功后推进已保存基线并按需排纠正拍。失败已
+   *  在父级就地红字展示，链吞掉 rejection 不断链（下一拍改动自然重试——
+   *  失败拍不排纠正拍，避免失败后无限自动重试）。 */
   const persist = (input: CharacterInput, json: string): void => {
+    // 调用时 + 执行时双重比较：纠正拍与手动拍并发排布时可能排出载荷已被
+    // 更晚一拍覆盖的重复上送，执行时比较兑现「与已保存值相同则跳过」。
+    if (json === lastSavedRef.current) return;
     chainRef.current = chainRef.current
       .then(async () => {
+        if (json === lastSavedRef.current) return;
         await onAutosaveRef.current(input);
         lastSavedRef.current = json;
+        scheduleCorrectiveBeat();
       })
       .catch(() => undefined);
   };
@@ -262,7 +293,9 @@ export function useEditorForm(props: {
   useEffect(() => {
     const json = JSON.stringify(buildInputRef.current());
     if (json === lastSavedRef.current) {
-      // 改回已保存值（含防抖窗口内还原）：取消在途拍，过期载荷不得落库。
+      // 改回已保存值（防抖窗口内还原）：取消在途拍。若已有拍停在串行链
+      // 在途，还原差异由落库后的纠正拍补齐（scheduleCorrectiveBeat）——
+      // 「过期载荷不得落库」对两个窗口都成立。
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -280,24 +313,31 @@ export function useEditorForm(props: {
 
   // 卸载补存（切换目标卡 / 关闭退场卸载）：在途防抖立即上送，避免丢最后一拍。
   useEffect(
-    () => () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-        const input = buildInputRef.current();
-        const json = JSON.stringify(input);
-        if (canSaveRef.current && json !== lastSavedRef.current) {
-          persist(input, json);
+    () => {
+      // StrictMode 双挂载会先跑一轮 cleanup：挂载体恢复标记（useRef 初值只在
+      // 首次挂载生效，不能依赖它跨双挂载保持 true）。
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+        if (timerRef.current !== null) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+          const input = buildInputRef.current();
+          const json = JSON.stringify(input);
+          if (canSaveRef.current && json !== lastSavedRef.current) {
+            persist(input, json);
+          }
         }
-      }
+      };
     },
     // 空依赖刻意为之：persist 仅经稳定 ref 读写，卸载补存语义见上
     [],
   );
 
-  /** 关闭前补存：取消在途防抖，未落库的最后一拍立即上送。 */
+  /** 关闭前补存：取消在途防抖，未落库的最后一拍立即上送。串行链在途窗口
+   *  （timerRef 为 null 但基线尚未推进）由 persist 落库后的纠正拍守护。 */
   const flushSave = (): void => {
-    if (timerRef.current === null) return; // 无在途防抖 = 全部已落库
+    if (timerRef.current === null) return; // 无在途防抖 = 在途窗口由纠正拍兜底
     window.clearTimeout(timerRef.current);
     timerRef.current = null;
     const input = buildInputRef.current();

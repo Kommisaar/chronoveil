@@ -1,5 +1,6 @@
 // 角色编辑器表单逻辑单测（useEditorForm 公开出口全覆盖）：挂载基线（打开不
 // 自动保存）、canSave 名称必填、修改即保存（防抖窗口 / 还原取消在途拍 /
+// 串行链在途窗口纠正拍：还原+挂机 / 还原+关闭卸载 / 纠正拍未到即 flushSave /
 // 名称必填挂起 / flushSave 补存 / 失败不推进基线下拍重试 / 卸载补存）、
 // model_config 覆写解析（未知键往返、非法 JSON 回落、trim 归一经上送载荷
 // 断言）、live 派生（强调色/风格标签）、预览动画（遗留风格串回落 fade）。
@@ -48,6 +49,15 @@ async function flushMicrotasks(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
   });
+}
+
+/** 手动放行的 deferred：让首拍 onAutosave 停在在途，测试控制其完成时机。 */
+function makeGate(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -141,6 +151,71 @@ describe('useEditorForm 修改即保存', () => {
     act(() => result.current.setPersona('旧书店老板'));
     await advance(2000);
     expect(onAutosave).not.toHaveBeenCalled();
+  });
+
+  it('串行链在途期间改回已保存原值：过期拍落库后排纠正拍补送原值', async () => {
+    const gate = makeGate();
+    const { result, onAutosave } = renderForm();
+    onAutosave.mockImplementationOnce(() => gate.promise);
+    act(() => result.current.setPersona('在途改动'));
+    await advance(700); // 防抖到点，首拍入链并停在在途
+    expect(onAutosave).toHaveBeenCalledTimes(1);
+    act(() => result.current.setPersona('旧书店老板')); // 在途窗口内还原为基线
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenCalledTimes(1); // 还原只取消防抖，不动在途拍
+    gate.resolve(); // 过期载荷（A）落库
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenCalledTimes(1); // 纠正拍经防抖排布，尚未上送
+    await advance(700); // 纠正拍防抖到点
+    expect(onAutosave).toHaveBeenCalledTimes(2);
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ persona: '旧书店老板' }),
+    );
+    await flushMicrotasks();
+    await advance(2000);
+    expect(onAutosave).toHaveBeenCalledTimes(2); // 收敛：基线已推进，不再多拍
+  });
+
+  it('在途期间还原后关闭（flushSave + 卸载）：过期拍落库即直入链补送原值，不等防抖', async () => {
+    const gate = makeGate();
+    const { result, onAutosave, unmount } = renderForm();
+    onAutosave.mockImplementationOnce(() => gate.promise);
+    act(() => result.current.setPersona('在途改动'));
+    await advance(700);
+    act(() => result.current.setPersona('旧书店老板'));
+    act(() => result.current.flushSave()); // 无防抖拍可补（no-op），不产生上送
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenCalledTimes(1);
+    unmount();
+    gate.resolve(); // 过期拍此时才落库
+    await flushMicrotasks();
+    // 纠正直入串行链（未推进任何时钟即上送）——挂机等防抖会留下关闭后丢拍窗口
+    expect(onAutosave).toHaveBeenCalledTimes(2);
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ persona: '旧书店老板' }),
+    );
+    await advance(2000);
+    expect(onAutosave).toHaveBeenCalledTimes(2);
+  });
+
+  it('纠正拍防抖未到即 flushSave：取消纠正拍立即直送（关闭落在落库与纠正之间）', async () => {
+    const gate = makeGate();
+    const { result, onAutosave } = renderForm();
+    onAutosave.mockImplementationOnce(() => gate.promise);
+    act(() => result.current.setPersona('在途改动'));
+    await advance(700);
+    act(() => result.current.setPersona('旧书店老板'));
+    gate.resolve();
+    await flushMicrotasks(); // 过期拍落库，纠正拍已入防抖
+    expect(onAutosave).toHaveBeenCalledTimes(1);
+    act(() => result.current.flushSave()); // 取消纠正拍，立即直送原值
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenCalledTimes(2);
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ persona: '旧书店老板' }),
+    );
+    await advance(2000);
+    expect(onAutosave).toHaveBeenCalledTimes(2);
   });
 
   it('名称清空挂起（不发送无效载荷），恢复有效名后随下一拍上送', async () => {

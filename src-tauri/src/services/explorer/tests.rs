@@ -564,6 +564,41 @@ fn read_scene_falls_back_and_reports_missing_messages() {
     assert!(ongoing.contains("[user] 进行中问"), "末行归进行中场：{ongoing}");
 }
 
+/// read_scene 错位档（空段行在前 + 盖章段在后，重生成清空的可达形态）：行 A 无
+/// 盖章段（旧行软删后收敛为空段），其后行 B 有盖章段——旧守卫只查下标
+/// （position < closed.len()），会把 closed[0] = span(B) 的正文冒充行 A 内容。
+/// 回退档收窄为「全无盖章段」的纯内容切分形态后，此形态必须回「无消息记录」
+/// 且不含 B 的正文（prompt.rs §7-3：被清空的场收敛为空段——行还在但消息没了）。
+#[test]
+fn read_scene_misaligned_reports_missing_instead_of_other_scene() {
+    // 行布局：1=行A(idx1，重生成清空)、2=行B(idx2，已盖章)、3=进行中 header(idx3)。
+    let scenes = vec![scene_row(1, 1), scene_row(2, 2), scene_row(3, 3)];
+    // 历史：行 B 的盖章段在场，行 A 的段已随重生成软删（list 后不出现），
+    // 行 A 无任何盖章段 → 旧行为会按位置取到 closed[0] = span(B)。
+    let messages = vec![
+        stamped_message(5, MessageRole::User, "乙场问", Some(2)),
+        stamped_message(6, MessageRole::Assistant, "乙场答", Some(2)),
+        stamped_message(7, MessageRole::User, "进行中问", None),
+    ];
+
+    // 场1（行 A，空段）：不得取到 B 的正文，明确报无消息记录。
+    let cleared = read_scene(1, &messages, &scenes, &[]);
+    assert!(cleared.contains("场景 1 无消息记录"), "错位档回提示文本：{cleared}");
+    assert!(
+        !cleared.contains("乙场问") && !cleared.contains("乙场答"),
+        "B 场内容不得冒充行 A：{cleared}"
+    );
+
+    // 同形态对照组：盖章命中与进行中场语义不受收窄影响。
+    let stamped = read_scene(2, &messages, &scenes, &[]);
+    assert!(
+        stamped.contains("乙场问") && stamped.contains("乙场答"),
+        "行 B 仍按 id 命中盖章段：{stamped}"
+    );
+    let ongoing = read_scene(3, &messages, &scenes, &[]);
+    assert!(ongoing.contains("[user] 进行中问"), "末行仍归进行中场：{ongoing}");
+}
+
 /// 卷宗正文为空白（查证后模型输出空内容）→ 视为无效卷宗返回 None，不注入空段。
 #[tokio::test]
 async fn blank_dossier_content_treated_as_none() {

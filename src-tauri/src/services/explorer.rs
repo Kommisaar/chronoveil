@@ -341,9 +341,12 @@ fn search_history(
 /// read_scene：按场景号（scene.idx，编年史「场N」同命名空间）取整场消息全文。
 ///
 /// 优先按**库内归属**命中：场景行 id → 盖章段（scene_id 精确对应，欠账 / 重生成
-/// 不再错位）。行不是任何盖章段、也非末行（进行中 header → ongoing）时回退现行
-/// 内容切分位置对齐（closed[i] 归第 i 行）——覆盖无盖章的旧数据 / 纯内容切分形态，
-/// 回退路径保留既有「场景 N 无消息记录」提示语义（空段 / 越界定位）。
+/// 不再错位）。末行（进行中 header）取 ongoing 尾段。行不是任何盖章段、也非末行
+/// 时仅当**全无盖章段**（纯内容切分形态，closed[i] ↔ scenes[i] 与旧版逐字同界）
+/// 才按位置对齐回退；混合形态（存在盖章段）下位置对齐无归属保证——空段行（重
+/// 生成清空）在前、盖章段在后时 closed[position] 是其他场的段，无锚位也可能是
+/// 无行可归属的欠账段——此时回「场景 N 无消息记录（结算归属错位）」提示，
+/// 不把其他段内容冒充本场。
 fn read_scene(
     scene_idx: i64,
     messages: &[Message],
@@ -364,8 +367,13 @@ fn read_scene(
     } else if position + 1 == scenes.len() {
         // 末行 = 进行中 header：NULL 尾段（含欠账切分后的余段）逻辑上属于它。
         spans.ongoing
-    } else if position < spans.closed.len() {
-        // 回退：内容切分位置对齐（无盖章形态下与旧版逐字同界）。
+    } else if position < spans.closed.len()
+        && spans.closed.iter().all(|span| span.scene_id.is_none())
+    {
+        // 回退：内容切分位置对齐——仅限全无盖章段的纯内容切分形态（closed[i] ↔
+        // scenes[i]，与旧版逐字同界，即本档注释声称的唯一形态）。存在任何盖章段时
+        // 下标与行位已经错开（空段行 / 欠账段），closed[position] 可能是其他场的段，
+        // 不得冒充本场——落到下方「无消息记录（结算归属错位）」提示。
         spans.closed[position].messages
     } else {
         return format!("场景 {scene_idx} 无消息记录（结算归属错位，已知偏差）");

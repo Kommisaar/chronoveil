@@ -5,10 +5,16 @@
 // 角色列表异步加载：交互前一律先 findByText 等卡片上屏。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { sessions } from '../../api/mock/data';
 import '../../i18n';
 import { CharactersView } from './CharactersView';
+
+// 本文件渲染重（卡片网格 + 18 项下拉全量渲染），全量并行负载下 jsdom 单用例
+// 常超 vitest 默认 5s——隔离跑稳定全绿，超时点都在渲染等待而非断言。
+// 文件级放宽时间预算（20s），断言逻辑不变；根修（渲染分片/环境复用）留待
+// 测试基建任务，移除条件：该任务落地后本配置可删。
+vi.setConfig({ testTimeout: 20_000 });
 
 function renderView() {
   return render(

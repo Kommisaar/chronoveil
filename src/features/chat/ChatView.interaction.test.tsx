@@ -281,8 +281,25 @@ it('C3：聚焦发送钮弹出 Fluent 气泡（role="tooltip"，原生 title 的
   useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
   renderView();
   const textbox = await screen.findByRole('textbox');
-  // 空草稿下发送钮禁用（禁用钮不响应焦点事件）：先让草稿非空再聚焦
+  // 空草稿下发送钮已可聚焦（CAND-05 改 disabledFocusable）；此处仍先填草稿，
+  // 覆盖「启用态聚焦」这一基础路径
   fireEvent.change(textbox, { target: { value: '你好' } });
   fireEvent.focus(screen.getByRole('button', { name: '发送' }));
   expect(await screen.findByRole('tooltip', {}, { timeout: 2000 })).toBeTruthy();
+});
+
+it('CAND-05：空草稿禁用态的发送钮可聚焦出气泡（aria-disabled 表达，激活被拦截）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  renderView();
+  const send = await screen.findByRole('button', { name: '发送' });
+  // 空草稿即禁用：禁用语义改由 aria-disabled 承担，原生 disabled 属性不再出现
+  // （原生 disabled 不发 pointer 事件，Tooltip「发送」解释悬空不可达）
+  expect(send.getAttribute('aria-disabled')).toBe('true');
+  expect(send.hasAttribute('disabled')).toBe(false);
+  // 禁用态聚焦可达：气泡照常弹出
+  fireEvent.focus(send);
+  expect(await screen.findByRole('tooltip', {}, { timeout: 2000 })).toBeTruthy();
+  // 点击不发送：Fluent 拦截 disabledFocusable 激活，onSend 空草稿守卫双保险
+  fireEvent.click(send);
+  expect(mocks.sendMessage).not.toHaveBeenCalled();
 });

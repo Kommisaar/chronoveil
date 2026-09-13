@@ -391,6 +391,15 @@ export function ChatView() {
                 lastIsAssistant && styles.composerActionsWithRegen,
               )}
             >
+              {/* 三钮禁用统一用 disabledFocusable 而非原生 disabled（CAND-05）：
+                  原生 disabled 不发 pointer 事件，禁用期的 Tooltip（发送/停止钮
+                  可访问名的载体）悬停与聚焦均不可达，「为什么发不出去」无解释。
+                  disabledFocusable 以 aria-disabled 表达禁用、保留可聚焦，Fluent
+                  自身拦截激活（onClick 不触发）。取舍：禁用钮进 Tab 序——composer
+                  内同时至多两枚（发送/停止互斥），代价有界；停止钮禁用仅 stopping
+                  瞬态，保留焦点还避免原生 disabled 触发的焦点坠落 body；读屏播报
+                  「置灰」而非控件从可达性树消失。外包 span 保悬停的退路弃用：
+                  多一层 DOM 与事件管线，且无法让读屏/键盘用户触达解释。 */}
               {lastIsAssistant && (
                 // 重新生成：可见文字已构成可访问名，气泡仅作悬停提示——
                 // relationship="inaccessible"（C3，不叠 aria 语义）
@@ -400,7 +409,7 @@ export function ChatView() {
                     className={styles.regenerate}
                     icon={<ArrowSync24Regular />}
                     aria-label={t('chat.regenerate')}
-                    disabled={busy}
+                    disabledFocusable={busy}
                     onClick={() => void onRegenerate()}
                   >
                     {t('chat.regenerate')}
@@ -414,7 +423,7 @@ export function ChatView() {
                   <Button
                     appearance="primary"
                     icon={<RecordStop24Regular />}
-                    disabled={streamState.status === 'stopping'}
+                    disabledFocusable={streamState.status === 'stopping'}
                     onClick={() => void onStop()}
                   />
                 </Tooltip>
@@ -423,7 +432,7 @@ export function ChatView() {
                   <Button
                     appearance="primary"
                     icon={<ArrowUp24Regular />}
-                    disabled={busy || draft.trim().length === 0}
+                    disabledFocusable={busy || draft.trim().length === 0}
                     onClick={() => void onSend()}
                   />
                 </Tooltip>

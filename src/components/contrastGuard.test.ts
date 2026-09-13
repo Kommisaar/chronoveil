@@ -171,10 +171,8 @@ const USAGES: readonly UsageEntry[] = [
     context: '请求消息 system 灰斜体（base200）', backgrounds: ['colorNeutralBackground2'] },
   { file: 'src/features/chat/ledgerTrace.tsx', line: 169, style: 'roleAssistant', token: 'colorNeutralForeground1',
     context: '请求消息 assistant 正文（base200）', backgrounds: ['colorNeutralBackground2'] },
-  { file: 'src/features/chat/useChatViewStyles.ts', line: 41, style: 'ledgerToggle', token: 'colorNeutralForeground2',
-    context: '账本开关钮图标（20px，显式 bg1）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/chat/useChatViewStyles.ts', line: 47, style: 'ledgerToggle:hover', token: 'colorNeutralForeground1',
-    context: '账本开关钮悬停态', backgrounds: ['colorNeutralBackground1Hover'] },
+  // 账本开关钮的 foreground 用点已随审计 C2 迁入 useGhostIconButtonStyles 统一
+  // 规格，本文件只留排版（钩子文件的清单登记归其落地任务）
   { file: 'src/features/chat/useChatViewStyles.ts', line: 76, style: 'msgHeader', token: 'colorNeutralForeground3',
     context: '消息行时间戳等 meta（base200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/useChatViewStyles.ts', line: 86, style: 'msgSpeakerUser', token: 'colorNeutralForeground3',

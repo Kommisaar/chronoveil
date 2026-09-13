@@ -2,12 +2,15 @@
  * ChatView 的视图样式单一事实源：消息行叙事流排版 + 输入卡 + 引擎主题变量
  * 覆写。从 ChatView.tsx 拆出（500 行规范），导出形式从众 useLedgerSectionStyles
  * 先例；视图行为注释随归属搬移，逐字保留。
+ * 导出钩子是合成入口：账本开关钮的外观/反馈由 useGhostIconButtonStyles 统一
+ * 规格（审计 C2 迁入），基础 makeStyles 只保留排版与本地特例。
  */
-import { makeStyles, shorthands, tokens } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
 import type { CSSProperties } from 'react';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
+import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 
-export const useChatViewStyles = makeStyles({
+const useChatViewBaseStyles = makeStyles({
   // 根改双列（叙事账本面板，FR-012）：聊天列 + 可选账本列；面板开合不挤压
   // 聊天流的滚动位置（stream 自身滚动容器不变）
   root: {
@@ -23,30 +26,17 @@ export const useChatViewStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
   },
-  // 叙事账本开关（聊天列右上角浮动，头部无条带的布局下即事实上的头部区；
-  // 15% 右边距的留白带内，常态不压消息正文）
-  ledgerToggle: {
+  // 叙事账本开关钮（聊天列右上角浮动，头部无条带的布局下即事实上的头部区；
+  // 15% 右边距的留白带内，常态不压消息正文）：只保留浮置定位与不透明底——
+  // 外观（36px 容器 / 20px 图标 / borderRadiusMedium / 悬停提亮一阶前景升一阶 /
+  // 键盘焦点环）由 useGhostIconButtonStyles('medium') 统一供给（审计 C2 迁入）。
+  // 不透明底是该钩子头注列明的「浮于内容之上」已知特例：滚动内容不得从钮底透出
+  ledgerToggleFloating: {
     position: 'absolute',
     top: '8px',
     right: '12px',
     zIndex: 2,
-    width: '36px',
-    height: '36px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0px',
-    border: 'none',
-    borderRadius: tokens.borderRadiusMedium,
     backgroundColor: tokens.colorNeutralBackground1,
-    color: tokens.colorNeutralForeground2,
-    cursor: 'pointer',
-    // 图标与活动栏同规格（20px）
-    '> svg': { width: '20px', height: '20px', fontSize: '20px' },
-    ':hover': {
-      backgroundColor: tokens.colorNeutralBackground1Hover,
-      color: tokens.colorNeutralForeground1,
-    },
   },
   stream: {
     flex: 1,
@@ -153,6 +143,22 @@ export const useChatViewStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
   },
 });
+
+/**
+ * 视图样式合成入口（消费方不变仍是一把取全）：基础排版 + 幽灵图标钮规格。
+ * ledgerToggle = useGhostIconButtonStyles('medium') 打底，浮置定位与不透明底
+ * 作为本地特例后置 mergeClasses（Griffel 约定：后写覆盖前，原因见该钩子头注）；
+ * ledgerToggleFloating 不单独外泄——直接消费会丢掉统一外观。
+ */
+export function useChatViewStyles() {
+  const base = useChatViewBaseStyles();
+  const ghost = useGhostIconButtonStyles('medium');
+  const { ledgerToggleFloating, ...view } = base;
+  return {
+    ...view,
+    ledgerToggle: mergeClasses(ghost.root, ledgerToggleFloating),
+  };
+}
 
 /**
  * 引擎命名空间主题变量的聊天侧覆写（审计问题 3，保守适配）：engine.css 顶部的

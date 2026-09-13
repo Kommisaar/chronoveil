@@ -10,6 +10,7 @@ import {
   mergeClasses,
 } from '@fluentui/react-components';
 import {
+  Add24Regular,
   ArrowSync24Regular,
   ArrowUp24Regular,
   Notebook24Regular,
@@ -65,6 +66,8 @@ export function ChatView() {
   const sessions = useUiStore((s) => s.sessions);
   // 事件级活性刷新（TASK-010）：落库 / 终态时点触发，失败在 store 侧静默
   const refreshSessionsQuietly = useUiStore((s) => s.refreshSessionsQuietly);
+  // 新建会话对话框开合在 ui store（U5）：空态直达钮与侧栏「+」同源触发
+  const openNewSession = useUiStore((s) => s.openNewSession);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [config, setConfig] = useState<ConfigDto | null>(null);
   const [draft, setDraft] = useState('');
@@ -218,7 +221,17 @@ export function ChatView() {
   };
 
   if (activeSessionId === null) {
-    return <EmptyState message={t('chat.empty')} />;
+    // 空态直达钮（U5）：侧栏可收起，文案里的「+」指引会失效，就地给新建入口
+    return (
+      <EmptyState
+        message={t('chat.empty')}
+        action={{
+          label: t('sessions.new'),
+          icon: <Add24Regular />,
+          onClick: openNewSession,
+        }}
+      />
+    );
   }
 
   // 当前会话的 roster 回显（多角色阵容制）：历史消息说话人 / 流式行归属都按

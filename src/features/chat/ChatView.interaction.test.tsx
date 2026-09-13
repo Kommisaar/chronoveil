@@ -101,7 +101,12 @@ beforeEach(() => {
       handlers.delete(sessionId);
     };
   });
-  useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: false });
+  useUiStore.setState({
+    activeSessionId: null,
+    sessions: [],
+    sessionsLoaded: false,
+    newSessionOpen: false,
+  });
 });
 
 afterEach(() => {
@@ -109,17 +114,22 @@ afterEach(() => {
   // hub 是模块级单例：摘掉本文件登记的路由订阅与流状态，避免跨用例泄漏
   for (const sessionId of [...handlers.keys()]) streamHub.end(sessionId);
   handlers.clear();
-  useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: false });
+  useUiStore.setState({
+    activeSessionId: null,
+    sessions: [],
+    sessionsLoaded: false,
+    newSessionOpen: false,
+  });
   restoreScrollPrototype();
 });
 
 // —— U3 滚动几何模拟基建：jsdom 无布局，scrollHeight / clientHeight / scrollTop
 // 全为零——在 Element.prototype 上替换访问器注入受控几何；afterEach 还原。
-const originalScrollDescriptors = new Map(
-  ['scrollTop', 'scrollHeight', 'clientHeight']
-    .map((key) => [key, Object.getOwnPropertyDescriptor(Element.prototype, key)] as const)
-    .filter(([, descriptor]) => descriptor !== undefined),
-);
+const originalScrollDescriptors = new Map<string, PropertyDescriptor>();
+for (const key of ['scrollTop', 'scrollHeight', 'clientHeight']) {
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, key);
+  if (descriptor !== undefined) originalScrollDescriptors.set(key, descriptor);
+}
 let scrollTopValue = 0;
 let scrollHeightValue = 0;
 let clientHeightValue = 0;
@@ -186,6 +196,14 @@ it('U3：距底恰在阈值（80px）上不吸底', async () => {
   renderView();
   await screen.findByText('你好');
   expect(scrollTopSetter).not.toHaveBeenCalled();
+});
+
+it('U5：零会话空态提供「新建会话」直达钮，点击置位 store 开关', () => {
+  useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: true });
+  renderView();
+  expect(screen.getByText('选择左侧会话，或点侧栏「+」新建对话')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+  expect(useUiStore.getState().newSessionOpen).toBe(true);
 });
 
 it('U1：IME 组合期的 Enter 不发送，草稿保留', async () => {

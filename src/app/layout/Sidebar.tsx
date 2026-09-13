@@ -4,7 +4,7 @@
 // （位移动画）+ 选中底色。
 // 会话管理（TASK-007 / FR-007 / ADR-009）：
 // - 新建：Fluent Dialog 三段式开局向导（FR-014 + 多角色第 1 步两步选人，表单
-//   内聚在 NewSessionDialog）：选扮演位 → 选 LLM 阵容 → 开局表单（历法五选 /
+//   内聚在 NewSessionDialog；开合状态在 ui store，与聊天空态直达钮同源——U5）：选扮演位 → 选 LLM 阵容 → 开局表单（历法五选 /
 //   起始锚 / 首场景可选字段，「直接开始」= opening 全空降级）→ createSession →
 //   store 全量重拉（updated_at 倒序进列表）→ 新会话成为当前会话（视图已在聊天）；
 // - 删除：条目删除钮 → Dialog 确认（文案明示「聊天记录软删除」，ADR-009）→
@@ -240,7 +240,10 @@ export function Sidebar() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed);
   const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
-  const [newOpen, setNewOpen] = useState(false);
+  // 新建会话对话框开合在 ui store（U5）：与聊天空态直达钮同源，本组件只消费
+  const newSessionOpen = useUiStore((s) => s.newSessionOpen);
+  const openNewSession = useUiStore((s) => s.openNewSession);
+  const closeNewSession = useUiStore((s) => s.closeNewSession);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -366,7 +369,7 @@ export function Sidebar() {
       const created = await createSession(members, null, opening);
       await refreshSessions();
       selectSession(created.id);
-      setNewOpen(false);
+      closeNewSession();
     } catch (e) {
       setHint(`${t('sessions.createFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
     } finally {
@@ -398,7 +401,7 @@ export function Sidebar() {
             <button
               type="button"
               className={styles.iconBtn}
-              onClick={() => setNewOpen(true)}
+              onClick={openNewSession}
               aria-haspopup="dialog"
               aria-label={t('sessions.new')}
               title={t('sessions.new')}
@@ -473,10 +476,10 @@ export function Sidebar() {
       {/* 新建会话（FR-014 三段式开局向导）：选扮演位 → 选 LLM 阵容 → 开局表单；
           表单与提交逻辑内聚在 NewSessionDialog（app 层），本组件只负责开关与建会话执行 */}
       <NewSessionDialog
-        open={newOpen}
+        open={newSessionOpen}
         characters={characters}
         creating={creating}
-        onOpenChange={setNewOpen}
+        onOpenChange={(open) => (open ? openNewSession() : closeNewSession())}
         onCreate={(members, opening) => void createFromRoster(members, opening)}
       />
 

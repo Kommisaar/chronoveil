@@ -21,6 +21,12 @@ interface UiState {
   railExpanded: boolean;
   /** 会话侧栏收起态（右缘 handle 切换，232px ↔ 0 宽度过渡） */
   sidebarCollapsed: boolean;
+  /**
+   * 新建会话对话框开合（U5 提升自 Sidebar 局部态）：聊天空态直达钮与侧栏
+   * 「+」两个入口同源触发；对话框本体仍由 Sidebar 渲染（其挂载域与角色
+   * 清单数据所在处）。
+   */
+  newSessionOpen: boolean;
   /** 界面主题档位（FR-009；界面原型即时生效，落盘在阶段 6 接入 ADR-012） */
   theme: ThemeSetting;
   /** 界面语言档位（FR-009） */
@@ -43,6 +49,8 @@ interface UiState {
   removeSession: (id: number) => void;
   toggleRailExpanded: () => void;
   toggleSidebarCollapsed: () => void;
+  openNewSession: () => void;
+  closeNewSession: () => void;
   setTheme: (theme: ThemeSetting) => void;
   setLanguage: (language: LanguageSetting) => void;
 }
@@ -55,6 +63,7 @@ export const useUiStore = create<UiState>()((set, get) => ({
   sessionsLoaded: false,
   railExpanded: false,
   sidebarCollapsed: false,
+  newSessionOpen: false,
   theme: 'system',
   language: 'system',
   setView: (view) => set({ view }),
@@ -75,6 +84,8 @@ export const useUiStore = create<UiState>()((set, get) => ({
   },
   toggleRailExpanded: () => set((s) => ({ railExpanded: !s.railExpanded })),
   toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  openNewSession: () => set({ newSessionOpen: true }),
+  closeNewSession: () => set({ newSessionOpen: false }),
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
 }));

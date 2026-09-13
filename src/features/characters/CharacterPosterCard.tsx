@@ -9,7 +9,9 @@
  *   必须走 Griffel 类 + mergeClasses：Fluent Card 内部对 className 再过一次
  *   Griffel 合并，字符串拼接的全局类会被静默丢弃（repo 规约）；
  * - 卡菜单（Task-04）：海报右上角 ⋯ 触发器出「导出角色卡」；点击/键盘事件
- *   不冒泡到卡片（否则会同时打开编辑器）；
+ *   不冒泡到卡片（否则会同时打开编辑器）；触发器挂 28px 圆形实底芯保证恒白
+ *   图标的非文字对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，同文字区
+ *   下限的后续补齐）；
  * - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑；
  * - 海报文字（首字母水印/名字/问候/元信息）一律用普通 span 而非 Text：
  *   Fluent Card 自带 `.fui-Card哈希 .fui-Text { color: currentcolor }`
@@ -66,6 +68,19 @@ const POSTER_SCRIM_ALPHA = 0.62;
  * contrastGuard.test.ts 海报文字断言组，两侧同步改。
  */
 const POSTER_META_TEXT_ALPHA = 0.8;
+
+/**
+ * 卡菜单触发器实底芯压暗下限（对比度守卫配对依据，与 src/components/contrastGuard.test.ts
+ * 的 POSTER_ICON_SCRIM_FLOOR 互指）：⋯ 触发器图标恒白 #ffffff（非文字图形，按
+ * WCAG 1.4.11 非文字线 3:1 计），原本直落原始渐变无下界（contrastGuard 台账
+ * 残留已知项，2026-09-14 实底芯修复转正）。触发器挂 rgba(0,0,0,本档) 28px 圆形
+ * 实底芯后，最坏合成与 POSTER_SCRIM_ALPHA 同构（值也同档，互指）：纯白 accent
+ * × (1 − 0.62) → 灰 ceil(255×0.38)=97 → 白图标对比 ≈6.19:1 ≥ 3:1，余量充足。
+ * transparent 外观各交互态底（colorTransparentBackgroundHover/Pressed/Selected）
+ * 双主题均为全透明（@fluentui/tokens alias 实证），实底芯不随 hover/按下/展开
+ * 漂移，静态配对即全状态配对。
+ */
+const POSTER_ICON_SCRIM_ALPHA = 0.62;
 
 const useStyles = makeStyles({
   // —— 海报卡共享件（头像图 / 高光 / 色点） ——
@@ -163,11 +178,21 @@ const useStyles = makeStyles({
     top: '8px',
     right: '8px',
     zIndex: 1,
+    // 28px 圆形实底芯（POSTER_ICON_SCRIM_ALPHA 下限）：恒白 ⋯ 图标浮在任意
+    // accent 渐变上无对比度下界，实底芯给出数学下限（见常量注释与
+    // contrastGuard 的 POSTER_CARD_ICON 断言）。组件 iconOnly-small 档
+    // maxWidth=24px 会把盒钳回 24×28 胶囊，显式锁 maxWidth 与 height 同值
+    // 成正圆；transparent 外观各交互态底全透明，实底芯不随 hover 漂移
+    width: '28px',
     minWidth: '28px',
+    maxWidth: '28px',
     height: '28px',
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,
   },
   cardMenuIcon: {
-    // 触发器图标恒白：海报渐变恒为深色调（与卡内白字同一对比度基准）。
+    // 触发器图标恒白：可读性由触发器实底芯（POSTER_ICON_SCRIM_ALPHA）保证，
+    // 不再依赖「渐变恒深色」的旧假设；配对断言见 contrastGuard POSTER_CARD_ICON
     color: '#ffffff',
   },
 

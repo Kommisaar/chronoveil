@@ -56,6 +56,9 @@ type BackgroundToken =
 /** AA 正文线（本清单内无大文本语境，全部从紧按此线） */
 const WCAG_AA = 4.5;
 
+/** WCAG 1.4.11 非文字图形线（海报卡 ⋯ 触发器图标专用；文字用点仍从紧按 4.5） */
+const WCAG_NON_TEXT = 3.0;
+
 const THEMES = { light: webLightTheme, dark: webDarkTheme } as const;
 
 /** 主题对象按 token 名取色值；缺键/非色值直接抛错（清单写错名要炸得响亮） */
@@ -271,8 +274,8 @@ const POSTER_ON_BRAND: readonly { file: string; line: number; style: string; con
  * 静态清单局限（本组不解决，review 把关）：非 token 的字面量/常量用点不进
  * 上方 USAGES，靠下方结构断言锚定源文件文本；首字水印 letterB
  * （rgba(255,255,255,0.24)，88px 装饰性水印，WCAG 1.4.3 豁免纯装饰文字，
- * 可读角色名在下方实底区）与右上角 ⋯ 触发器图标（#ffffff，非文字且浮在
- * 原始渐变上无下限，残留已知项）不入本清单；新增字面量白字用点仍不会被
+ * 可读角色名在下方实底区）不入本清单；右上角 ⋯ 触发器图标已于 2026-09-14
+ * 挂实底芯转入下方 POSTER_CARD_ICON 断言组；新增字面量白字用点仍不会被
  * 自动发现。
  */
 const POSTER_TEXT_SCRIM_FLOOR = 0.62;
@@ -283,6 +286,24 @@ const POSTER_CARD_TEXT: readonly { line: number; style: string; context: string 
   { line: 137, style: 'nameB', context: '底部角色名（OnBrand token）' },
   { line: 153, style: 'metaTextB', context: '元信息行（POSTER_META_TEXT_ALPHA 半透明白）' },
 ];
+
+/**
+ * 海报卡 ⋯ 触发器图标（2026-09-14 自「残留已知项」转入正式断言）：
+ * CharacterPosterCard 右上角卡菜单触发器的 MoreHorizontal 图标恒白（字面量
+ * #ffffff，双主题同值），原本直落任意 accent 渐变（用户强调色原色直出可为
+ * 纯白）→ 非文字 3:1 无下界。修复 = 触发器根挂 rgba(0,0,0,
+ * POSTER_ICON_SCRIM_ALPHA) 28px 圆形实底芯（与同文件 POSTER_SCRIM_ALPHA、
+ * CharacterPickGrid 的 PICK_SCRIM_ALPHA 同值同档互指，见各源文件注释）。
+ *
+ * 配对数学（最坏合成推导，与 POSTER_CARD_TEXT 同构）：
+ * - 最坏背景 = 纯白 accent，合成灰 = ceil(255 × (1 − 0.62)) = 97（取整保守）；
+ * - 白图标 #ffffff × 97 灰 ≈ 6.19:1 ≥ 3:1（WCAG 1.4.11 非文字图形线；图标
+ *   非文字，不按 4.5 正文线从紧）；
+ * - transparent 外观各交互态底（colorTransparentBackgroundHover/Pressed/
+ *   Selected）双主题均为全透明（@fluentui/tokens alias 实证），实底芯不随
+ *   hover/按下/展开漂移，静态配对即全状态配对。
+ */
+const POSTER_ICON_SCRIM_FLOOR = 0.62;
 
 /**
  * 豁免清单（当前为空：基准 a0a00c0 实测全部可配对组合双主题 ≥4.5）。
@@ -450,5 +471,34 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       }
     }
     expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('海报卡 ⋯ 触发器图标：源文件仍持实底芯常量，白图标 × 最坏合成背景 ≥3:1（非文字线）', () => {
+    // 完整性锚（静态清单惯例，不跨模块 import 源码）：常量声明、实底挂载
+    // 模板串与恒白图标字面量仍在（改动需同步 POSTER_ICON_SCRIM_FLOOR）
+    const source = readSource(POSTER_CARD_FILE);
+    expect(
+      source,
+      `实底芯常量被移除或改值（需同步 POSTER_ICON_SCRIM_FLOOR）：${POSTER_CARD_FILE}`,
+    ).toContain(`POSTER_ICON_SCRIM_ALPHA = ${POSTER_ICON_SCRIM_FLOOR}`);
+    expect(
+      source,
+      `触发器未挂实底芯（下限失效）：${POSTER_CARD_FILE}`,
+    ).toContain('rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})');
+    expect(
+      source,
+      `触发器图标改色（与断言的配对前景脱钩）：${POSTER_CARD_FILE}`,
+    ).toContain("color: '#ffffff'");
+    // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守；
+    // 图标恒白字面量不随主题变化，单次断言即双主题成立
+    const channel = Math.ceil(255 * (1 - POSTER_ICON_SCRIM_FLOOR));
+    const worst: [number, number, number] = [channel, channel, channel];
+    const fg = parseHexColor('#ffffff');
+    if (fg === null) throw new Error('图标前景 #ffffff 解析失败');
+    const ratio = contrastRatio(fg, worst);
+    expect(
+      ratio,
+      `⋯ 触发器图标 × 最坏合成背景 = ${ratio.toFixed(2)}:1 < ${WCAG_NON_TEXT}（非文字线）`,
+    ).toBeGreaterThanOrEqual(WCAG_NON_TEXT);
   });
 });

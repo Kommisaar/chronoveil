@@ -372,6 +372,11 @@ export async function listCharacters(): Promise<CharacterSummary[]> {
 export async function createCharacter(
   input: CharacterInput,
 ): Promise<CharacterSummary> {
+  // 对齐 Rust CharacterInput::validate 闸（create/update 共用，update 同款
+  // 首行校验）：名称空白在落库前快速失败报 Conflict，文案逐字一致。
+  if (input.name.trim().length === 0) {
+    throw new ApiError({ kind: 'conflict', message: '名称不能为空白' });
+  }
   const character: CharacterSummary = {
     id: nextCharacterId++,
     name: input.name,
@@ -396,6 +401,11 @@ export async function updateCharacter(
   id: number,
   input: CharacterInput,
 ): Promise<void> {
+  // 与 createCharacter 同闸（Rust update_character_impl 首行即 validate，
+  // 先于存在性检查——不存在 id + 空白名同样报 Conflict 而非 NotFound）。
+  if (input.name.trim().length === 0) {
+    throw new ApiError({ kind: 'conflict', message: '名称不能为空白' });
+  }
   const character = characters.find((c) => c.id === id);
   if (!character) throw notFound('character', id);
   character.name = input.name;

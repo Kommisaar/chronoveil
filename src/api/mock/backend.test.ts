@@ -699,6 +699,20 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
     });
   });
 
+  it('名称空白报 conflict「名称不能为空白」（对齐 Rust CharacterInput::validate：create/update 共用闸，落库前快速失败）', async () => {
+    const { backend } = await loadMock();
+    // create：纯空白拒（Rust name.trim().is_empty() 口径，空串同拒）
+    expect(await apiErrorOf(backend.createCharacter(characterInput({ name: '   ' })))).toEqual({
+      kind: 'conflict',
+      message: '名称不能为空白',
+    });
+    // update：空串拒；校验先于存在性检查（999 不存在也报 conflict，对齐 Rust 首行 validate）
+    expect(await apiErrorOf(backend.updateCharacter(999, characterInput({ name: '' })))).toEqual({
+      kind: 'conflict',
+      message: '名称不能为空白',
+    });
+  });
+
   it('deleteCharacter 从列表移除且不级联会话（OQ-002）；重复删除报 NotFound', async () => {
     const { backend } = await loadMock();
     await backend.deleteCharacter(1);

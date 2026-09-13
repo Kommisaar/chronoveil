@@ -63,4 +63,11 @@ describe('i18n 奇偶守卫（zh ↔ en 深层 key 对齐）', () => {
       ).toEqual(placeholders(zhValue));
     }
   });
+
+  it('en 文案无尾随空白（间隔空格归拼接处，防翻译工具截断 / 复制丢失漂移）', () => {
+    const offenders = [...enLeaves]
+      .filter(([, value]) => /\s$/.test(value))
+      .map(([key]) => key);
+    expect(offenders, `en 尾随空白的 key：${offenders.join(', ')}`).toEqual([]);
+  });
 });

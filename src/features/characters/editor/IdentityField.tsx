@@ -110,6 +110,12 @@ export function IdentityField(props: IdentityFieldProps) {
     if (e.key === 'Escape') cancelIdentity();
   };
 
+  // 展示态元数据的「标签: 值」拼接：i18n 文案不携带尾随空格（en 尾随空白
+  // 守卫），间隔空格在拼接处补——半角冒号（en）后补一个空格，全角冒号
+  // （zh「性别：」）自带间距不补，两种语言渲染与历史一致。
+  const joinLabelValue = (label: string): string =>
+    label.endsWith('：') ? label : `${label} `;
+
   return (
     <div className={field.field}>
       <div className={styles.nameRow}>
@@ -151,13 +157,13 @@ export function IdentityField(props: IdentityFieldProps) {
             {/* 元数据只展示非空项（用户定稿：空值不占位） */}
             {gender.trim() ? (
               <Text size={300} className={styles.metaItem}>
-                {t('characters.genderLabel')}
+                {joinLabelValue(t('characters.genderLabel'))}
                 {gender}
               </Text>
             ) : null}
             {age.trim() ? (
               <Text size={300} className={styles.metaItem}>
-                {t('characters.ageLabel')}
+                {joinLabelValue(t('characters.ageLabel'))}
                 {age}
               </Text>
             ) : null}

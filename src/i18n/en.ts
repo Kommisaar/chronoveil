@@ -24,7 +24,7 @@ export const en = {
     deleteFailed: 'Delete failed',
     createFailed: 'Failed to create session',
     forkedFrom: '⑂ {{title}}',
-    forkedFromUnknown: '⑂ source #{{id}}',
+    forkedFromUnknown: '⑂ source session #{{id}}',
     wizard: {
       stepUser: 'Step 1 · Your character',
       pickUserHint: 'Pick the character you play — your identity in the story',
@@ -60,7 +60,8 @@ export const en = {
       optional: 'optional',
       startDirectly: 'Start directly',
       startWithOpening: 'Set opening & start',
-      back: 'Back to characters',
+      // 向导内返回上一步（对照 zh「返回重选」），不是离开向导回角色页
+      back: 'Back',
     },
   },
   chat: {
@@ -147,10 +148,11 @@ export const en = {
     nameLabel: 'Name:',
     rename: 'Rename',
     gender: 'Gender',
-    genderLabel: 'Gender: ',
+    // 尾随空格不进翻译串（en parity 守卫）：标签与值的间隔空格由展示态拼接处补
+    genderLabel: 'Gender:',
     genderPlaceholder: 'Not set',
     age: 'Age',
-    ageLabel: 'Age: ',
+    ageLabel: 'Age:',
     agePlaceholder: 'Not set',
     nameRequired: 'Name is required',
     persona: 'Persona (system prompt)',

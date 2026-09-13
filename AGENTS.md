@@ -9,12 +9,17 @@
 ```bash
 pnpm run dev        # 纯浏览器开发：mock 数据，无需 Rust 工具链（vite，端口 5173 strictPort）
 pnpm run tauri dev  # 桌面壳（需 Rust 工具链；真实 IPC + ~/.chronoveil 数据）
-pnpm run check      # 提交前的完整门禁：依赖守卫 + 依赖白名单 + IPC 登记 + Rust 边界 + vitest
+pnpm run check      # 提交前的完整门禁：依赖守卫 + 依赖白名单 + IPC 登记 + Rust 边界 + tsc + vitest
 pnpm run build      # tsc --noEmit && vite build（类型检查在这里）
 pnpm run test       # vitest run（前端单测，jsdom；测试与源码同目录 *.test.ts(x)）
 ```
 
 单独跑：`check:deps`（depcruise）/ `check:whitelist` / `check:ipc` / `check:rust`。Rust 侧测试与 TS bindings 再生成为 `cd src-tauri && cargo test`。没有 ESLint/Prettier，代码风格靠 tsc strict。
+
+## 仓库结构速览
+
+- `src/app/` 应用壳（`layout/`、`providers/`）｜`src/features/` 按领域分 `characters` / `chat` / `settings`（互相禁引）｜`src/components/` 跨 feature 复用 UI 与 griffel 样式钩子｜`src/engine/` 渲染引擎（纯 TS + DOM）｜`src/api/` IPC 封装（`generated/` 生成物、`mock/` 浏览器假后端）｜`src/stores/` zustand 全局态（`ui.ts` 会话单一数据源）｜`src/i18n/` zh/en 词典｜`src/lib/` 纯工具。
+- `src-tauri/src/` 四层 `interfaces / services / domain / infra`；`src-tauri/migrations/` 编号 SQL；`config/` 依赖与 IPC 白名单；`scripts/` check 子命令脚本；`docs/` 设计资料与阶段性报告（非规范）；`.auto-iter/` 为 dev-toolkit 迭代工具的本地运行状态（不提交、非业务代码）。
 
 ## 架构边界（有自动守卫，违反 = check 挂）
 
@@ -34,6 +39,7 @@ Rust 四层（`src-tauri/src/`）：`interfaces → services → domain ← infr
 - 新增 SQLite 迁移 → `src-tauri/migrations/` 加编号 SQL，并在 `infra/storage/migrations.rs` 的 `MIGRATIONS` 追加一行（不改历史条目，单迁移单事务）。
 - tauri-specta / specta 版本必须钉死 `=`（rc 系列互相要求精确匹配）。
 - UI 文案走 i18next：`src/i18n/zh.ts` 与 `en.ts` 要同步加 key（默认 zh）。
+- 新增「遍历 `document.styleSheets` / `cssRules`」类样式扫描断言的测试 → 必须同步登记 `vitest.config.ts` 的 `isolated-styles` project（include 加文件、shared 组 exclude 加同文件），否则在 shared 组（isolate: false）跨文件串扰失败。
 
 ## 约定
 
@@ -51,6 +57,7 @@ Rust 四层（`src-tauri/src/`）：`interfaces → services → domain ← infr
 - **数据迁移兼容性暂不适用（用户指令 2026-09-12）**：应用未发布、无存量数据要保护——schema 可破坏性变更（改列/删列/重建），行为变更不需要迁移桥接，迁移文件只需保证全新库能按序建到最新。**移除条件：用户说明已发布需要考虑存量数据时，本条失效**，届时所有 schema 变更恢复「旧数据可升级」约束。
 - **cargo fmt --check 基线不净（工具链漂移，2026-09-12 实锤）**：本机 rustfmt（style-edition 2024）对全仓库约 497 文件报红，含 `build.rs` 等从未触碰的基线文件——格式基线是旧版 rustfmt 产物。例行处置：验证链以 `cargo clippy --all-targets -- -D warnings` + `cargo test` 为准，`cargo fmt --check` 不作门禁；**禁止顺手全仓库重排**（会污染纯搬移 diff 的可比对性）。移除条件：用户拍板统一升级格式基线（一次性专批全仓库 rustfmt，此后恢复 fmt 门禁）。
 - **clippy 门禁必须带 --all-targets**：`cargo clippy -- -D warnings` 不覆盖 `#[cfg(test)]` 代码——Task-34 外置的 `calendar_draft/tests.rs` lint 因此漏网，三日后被后续任务门禁暴露。例行处置：任何声称「clippy 全绿」的验证报告必须确认命令含 `--all-targets`。
+- **vitest shared 组 isolate: false（2026-09-13 提速实锤）**：除 `isolated-styles` 组 8 个文件外，同 worker 内 jsdom 环境与 Fluent 依赖树跨文件复用；RTL 不自动 cleanup（vitest globals 未开），受前序文件 DOM 残留影响的测试文件须自行 `afterEach(cleanup)`。纯逻辑 .ts 测试可在文件头加 `// @vitest-environment node` 跳过 jsdom 创建；依赖 window / Tauri mock 的测试（如 `src/api/events.test.ts`）必须保持 jsdom。
 
 <!-- user-guidelines:start -->
 <!-- stacks: rust, typescript, react, tauri -->

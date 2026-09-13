@@ -144,13 +144,32 @@ export function ChatView() {
   // 终态收尾（done/error）：Rust 侧已落库（ADR-001），重拉列表替换流式行。
   // 收尾只由 StreamingMessage 的 onSettled 驱动——done 先排空队列定格（无直出跳进），
   // error / stopping 冻结后半条以库中原文替换；后台会话的终态在切回挂载时收尾。
+  // 收尾重拉失败（后台生成期间会话被删 → listMessages NotFound，或 IPC 失败）
+  // 不得浮空 rejection（Task-10 同族收尾）：不在 catch 里直接报错——finally 的
+  // end 先摘流态，失败暂存到 end 之后统一归属，且与下方终态错误提示互斥，避免
+  // 同帧两次 setNotice 互相覆盖。
   const settleSession = useCallback(
     async (sessionId: number) => {
       const finalState = streamHub.stateOf(sessionId);
+      let refreshError: unknown;
+      let refreshFailed = false;
       try {
         await refresh(sessionId);
+      } catch (e: unknown) {
+        refreshFailed = true;
+        refreshError = e;
       } finally {
         streamHub.end(sessionId);
+      }
+      if (refreshFailed) {
+        // 归属判定同上方切会话加载失败路径：仅当前会话的收尾失败落 notice，
+        // 已切走的后台会话失败不越权归属当前会话（cancelled 守卫的等价形态）
+        if (useUiStore.getState().activeSessionId === sessionId) {
+          setNotice(
+            `${t('chat.loadFailed')}${refreshError instanceof Error ? `：${refreshError.message}` : ''}`,
+          );
+        }
+        return;
       }
       if (
         useUiStore.getState().activeSessionId === sessionId &&

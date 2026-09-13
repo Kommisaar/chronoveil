@@ -5,7 +5,8 @@
 // - U3 智能吸底：上滚阅读时新消息不拽回底部，贴底时仍自动跟随；
 // - A1 错误通知 role="alert"：发送失败提示对读屏可达；
 //   加载失败路径：切入已删会话 listMessages 失败落 alert，无浮空 rejection
-//   （Task-10）；
+//   （Task-10）；终态收尾失败路径：onSettled 驱动的收尾重拉失败同样落 alert
+//   且流先摘除（Task-21）；
 // - U5 空态直达钮：零会话空态含「新建会话」按钮，点击置位 store 开关
 //   （对话框 open 状态提升自 Sidebar），侧栏「+」同源消费。
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
@@ -303,6 +304,41 @@ it('U2：旧会话迟到的加载失败 rejection 不归属新会话', async () 
   });
   expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByText('新回复')).toBeTruthy();
+});
+
+// —— Task-21 终态收尾失败路径：onSettled 驱动的收尾重拉失败（生成期间会话被删
+// / IPC 失败）不得浮空 rejection，也不得让终态静默 ——
+
+it('A1：终态收尾时 listMessages 失败落 role="alert"（无浮空 rejection，流已摘）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  renderView();
+  await screen.findByText('你好'); // 初次挂载加载完成
+  act(() => {
+    streamHub.begin(3);
+  });
+  // 生成到终态时会话已被删（NotFound 形态，对齐 ipc.rs list_messages_impl）：
+  // 收尾重拉必然失败
+  mocks.listMessages.mockRejectedValue(new Error('会话不存在或已删除'));
+  await act(async () => {
+    handlers.get(3)?.({
+      type: 'error',
+      sessionId: 3,
+      messageId: -1,
+      reason: '模型返回 500',
+      interrupted: false,
+    });
+  });
+  // 失败可判定地落到 UI 状态：alert 复用加载失败文案并携带原因；收尾失败提示
+  // 与终态错误提示互斥（先到先得，不互相覆盖）；若 rejection 浮空，vitest 会
+  // 以 unhandled rejection 判本用例失败
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('消息加载失败');
+  expect(alert.textContent).toContain('会话不存在或已删除');
+  expect(alert.textContent).not.toContain('生成失败');
+  // end 在 finally 先于报错执行：hub 流状态与停止钮同步退场
+  expect(streamHub.stateOf(3)).toBeNull();
+  expect(screen.queryByRole('button', { name: '停止' })).toBeNull();
 });
 
 // —— C3 Tooltip 统一：原生 title 移除，悬停提示与可访问名由 Fluent Tooltip 承载 ——

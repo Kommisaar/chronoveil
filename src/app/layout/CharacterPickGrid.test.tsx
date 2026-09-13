@@ -24,7 +24,6 @@ const LIN: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: null,
   accentColor: null,
-  calendarConfig: null,
   updatedAt: 100,
   sessionCount: 3,
 };

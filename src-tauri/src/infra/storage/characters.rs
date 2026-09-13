@@ -11,8 +11,7 @@ use super::now;
 pub(crate) const ENTITY: &str = "character";
 
 const COLS: &str = "id, name, avatar, persona, gender, age, render_style, model_config, \
-                    voice_config, calendar_config, accent_color, created_at, updated_at, \
-                    deleted_at";
+                    voice_config, accent_color, created_at, updated_at, deleted_at";
 
 fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
     Ok(Character {
@@ -25,17 +24,15 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         render_style: row.get(6)?,
         model_config: row.get(7)?,
         voice_config: row.get(8)?,
-        calendar_config: row.get(9)?,
-        accent_color: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-        deleted_at: row.get(13)?,
+        accent_color: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        deleted_at: row.get(12)?,
     })
 }
 
 pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character, StorageError> {
     let ts = now();
-    // calendar_config 的入参接线随角色卡编辑任务（NewCharacter 暂无该字段，落库 NULL = 内置默认历）。
     conn.execute(
                 "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
              model_config, voice_config, accent_color, created_at, updated_at) \
@@ -64,7 +61,6 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         model_config: new.model_config.clone(),
         voice_config: new.voice_config.clone(),
         accent_color: new.accent_color.clone(),
-        calendar_config: None,
         created_at: ts,
         updated_at: ts,
         deleted_at: None,
@@ -95,7 +91,6 @@ pub(crate) fn get(conn: &Connection, id: i64) -> Result<Character, StorageError>
 }
 
 /// 整卡覆盖更新；目标在世才生效（墓碑行不可改），bump updated_at。
-/// calendar_config 直通透传（JSON 已由命令层校验 + 序列化，本层不解释；None = 清除）。
 pub(crate) fn update(
     conn: &Connection,
     id: i64,
@@ -104,7 +99,7 @@ pub(crate) fn update(
     let n = conn.execute(
                "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, gender = ?4, age = ?5, \
              render_style = ?6, model_config = ?7, voice_config = ?8, accent_color = ?9, \
-             calendar_config = ?10, updated_at = ?11 WHERE id = ?12 AND deleted_at IS NULL",
+             updated_at = ?10 WHERE id = ?11 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
@@ -115,7 +110,6 @@ pub(crate) fn update(
             upd.model_config,
             upd.voice_config,
             upd.accent_color,
-            upd.calendar_config,
             now(),
             id,
         ],
@@ -173,7 +167,6 @@ mod tests {
             model_config: None,
             accent_color: None,
             voice_config: None,
-            calendar_config: None,
         }
     }
 
@@ -198,8 +191,6 @@ mod tests {
             model_config: Some(r#"{"temperature":0.8}"#.to_string()),
             accent_color: Some("#6b46b8".to_string()),
             voice_config: None,
-            // 历法 JSON 本层透传不解释（校验 + 序列化在命令层，与会话快照同构）。
-            calendar_config: Some(r#"{"name":"潮汐历","months":["涨月","落月"],"days_per_month":20}"#.to_string()),
         };
         storage.update_character(id, &upd).unwrap();
         let got = storage.get_character(id).unwrap();
@@ -211,20 +202,10 @@ mod tests {
         assert_eq!(got.render_style, "fade");
         assert_eq!(got.model_config.as_deref(), Some(r#"{"temperature":0.8}"#));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));
-        assert_eq!(
-            got.calendar_config.as_deref(),
-            Some(r#"{"name":"潮汐历","months":["涨月","落月"],"days_per_month":20}"#),
-            "整卡覆盖必须带写 calendar_config（FR-013）"
-        );
         // 强调色清除（None = 跟随海报派生）
         let upd_clear_accent = UpdateCharacter { accent_color: None, ..upd.clone() };
         storage.update_character(id, &upd_clear_accent).unwrap();
         assert_eq!(storage.get_character(id).unwrap().accent_color, None);
-
-        // 历法清除（None = 回退内置默认历，整卡覆盖语义）
-        let upd_clear_calendar = UpdateCharacter { calendar_config: None, ..upd.clone() };
-        storage.update_character(id, &upd_clear_calendar).unwrap();
-        assert_eq!(storage.get_character(id).unwrap().calendar_config, None);
 
         let upd_clear = UpdateCharacter { avatar: None, ..upd };
         storage.update_character(id, &upd_clear).unwrap();

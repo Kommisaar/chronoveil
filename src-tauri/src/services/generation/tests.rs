@@ -60,7 +60,6 @@ fn character_with(model_config: Option<String>) -> Character {
         model_config,
         accent_color: None,
         voice_config: None,
-        calendar_config: None,
         created_at: 0,
         updated_at: 0,
         deleted_at: None,

@@ -9,28 +9,20 @@
  *   voiceConfig 恒 null（CON-003 TTS 留缝不留壳）；
  * - model_config 覆写序列化为 camelCase 键 JSON（Rust resolve_effective_llm 消费），
  *   全空序列化为 null，未知键原样往返保留；
- * - 历法（FR-014 二期）字段/折叠/编辑态与实时校验在本 hook 持有（进脏比对），
- *   解析与校验逻辑在 editor/calendarForm；整卡输入按 wire DTO 契约携带
- *   calendarConfig（持久化接线随 Rust/DTO 任务点亮，见 buildInput 内注释）；
+ * - 历法不属角色卡（2026-09-13 产品裁剪）：会话历法在开局向导按会话配置，
+ *   编辑器表单不含历法字段；
  * - 「预览演出」经引擎公开 API 播一次所选风格（createRenderer +
  *   setStyle / beginTurn / enqueue / finish），样例文本取 i18n 预览样例。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CalendarConfigDto, CharacterInput, CharacterSummary } from '../../../api/types';
+import type { CharacterInput, CharacterSummary } from '../../../api/types';
 import { ANIM_STYLES, createRenderer, type AnimStyleId, type Renderer } from '../../../engine';
 import {
   accentColorOf,
   dotGradientOf,
   posterGradientOf,
 } from '../posterGradient';
-import {
-  buildCalendar,
-  fieldsFromCalendar,
-  parseCalendarJson,
-  type CalendarBuild,
-  type CalendarFields,
-} from './calendarForm';
 
 /** model_config JSON 的表单形态（空串 = 该字段跟随全局）。 */
 export interface ModelOverrideFields {
@@ -85,8 +77,7 @@ function serializeModelOverride(fields: ModelOverrideFields): string | null {
   return Object.keys(obj).length > 0 ? JSON.stringify(obj) : null;
 }
 
-/** 脏比对签名：字段拼接（rest 与历法各原始字段以文本参与，键序/行序在同源
- *  对象间稳定——历法字段经 fieldsFromCalendar 归一，未编辑时往返一致）。 */
+/** 脏比对签名：字段拼接（rest 各原始字段以文本参与，键序在同源对象间稳定）。 */
 function formSignature(parts: {
   name: string;
   gender: string;
@@ -95,7 +86,6 @@ function formSignature(parts: {
   renderStyle: string;
   accentColor: string | null;
   override: ModelOverrideFields;
-  calendar: CalendarFields;
 }): string {
   return [
     parts.name,
@@ -109,11 +99,6 @@ function formSignature(parts: {
     parts.override.baseUrl,
     parts.override.apiKey,
     JSON.stringify(parts.override.rest),
-    parts.calendar.name,
-    parts.calendar.daysPerMonth,
-    parts.calendar.months,
-    parts.calendar.dayNames,
-    parts.calendar.festivals,
   ].join('\u0000');
 }
 
@@ -136,27 +121,9 @@ export interface EditorForm {
   ) => void;
   overrideOpen: boolean;
   setOverrideOpen: (update: (open: boolean) => boolean) => void;
-  /** 历法编辑（FR-014 二期）：字段为 textarea 原文，build 为实时校验结果。 */
-  calendarFields: CalendarFields;
-  setCalendarFields: (
-    update: (current: CalendarFields) => CalendarFields,
-  ) => void;
-  calendarOpen: boolean;
-  setCalendarOpen: (update: (open: boolean) => boolean) => void;
-  calendarEditing: boolean;
-  setCalendarEditing: (update: (editing: boolean) => boolean) => void;
-  calendarBuild: CalendarBuild;
-  /** AI 草稿 / 预设应用：填入编辑态（不自动保存），展开并进入编辑。 */
-  applyCalendar: (config: CalendarConfigDto) => void;
   canSave: boolean;
-  /**
-   * 整卡输入。历法按契约以 wire DTO 携带：以「CharacterInput + 可选
-   * calendarConfig」的交叉类型表达前端契约，由 src/api/commands 归一层并进
-   * UpdateCharacterInput（Rust interfaces/ipc.rs，缺键归一为 null = 清除历法，
-   * 随整卡 update_character 落库）——字段不进 CharacterInput，此交叉类型即
-   * 最终形态，无需后续收敛。
-   */
-  buildInput: () => CharacterInput & { calendarConfig: CalendarConfigDto | null };
+  /** 整卡输入（create / update 共用同一负载，整卡覆盖）。 */
+  buildInput: () => CharacterInput;
   /** 预览演出渲染容器（引擎惰性创建，卸载即 cancel）。 */
   previewRef: (node: HTMLDivElement | null) => void;
   previewed: boolean;
@@ -182,10 +149,6 @@ export function useEditorForm(props: {
   // 目标角色由父组件 key 重挂保证不变，初值只取一次。
   const initial = useMemo(() => {
     const override = parseModelOverride(character?.modelConfig ?? null);
-    // 存储日历 JSON → 表单字段（坏 JSON 降级为未配置，保存即修复）。
-    const calendar = fieldsFromCalendar(
-      parseCalendarJson(character?.calendarConfig ?? null),
-    );
     return {
       name: character?.name ?? '',
       gender: character?.gender ?? '',
@@ -197,7 +160,6 @@ export function useEditorForm(props: {
       // null = 跟随海报派生（accent_color 列语义，迁移 0003）。
       accentColor: character?.accentColor ?? null,
       override,
-      calendar,
       signature: formSignature({
         name: character?.name ?? '',
         gender: character?.gender ?? '',
@@ -206,7 +168,6 @@ export function useEditorForm(props: {
         renderStyle: character?.renderStyle ?? 'type',
         accentColor: character?.accentColor ?? null,
         override,
-        calendar,
       }),
     };
   }, [character]);
@@ -229,19 +190,6 @@ export function useEditorForm(props: {
       Object.keys(o.rest).length > 0
     );
   });
-  // 历法折叠态：已配置历法的角色自动展开；编辑态（表单形态）默认关。
-  const [calendarFields, setCalendarFieldsState] = useState<CalendarFields>(
-    initial.calendar,
-  );
-  const [calendarOpen, setCalendarOpenState] = useState(
-    () =>
-      initial.calendar.name !== '' ||
-      initial.calendar.daysPerMonth !== '' ||
-      initial.calendar.months !== '' ||
-      initial.calendar.dayNames !== '' ||
-      initial.calendar.festivals !== '',
-  );
-  const [calendarEditing, setCalendarEditingState] = useState(false);
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
@@ -254,14 +202,10 @@ export function useEditorForm(props: {
       renderStyle,
       accentColor,
       override,
-      calendar: calendarFields,
     }) !== initial.signature;
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
-
-  // 历法实时校验（对齐 Rust fiction_time::validate）：失败时拦截保存。
-  const calendarBuild = useMemo(() => buildCalendar(calendarFields), [calendarFields]);
 
   // 「预览演出」：引擎实例按容器惰性创建，卸载即停一切计时（cancel）。
   const previewNodeRef = useRef<HTMLDivElement | null>(null);
@@ -274,14 +218,7 @@ export function useEditorForm(props: {
     [],
   );
 
-  const canSave = name.trim().length > 0 && calendarBuild.kind !== 'invalid';
-
-  /** AI 草稿 / 预设一键填入：展开区块并进编辑态，用户看得见填了什么。 */
-  const applyCalendar = (config: CalendarConfigDto): void => {
-    setCalendarFieldsState(fieldsFromCalendar(config));
-    setCalendarOpenState(true);
-    setCalendarEditingState(true);
-  };
+  const canSave = name.trim().length > 0;
 
   const playPreview = (): void => {
     const container = previewNodeRef.current;
@@ -330,14 +267,6 @@ export function useEditorForm(props: {
     setOverride: (update) => setOverrideState(update),
     overrideOpen,
     setOverrideOpen: (update) => setOverrideOpenState(update),
-    calendarFields,
-    setCalendarFields: (update) => setCalendarFieldsState(update),
-    calendarOpen,
-    setCalendarOpen: (update) => setCalendarOpenState(update),
-    calendarEditing,
-    setCalendarEditing: (update) => setCalendarEditingState(update),
-    calendarBuild,
-    applyCalendar,
     canSave,
     previewRef: (node) => {
       previewNodeRef.current = node;
@@ -357,11 +286,6 @@ export function useEditorForm(props: {
       modelConfig: serializeModelOverride(override),
       // TTS 预留缝恒 null（CON-003）。
       voiceConfig: null,
-      // 历法随整卡提交（FR-014 二期）：wire DTO 形态与 SessionOpeningInput.calendar
-      // 同构，未配置/校验失败归 null。CharacterInput 此刻尚无该字段（Rust/DTO
-      // 接线任务未落地，serde 会忽略未知键），结构化多余属性先行按契约携带，
-      // 接线落地后即点亮持久化，无需再改本文件。
-      calendarConfig: calendarBuild.kind === 'valid' ? calendarBuild.config : null,
     }),
     live,
   };

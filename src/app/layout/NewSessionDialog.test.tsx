@@ -3,7 +3,7 @@
  * - ① 「你的角色」：单选 1 张 = 用户扮演位（D2 必选——不选则「下一步」禁用）；
  * - ② 「LLM 阵容」：多选 ≥1 张卡（空选「下一步」禁用；可与扮演位同卡——D2
  *   自己跟自己对话 UI 不禁止；扮演位卡出「你的扮演位」记号）；
- * - ③ 开局表单：「跟随角色卡」项读 CharacterSummary.calendarConfig 显示历法名；
+ * - ③ 开局表单：「默认数字历」为缺省项（wire 传 null，会话落内置默认历）；
  *   「开局并开始」提交完整 wire 载荷（preset → CalendarConfigDto、锚、可选字段）；
  * - 「直接开始」= 降级路径：onCreate 收到 opening = null（后端 seed 默认锚行）。
  * onCreate 由测试注入，直接断言载荷（不触 api 层）。
@@ -30,8 +30,6 @@ const CHARACTERS: CharacterSummary[] = [
     renderStyle: 'type',
     modelConfig: null,
     accentColor: null,
-    calendarConfig:
-      '{"name":"旧都历","months":["霜月","白蜡月"],"days_per_month":30,"day_names":["晨露日","萤火日"]}',
     updatedAt: 0,
     sessionCount: 0,
   },
@@ -45,7 +43,6 @@ const CHARACTERS: CharacterSummary[] = [
     renderStyle: 'ink',
     modelConfig: null,
     accentColor: null,
-    calendarConfig: null,
     updatedAt: 0,
     sessionCount: 0,
   },
@@ -79,7 +76,7 @@ function advanceToForm(user: string, llm: string[]): void {
 
 afterEach(cleanup);
 
-it('第一步「你的角色」必选：不选不能下一步；「跟随角色卡」读卡历法名；「返回重选」可回退且保留扮演位', () => {
+it('第一步「你的角色」必选：不选不能下一步；「返回重选」可回退且保留扮演位', () => {
   renderDialog(vi.fn());
 
   // 未选扮演位：「下一步」禁用（D2 必选门槛）
@@ -196,12 +193,36 @@ it('「开局并开始」：提交完整开局载荷（预设日历 DTO + 起始
   );
 });
 
-it('「跟随角色卡」项显示角色卡历法名（读 calendarConfig 快照）；未配置卡回退缺省文案', () => {
-  renderDialog(vi.fn());
-  fireEvent.click(screen.getByRole('button', { name: '苏鸢' }));
-  fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-  fireEvent.click(screen.getByRole('button', { name: '林深' }));
-  fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-  // 「跟随角色卡」项读 user 扮演位卡（苏鸢）的 calendarConfig name 字段
-  expect(screen.getByText(/跟随角色卡「旧都历」/)).toBeTruthy();
+it('「默认数字历」为缺省历法项（wire 传 null）；样例行随预设切换', () => {
+  const onCreate = vi.fn();
+  renderDialog(onCreate);
+  advanceToForm('苏鸢', ['林深']);
+
+  // 缺省选中「默认数字历」，样例行显示数字历说明
+  const defaultRadio = screen.getByRole('radio', { name: '默认数字历' }) as HTMLInputElement;
+  expect(defaultRadio.checked).toBe(true);
+  expect(screen.getByText(/不设月名日名/)).toBeTruthy();
+
+  // 切到预设再切回：样例行随选中切换
+  fireEvent.click(screen.getByRole('radio', { name: '旧都历' }));
+  expect(screen.getByText(/灯节（第45日）/)).toBeTruthy();
+  fireEvent.click(defaultRadio);
+  expect(screen.getByText(/不设月名日名/)).toBeTruthy();
+
+  // 「开局并开始」提交 calendar = null（不指定 → 会话落内置默认历）
+  fireEvent.click(screen.getByRole('button', { name: '开局并开始' }));
+  expect(onCreate).toHaveBeenCalledTimes(1);
+  expect(onCreate).toHaveBeenCalledWith(
+    [
+      { characterId: 1, isUser: true },
+      { characterId: 2, isUser: false },
+    ],
+    {
+      calendar: null,
+      ficDay: 1,
+      ficPart: '夜',
+      location: null,
+      timeNote: null,
+    },
+  );
 });

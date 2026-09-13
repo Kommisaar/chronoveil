@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   deleteCharacter: vi.fn(),
   exportCharacter: vi.fn(),
   importCharacter: vi.fn(),
-  draftCalendar: vi.fn(),
 }));
 
 vi.mock('../../api/commands', () => ({ ...mocks }));
@@ -36,7 +35,6 @@ const LIN: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: null,
   accentColor: null,
-  calendarConfig: null,
   updatedAt: 100,
   sessionCount: 3,
 };
@@ -237,83 +235,5 @@ describe('放弃未保存修改确认流（父级脏守卫 × 编辑器关闭路
     // 丢弃 = 不落库：卡片名原样
     expect(mocks.updateCharacter).not.toHaveBeenCalled();
     expect(screen.getByText('林深')).toBeTruthy();
-  });
-});
-
-describe('历法区块与 AI 起草（FR-014 二期）', () => {
-  /** mock draftCalendar 返回的旧都历样例（wire DTO 形态）。 */
-  const DRAFTED = {
-    name: '旧都历',
-    months: ['霜月', '白蜡月', '融雪月'],
-    daysPerMonth: 30,
-    dayNames: ['晨露日', '萤火日'],
-    // 节日界内（年长 = 3 月 × 30 天 = 90）：buildCalendar 越年拦截会让
-    // canSave 变 false，保存用例载荷需要合法配置。
-    festivals: { 45: '灯节', 90: '守夜' },
-  };
-
-  it('展开历法区块：未配置提示上屏，「AI 起草」打开对话框', async () => {
-    renderView();
-    await openEditorOf('林深');
-    const header = screen.getByRole('button', { name: /^历法/ });
-    expect(header.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(header);
-    expect(screen.getAllByText(/未配置（默认数字历）/).length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(screen.getByRole('button', { name: 'AI 起草' }));
-    expect(await screen.findByText('AI 起草历法')).toBeTruthy();
-  });
-
-  it('AI 起草成功路径：应用到表单填入编辑态，保存载荷携带 calendarConfig', async () => {
-    mocks.draftCalendar.mockResolvedValue(DRAFTED);
-    renderView();
-    await openEditorOf('林深');
-    fireEvent.click(screen.getByRole('button', { name: /^历法/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'AI 起草' }));
-    await screen.findByText('AI 起草历法');
-    fireEvent.change(screen.getByLabelText('世界观描述'), {
-      target: { value: '旧都的历法' },
-    });
-    // 内层模态对话框在外层非模态编辑器同开时会被 tabster 隐藏 a11y 树
-    // （本文件上方同款已知现象），对话框内动作钮用文本查询。
-    fireEvent.click(screen.getByText('起草'));
-    // 结果预览上屏（格式化明细）后应用到表单
-    await screen.findByText('月名（3）');
-    fireEvent.click(screen.getByText('应用到表单'));
-    // 填入编辑态（不自动保存）：编辑态字段上屏且带现值
-    expect((screen.getByLabelText('每月天数') as HTMLInputElement).value).toBe('30');
-    expect(
-      (screen.getByLabelText('月名（每行一个）') as HTMLTextAreaElement).value,
-    ).toContain('霜月');
-    // 保存 → 整卡流载荷携带历法 wire DTO（持久化接线随 Rust/DTO 任务点亮）
-    fireEvent.click(saveButton());
-    await waitFor(() => expect(mocks.updateCharacter).toHaveBeenCalledTimes(1));
-    expect(mocks.updateCharacter).toHaveBeenCalledWith(
-      2,
-      expect.objectContaining({
-        calendarConfig: expect.objectContaining({ name: '旧都历' }),
-      }),
-    );
-  });
-
-  it('AI 起草失败：就地错误文案与「重试」，重试成功后照常应用', async () => {
-    mocks.draftCalendar
-      .mockRejectedValueOnce(new Error('unavailable: 未配置模型服务'))
-      .mockResolvedValueOnce(DRAFTED);
-    renderView();
-    await openEditorOf('林深');
-    fireEvent.click(screen.getByRole('button', { name: /^历法/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'AI 起草' }));
-    await screen.findByText('AI 起草历法');
-    fireEvent.change(screen.getByLabelText('世界观描述'), {
-      target: { value: '旧都的历法' },
-    });
-    // 内层模态对话框在外层非模态编辑器同开时会被 tabster 隐藏 a11y 树
-    // （本文件上方同款已知现象），对话框内动作钮用文本查询。
-    fireEvent.click(screen.getByText('起草'));
-    expect(await screen.findByText('起草失败：unavailable: 未配置模型服务')).toBeTruthy();
-    fireEvent.click(screen.getByText('重试'));
-    await screen.findByText('月名（3）');
-    fireEvent.click(screen.getByText('应用到表单'));
-    expect((screen.getByLabelText('每月天数') as HTMLInputElement).value).toBe('30');
   });
 });

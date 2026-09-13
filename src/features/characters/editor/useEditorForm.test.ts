@@ -1,13 +1,11 @@
 // 角色编辑器表单逻辑单测（useEditorForm 公开出口全覆盖）：新建默认值、
 // 编辑态回填、canSave 名称必填、脏比对（onDirtyChange 时序）、model_config
-// 覆写解析/序列化（未知键往返、非法 JSON 回落、trim 归一）、历法编辑
-// （FR-014 二期：回填/脏比对/校验拦截/AI 草稿应用/buildInput 契约携带）、
+// 覆写解析/序列化（未知键往返、非法 JSON 回落、trim 归一）、
 // live 派生（强调色/风格标签）、预览演出（遗留风格串回落 fade）。
 // 挂 hook 用 renderHook（不挂 Fluent UI，逻辑层无组件依赖）；文案断言走 zh 资源。
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterSummary } from '../../../api/types';
-import { CALENDAR_PRESETS } from '../../../components/calendarPresets';
 import { ANIM_STYLES } from '../../../engine';
 import '../../../i18n';
 import { gradientOf, gradientPairOf } from '../posterGradient';
@@ -23,7 +21,6 @@ const EDIT_CHARACTER: CharacterSummary = {
   renderStyle: 'ink',
   modelConfig: '{"providerId":"p1","model":"m1","legacyKey":{"a":1}}',
   accentColor: '#3322ff',
-  calendarConfig: null,
   updatedAt: 100,
   sessionCount: 3,
 };
@@ -211,102 +208,6 @@ describe('useEditorForm canSave 与脏比对', () => {
     expect(onDirtyChange.mock.calls.at(-1)?.[0]).toBe(true);
     act(() => result.current.setOverride((o) => ({ ...o, model: 'm1' })));
     expect(onDirtyChange.mock.calls.at(-1)?.[0]).toBe(false);
-  });
-});
-
-describe('useEditorForm 历法编辑（FR-014 二期）', () => {
-  /** 已配置旧都历（snake_case 存储 JSON）的角色。 */
-  const CAL_CHARACTER: CharacterSummary = {
-    ...EDIT_CHARACTER,
-    calendarConfig:
-      '{"name":"旧都历","months":["霜月","白蜡月"],"days_per_month":30,"day_names":["晨露日"],"festivals":{"45":"灯节"}}',
-  };
-
-  it('新建角色：历法未配置全空、收起、buildInput 携带 null', () => {
-    const { result } = renderForm(null);
-    expect(result.current.calendarFields).toEqual({
-      name: '',
-      daysPerMonth: '',
-      months: '',
-      dayNames: '',
-      festivals: '',
-    });
-    expect(result.current.calendarOpen).toBe(false);
-    expect(result.current.calendarEditing).toBe(false);
-    expect(result.current.calendarBuild).toEqual({ kind: 'empty' });
-    expect(result.current.buildInput().calendarConfig).toBeNull();
-  });
-
-  it('已配置角色：字段归一化回填（每行一项 / 节日升序）且区块自动展开', () => {
-    const { result } = renderForm(CAL_CHARACTER);
-    expect(result.current.calendarFields).toEqual({
-      name: '旧都历',
-      daysPerMonth: '30',
-      months: '霜月\n白蜡月',
-      dayNames: '晨露日',
-      festivals: '45=灯节',
-    });
-    expect(result.current.calendarOpen).toBe(true);
-    expect(result.current.calendarBuild.kind).toBe('valid');
-    // 未触碰历法时不脏（未编辑的已配置角色可直接保存整卡）
-    expect(result.current.buildInput().calendarConfig).toEqual({
-      name: '旧都历',
-      months: ['霜月', '白蜡月'],
-      daysPerMonth: 30,
-      dayNames: ['晨露日'],
-      festivals: { 45: '灯节' },
-    });
-  });
-
-  it('坏日历 JSON：整体降级未配置（保存 null 即修复），不阻塞保存', () => {
-    const { result } = renderForm({ ...CAL_CHARACTER, calendarConfig: 'not json' });
-    expect(result.current.calendarBuild).toEqual({ kind: 'empty' });
-    expect(result.current.canSave).toBe(true);
-  });
-
-  it('脏比对覆盖历法字段：改动 true → 改回原值 false', () => {
-    const onDirtyChange = vi.fn();
-    const { result } = renderForm(CAL_CHARACTER, onDirtyChange);
-    expect(onDirtyChange.mock.calls.at(-1)?.[0]).toBe(false);
-    act(() => result.current.setCalendarFields((c) => ({ ...c, daysPerMonth: '31' })));
-    expect(onDirtyChange.mock.calls.at(-1)?.[0]).toBe(true);
-    act(() => result.current.setCalendarFields((c) => ({ ...c, daysPerMonth: '30' })));
-    expect(onDirtyChange.mock.calls.at(-1)?.[0]).toBe(false);
-  });
-
-  it('校验拦截：配置了月名但每月天数非法 → canSave 关掉（名称有效也一样拦）', () => {
-    const { result } = renderForm(null);
-    act(() => result.current.setName('乌鸦'));
-    expect(result.current.canSave).toBe(true);
-    act(() =>
-      result.current.setCalendarFields((c) => ({ ...c, daysPerMonth: '0', months: '一月' })),
-    );
-    expect(result.current.calendarBuild).toEqual({ kind: 'invalid', error: 'daysPerMonth' });
-    expect(result.current.canSave).toBe(false);
-    // 未配置（全空）不拦保存：默认数字历是合法态
-    act(() => result.current.setCalendarFields((c) => ({ ...c, daysPerMonth: '', months: '' })));
-    expect(result.current.canSave).toBe(true);
-  });
-
-  it('applyCalendar（AI 草稿/预设共用）：填入编辑态并自动展开进编辑，不自行保存', () => {
-    const { result } = renderForm(null);
-    act(() => result.current.applyCalendar(CALENDAR_PRESETS.fantasy));
-    expect(result.current.calendarOpen).toBe(true);
-    expect(result.current.calendarEditing).toBe(true);
-    expect(result.current.calendarFields.name).toBe('旧都历');
-    expect(result.current.calendarFields.festivals).toBe('45=灯节\n360=守夜');
-    expect(result.current.buildInput().calendarConfig).toEqual(CALENDAR_PRESETS.fantasy);
-    // 关闭编辑态不改变字段（只是形态切换）
-    act(() => result.current.setCalendarEditing(() => false));
-    expect(result.current.calendarFields.name).toBe('旧都历');
-  });
-
-  it('折叠开合函数式更新', () => {
-    const { result } = renderForm(null);
-    act(() => result.current.setCalendarOpen((o) => !o));
-    expect(result.current.calendarOpen).toBe(true);
-    act(() => result.current.setCalendarOpen((o) => !o));
-    expect(result.current.calendarOpen).toBe(false);
   });
 });
 

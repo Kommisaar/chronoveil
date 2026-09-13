@@ -9,8 +9,7 @@
  *   本海报同规则 posterGradientOf），未设按 id 取模；表单内色板可改；
  * - 表单逻辑（状态 / 脏比对 / 模型覆写 / 预览引擎）全部在 editor/useEditorForm，
  *   字段级组件在 editor/pieces 与 editor/IdentityField——本文件只是排版壳；
- *   历法区块（FR-014 二期，editor/CalendarSection + CalendarDraftDialog）挂
- *   在人设与出场动画之间，应用 AI 草稿只填编辑态，落库仍走保存的整卡流；
+ *   历法不属角色卡（2026-09-13 产品裁剪），会话历法在开局向导按会话配置；
  * - Fluent 坑位备忘：非模态对话框的关闭按钮经 DialogTitle action 插槽落为
  *   标题的兄弟节点（flex 流里会折到标题下方），须插槽 + 绝对定位钉右上角；
  *   DialogBody 原生 grid 轨道按内容收缩，子元素满宽须显式接管布局；
@@ -54,8 +53,6 @@ import {
   EDITOR_BODY_OUT_MS,
   EDITOR_FADE_MS,
 } from '../../components/motion';
-import { CalendarDraftDialog } from './editor/CalendarDraftDialog';
-import { CalendarSection } from './editor/CalendarSection';
 import { IdentityField } from './editor/IdentityField';
 import { PosterPane } from './editor/PosterPane';
 import { OverrideSection, PerformanceField, PersonaPreviewBox, useFieldStyles } from './editor/pieces';
@@ -267,9 +264,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   // Enter 提交语义，收起走同一按钮（编辑中变对钩）。新建以输入态起步。
   const [editingPersona, setEditingPersona] = useState(character === null);
 
-  // AI 起草历法对话框：与主对话框同挂载层（非内嵌），关闭 = 放弃在途草稿。
-  const [draftOpen, setDraftOpen] = useState(false);
-
   return (
     <>
       {/* 毛玻璃背板：surface 之外的独立 fixed 层；点击 = 关闭（脏守卫在父级） */}
@@ -369,17 +363,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     <PersonaPreviewBox text={form.persona} />
                   )}
                 </div>
-                {/* 历法（FR-014 二期）：可折叠区块，查看/编辑/预设/AI 起草 */}
-                <CalendarSection
-                  open={form.calendarOpen}
-                  onToggle={() => form.setCalendarOpen((o) => !o)}
-                  editing={form.calendarEditing}
-                  onEditingChange={form.setCalendarEditing}
-                  fields={form.calendarFields}
-                  build={form.calendarBuild}
-                  onFieldsChange={form.setCalendarFields}
-                  onDraftClick={() => setDraftOpen(true)}
-                />
                 <div className={field.field}>
                   <Text size={300} weight="semibold">
                     {t('characters.renderStyle')}
@@ -431,16 +414,6 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
         </DialogBody>
       </DialogSurface>
       </Dialog>
-      {/* AI 起草历法（FR-014 二期）：与主 Dialog 同层；应用到表单只填编辑态，
-          不触发保存——落库仍走「保存」的整卡流。 */}
-      <CalendarDraftDialog
-        open={draftOpen}
-        onClose={() => setDraftOpen(false)}
-        onApply={(config) => {
-          form.applyCalendar(config);
-          setDraftOpen(false);
-        }}
-      />
     </>
   );
 }

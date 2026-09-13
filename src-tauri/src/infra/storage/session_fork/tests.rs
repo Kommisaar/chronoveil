@@ -8,7 +8,8 @@ use super::super::Storage;
 use crate::domain::error::StorageError;
 use crate::domain::models::{
     CharacterState, CharacterStateScope, LlmCallKind, LlmCallStatus, MessageRole, NewCharacter,
-    NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, RosterPick, Scene, Session,
+    NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, OpeningSeed, RosterPick,
+    Scene, Session,
 };
 use crate::domain::ports::{AttachRange, SettlementWrite, StoragePort};
 use rusqlite::{params, Connection};
@@ -32,7 +33,7 @@ fn roster(user_card: i64, ai_card: i64, jin_card: i64) -> Vec<RosterPick> {
     ]
 }
 
-/// 测试夹具：三卡会话（用户卡预置日历快照，验证分叉继承会话快照而非回查卡），
+/// 测试夹具：三卡会话（开局包显式指定历法，验证分叉继承会话行历法），
 /// 返回 (storage, dir, source_session_id, [用户位, 艾莉位, 烬位] 实例 id)。
 fn setup(tag: &str) -> (Storage, PathBuf, i64, [i64; 3]) {
     let (storage, dir) = temp_storage(tag);
@@ -57,23 +58,24 @@ fn setup(tag: &str) -> (Storage, PathBuf, i64, [i64; 3]) {
         })
         .unwrap()
         .id;
-    // 预置用户位卡日历：建会话快照取它，分叉线应继承同一快照值。
-    {
-        let conn = Connection::open(dir.join("test.db")).unwrap();
-        conn.execute(
-            "UPDATE characters SET calendar_config = ?1 WHERE id = ?2",
-            params![
-                r#"{"name":"回声历","months":["霜月"],"days_per_month":30,"day_names":["晨露日"]}"#,
-                user_card
-            ],
-        )
-        .unwrap();
-    }
+    // 开局包显式指定历法：会话行持历法，分叉线应继承同一快照值。
     let sid = storage
         .create_session(&NewSession {
             roster: roster(user_card, ai_card, jin_card),
             title: "原本".into(),
-            opening: None,
+            opening: Some(OpeningSeed {
+                calendar: Some(crate::domain::fiction_time::CalendarConfig {
+                    name: Some("回声历".into()),
+                    months: vec!["霜月".into()],
+                    days_per_month: 30,
+                    day_names: vec!["晨露日".into()],
+                    festivals: Default::default(),
+                }),
+                fic_day: None,
+                fic_part: None,
+                location: None,
+                time_note: None,
+            }),
         })
         .unwrap()
         .id;

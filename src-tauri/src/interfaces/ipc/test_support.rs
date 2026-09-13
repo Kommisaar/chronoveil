@@ -7,8 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::domain::models;
 use crate::domain::ports::StoragePort;
-use crate::interfaces::ipc::character_inputs::{CharacterInput, UpdateCharacterInput};
-use crate::interfaces::ipc::sessions::CalendarConfigDto;
+use crate::interfaces::ipc::character_inputs::CharacterInput;
 use crate::state::AppState;
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -34,35 +33,9 @@ pub(super) fn sample_character(app: &AppState, name: &str) -> models::Character 
         .unwrap()
 }
 
-/// 历法样例 DTO（含节日，覆盖月换算 / 日名取模 / 时段缀 / 节日命中全部分支）。
-pub(super) fn sample_calendar_dto() -> CalendarConfigDto {
-    CalendarConfigDto {
-        name: Some("星槎历".into()),
-        months: vec!["潮生月".into(), "风信月".into()],
-        days_per_month: 12,
-        day_names: vec!["潮日".into(), "汐日".into(), "星日".into()],
-        festivals: Some(std::collections::BTreeMap::from([(2, "归潮祭".to_string())])),
-    }
-}
-
-/// 全空槽位的 create 负载（可空字段恒 None，历法不入 create 入参）。
-pub(super) fn sample_bare_input() -> CharacterInput {
+/// 由基准负载派生更新入参（create / update 共用同一负载形态，整卡覆盖）。
+pub(super) fn upd_input(name: &str, base: &CharacterInput) -> CharacterInput {
     CharacterInput {
-        name: String::new(),
-        avatar: None,
-        persona: String::new(),
-        gender: None,
-        age: None,
-        render_style: "typewriter".into(),
-        model_config: None,
-        accent_color: None,
-        voice_config: None,
-    }
-}
-
-/// 由 create 负载派生更新入参（历法缺省 None = 清除；历法用例按需覆写 calendar_config）。
-pub(super) fn upd_input(name: &str, base: &CharacterInput) -> UpdateCharacterInput {
-    UpdateCharacterInput {
         name: name.into(),
         avatar: base.avatar.clone(),
         persona: base.persona.clone(),
@@ -72,6 +45,5 @@ pub(super) fn upd_input(name: &str, base: &CharacterInput) -> UpdateCharacterInp
         model_config: base.model_config.clone(),
         accent_color: base.accent_color.clone(),
         voice_config: base.voice_config.clone(),
-        calendar_config: None,
     }
 }

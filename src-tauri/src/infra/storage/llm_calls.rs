@@ -171,7 +171,7 @@ mod tests {
         let listed = storage.list_llm_calls(session_id, 10).unwrap();
         assert_eq!(listed, vec![inserted.clone()]);
 
-        // draft：NULL 会话 + error 终态 + 无 usage / 无 reasoning 全可空形态。
+        // NULL 会话 + error 终态 + 无 usage / 无 reasoning 全可空形态。
         let draft = storage
             .insert_llm_call(&NewLlmCall {
                 response_text: None,
@@ -179,11 +179,11 @@ mod tests {
                 prompt_tokens: None,
                 completion_tokens: None,
                 error_text: Some("LLM 请求超时".into()),
-                ..new_call(None, LlmCallKind::Draft, LlmCallStatus::Error)
+                ..new_call(None, LlmCallKind::Dialogue, LlmCallStatus::Error)
             })
             .unwrap();
         assert_eq!(draft.session_id, None);
-        assert_eq!(draft.kind, LlmCallKind::Draft);
+        assert_eq!(draft.kind, LlmCallKind::Dialogue);
         assert_eq!(draft.status, LlmCallStatus::Error);
         assert_eq!(draft.prompt_tokens, None);
         drop(storage);
@@ -215,11 +215,11 @@ mod tests {
             .insert_llm_call(&new_call(Some(other), LlmCallKind::Explorer, LlmCallStatus::Ok))
             .unwrap();
         storage
-            .insert_llm_call(&new_call(None, LlmCallKind::Draft, LlmCallStatus::Ok))
+            .insert_llm_call(&new_call(None, LlmCallKind::Explorer, LlmCallStatus::Ok))
             .unwrap();
 
         let listed = storage.list_llm_calls(session_id, 200).unwrap();
-        assert_eq!(listed.len(), 5, "只含本会话轨迹（他 session 与 draft 不入）");
+        assert_eq!(listed.len(), 5, "只含本会话轨迹（他 session 与 NULL 会话不入）");
         let mut ids: Vec<i64> = listed.iter().map(|c| c.id).collect();
         assert!(ids.windows(2).all(|w| w[0] > w[1]), "按 id 倒序：{ids:?}");
 

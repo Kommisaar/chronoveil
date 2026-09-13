@@ -379,12 +379,12 @@ mod tests {
         assert_eq!(call["status"], "ok", "status 枚举值小写");
         assert!(call["errorText"].is_null());
 
-        // draft 调用：sessionId null + status error + kind draft。
+        // explorer 调用：sessionId null + status error（wire null / 小写枚举 / errorText 透传）。
         let draft = serde_json::to_value(StreamEvent::Trace {
             call: super::super::ipc::LlmCallDto {
                 id: 13,
                 session_id: None,
-                kind: super::super::ipc::LlmCallKindDto::Draft,
+                kind: super::super::ipc::LlmCallKindDto::Explorer,
                 model: "m".into(),
                 started_at: 2,
                 duration_ms: 3,
@@ -400,7 +400,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(draft["call"]["sessionId"], serde_json::Value::Null, "无会话调用 wire null");
-        assert_eq!(draft["call"]["kind"], "draft");
+        assert_eq!(draft["call"]["kind"], "explorer");
         assert_eq!(draft["call"]["status"], "error");
         assert_eq!(draft["call"]["errorText"], "LLM 请求超时");
     }

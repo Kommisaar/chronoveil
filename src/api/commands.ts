@@ -16,7 +16,6 @@ import { isTauri } from './client';
 import { ApiError } from './errors';
 import * as mock from './mock/backend';
 import type {
-  CalendarConfigDto,
   CharacterInput,
   CharacterStateDto,
   CharacterSummary,
@@ -27,7 +26,6 @@ import type {
   SessionOpeningInput,
   SessionRosterMember,
   SessionSummary,
-  UpdateCharacterInput,
 } from './types';
 
 async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
@@ -83,15 +81,6 @@ export async function forkSession(
   return isTauri
     ? unwrap(commands.forkSession(sessionId, anchorSceneIdx, title))
     : mock.forkSession(sessionId, anchorSceneIdx, title);
-}
-
-/**
- * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给调用方审阅后
- * 由用户走既有保存路径——本命令不做持久化、不自动应用。空白 / 超长（> 4000 字符）
- * 描述报 conflict；provider 未配置报 config；LLM 调用失败报 unavailable。
- */
-export async function draftCalendar(description: string): Promise<CalendarConfigDto> {
-  return isTauri ? unwrap(commands.draftCalendar(description)) : mock.draftCalendar(description);
 }
 
 // ---- 消息（ADR-001）----
@@ -165,23 +154,14 @@ export async function createCharacter(
 }
 
 /**
- * 更新角色卡（FR-006 / FR-013 整卡覆盖）。入参在 CharacterInput 基础上接受可选
- * `calendarConfig`（历法编辑，Task-17 buildInput 契约）；此处把缺键归一为 null
- * （= 清除历法，与 Rust 侧 serde Option 缺省同语义），兼容尚未携带该键的调用方。
+ * 更新角色卡（FR-006 整卡覆盖）：入参与新建共用 CharacterInput 负载形态。
  */
-export async function updateCharacter(
-  id: number,
-  input: CharacterInput & { calendarConfig?: UpdateCharacterInput['calendarConfig'] },
-): Promise<void> {
-  const payload: UpdateCharacterInput = {
-    ...input,
-    calendarConfig: input.calendarConfig ?? null,
-  };
+export async function updateCharacter(id: number, input: CharacterInput): Promise<void> {
   if (isTauri) {
-    await unwrap(commands.updateCharacter(id, payload));
+    await unwrap(commands.updateCharacter(id, input));
     return;
   }
-  return mock.updateCharacter(id, payload);
+  return mock.updateCharacter(id, input);
 }
 
 export async function deleteCharacter(id: number): Promise<void> {

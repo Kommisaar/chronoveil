@@ -70,7 +70,6 @@ const CHARACTER: CharacterSummary = {
   renderStyle: 'fade',
   modelConfig: null,
   accentColor: null,
-  calendarConfig: null,
   updatedAt: 0,
   sessionCount: 1,
 };

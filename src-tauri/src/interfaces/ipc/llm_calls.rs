@@ -17,7 +17,6 @@ pub enum LlmCallKindDto {
     Dialogue,
     Explorer,
     Director,
-    Draft,
 }
 
 impl From<models::LlmCallKind> for LlmCallKindDto {
@@ -26,7 +25,6 @@ impl From<models::LlmCallKind> for LlmCallKindDto {
             models::LlmCallKind::Dialogue => LlmCallKindDto::Dialogue,
             models::LlmCallKind::Explorer => LlmCallKindDto::Explorer,
             models::LlmCallKind::Director => LlmCallKindDto::Director,
-            models::LlmCallKind::Draft => LlmCallKindDto::Draft,
         }
     }
 }

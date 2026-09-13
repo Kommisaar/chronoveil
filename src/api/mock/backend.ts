@@ -10,7 +10,6 @@
  */
 
 import type {
-  CalendarConfigDto,
   CharacterInput,
   CharacterStateDto,
   CharacterSummary,
@@ -22,7 +21,6 @@ import type {
   SessionOpeningInput,
   SessionRosterMember,
   SessionSummary,
-  UpdateCharacterInput,
 } from '../types';
 import { ApiError } from '../errors';
 import { characters, messagesBySession, sessions } from './data';
@@ -204,41 +202,6 @@ export async function forkSession(
   return created;
 }
 
-// ---- AI 起草历法（FR-014 二期）----
-
-/** mock 无真实 LLM：起草返回确定性的「白蜡历」样例（12 月 × 30 日 + 节日），供审阅流程演示。 */
-function sampleDraftCalendar(): CalendarConfigDto {
-  return {
-    name: '白蜡历',
-    months: [
-      '白蜡月', '融雪月', '雨月', '长夏月', '蝉鸣月', '风起月',
-      '收获月', '雾月', '炉火月', '冻雨月', '岁末月', '烬月',
-    ],
-    daysPerMonth: 30,
-    dayNames: ['晨露日', '萤火日', '潮汐日', '风息日', '炉边日', '集日', '安息日'],
-    festivals: { 45: '灯节', 360: '守夜' },
-  };
-}
-
-/** 与 Rust `calendar_draft::MAX_DESCRIPTION_CHARS` 一致：按码点计的描述长度上限。 */
-const DRAFT_MAX_CHARS = 4000;
-
-export async function draftCalendar(description: string): Promise<CalendarConfigDto> {
-  // 参数校验语义与文案对齐 services/calendar_draft（空白 / 超长拒绝，不发起调用）。
-  const trimmed = description.trim();
-  if (!trimmed) {
-    throw new ApiError({ kind: 'conflict', message: '描述内容为空：请先填写世界观描述' });
-  }
-  const chars = Array.from(trimmed).length;
-  if (chars > DRAFT_MAX_CHARS) {
-    throw new ApiError({
-      kind: 'conflict',
-      message: `描述过长：${chars} 字符，上限 ${DRAFT_MAX_CHARS}，请精简后重试`,
-    });
-  }
-  return sampleDraftCalendar();
-}
-
 // ---- 消息（ADR-001 读路径）----
 
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
@@ -409,9 +372,6 @@ export async function createCharacter(
     renderStyle: input.renderStyle,
     modelConfig: input.modelConfig,
     accentColor: input.accentColor,
-    // 建卡不带历法（对齐 Rust CharacterInput）：FR-014 向导显式历法经 createSession
-    // 回写角色卡，历法编辑走 updateCharacter（FR-013）。新建恒无。
-    calendarConfig: null,
     updatedAt: Date.now(),
     sessionCount: 0,
   };
@@ -419,27 +379,9 @@ export async function createCharacter(
   return character;
 }
 
-/**
- * wire DTO（camelCase）→ 存储 JSON 字符串（domain `CalendarConfig` 的 snake_case
- * serde 形态）：逐键对齐 Rust update_character_impl 的
- * `serde_json::to_string(&CalendarConfig::from(dto))`——name null → `"name":null`、
- * festivals null → `"festivals":{}`（unwrap_or_default 后 BTreeMap 恒序列化为对象）。
- * 存储消费方（parseCalendarJson / 开局向导「跟随角色卡」）按 snake_case 键读，
- * camelCase 直落会在回读时降级（月天数 / 日名丢失）。
- */
-export function calendarConfigToStorageJson(calendar: CalendarConfigDto): string {
-  return JSON.stringify({
-    name: calendar.name,
-    months: calendar.months,
-    days_per_month: calendar.daysPerMonth,
-    day_names: calendar.dayNames,
-    festivals: calendar.festivals ?? {},
-  });
-}
-
 export async function updateCharacter(
   id: number,
-  input: UpdateCharacterInput,
+  input: CharacterInput,
 ): Promise<void> {
   const character = characters.find((c) => c.id === id);
   if (!character) throw notFound('character', id);
@@ -451,12 +393,6 @@ export async function updateCharacter(
   character.renderStyle = input.renderStyle;
   character.modelConfig = input.modelConfig;
   character.accentColor = input.accentColor;
-  // 历法整卡覆盖（FR-013，对齐 Rust update_character_impl）：DTO 折叠为 domain
-  // snake_case 存储形态（calendarConfigToStorageJson；mock 生态契约见 data.ts 种子
-  // 注释），CharacterSummary.calendarConfig 的 wire 契约是字符串透传；
-  // null / 缺键 = 清除历法（回退内置默认历）。
-  const calendar = input.calendarConfig ?? null;
-  character.calendarConfig = calendar === null ? null : calendarConfigToStorageJson(calendar);
   character.updatedAt = Date.now();
 }
 

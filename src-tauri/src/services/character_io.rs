@@ -15,7 +15,7 @@
 //! ```
 //!
 //! `character` 对象与命令层 wire 的 `CharacterInput` 同形（create/update 负载形状）；
-//! 库侧字段（id / calendar_config / created_at / updated_at / deleted_at）一律不进卡文件。
+//! 库侧字段（id / created_at / updated_at / deleted_at）一律不进卡文件。
 //! 文件对话框与磁盘读写属 interface 关注点，在 `interfaces::ipc` 命令实现内，本模块不做 IO。
 //!
 //! 解析不加 `deny_unknown_fields`（向前兼容：新版本应用多出的字段在旧版可忽略），
@@ -50,7 +50,7 @@ pub struct CharacterCardPayload {
 
 impl From<&Character> for CharacterCardPayload {
     /// 领域角色卡 → 卡负载：只取 CharacterInput 同形九字段，库侧字段（id /
-    /// calendar_config / 时间戳 / 墓碑）不导出。
+    /// 时间戳 / 墓碑）不导出。
     fn from(c: &Character) -> Self {
         Self {
             name: c.name.clone(),
@@ -192,7 +192,6 @@ mod tests {
             accent_color: Some("#5e2347".into()),
             voice_config: None,
             // 库侧字段：不应出现在卡文件里。
-            calendar_config: Some(r#"{"year_len":360}"#.into()),
             created_at: 1,
             updated_at: 2,
             deleted_at: None,
@@ -216,8 +215,8 @@ mod tests {
         assert_eq!(c["age"], "24");
         assert_eq!(c["avatar"], "data:image/png;base64,AAA");
         assert!(c["voiceConfig"].is_null());
-        // 库侧字段不导出（calendar_config / id / 时间戳 / 墓碑）。
-        for banned in ["id", "calendarConfig", "render_style", "createdAt", "updatedAt", "deletedAt"] {
+        // 库侧字段不导出（id / 时间戳 / 墓碑）。
+        for banned in ["id", "render_style", "createdAt", "updatedAt", "deletedAt"] {
             assert!(c.get(banned).is_none(), "卡文件不应含库侧字段 {banned}");
         }
     }

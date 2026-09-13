@@ -3,7 +3,7 @@
  * 三段式——① 「你的角色」：从角色卡库单选 1 张 = 用户扮演位（D2 必选，不选
  * 不能下一步）；② 「LLM 阵容」：多选 ≥1 张卡作为 LLM 扮演位（D5 阵容无上限；
  * D2 允许与扮演位同卡——自己跟自己对话，UI 不禁止，扮演位卡上出「你的扮演位」
- * 记号）；③ 开局设置：历法五选（跟随角色卡 / 现代公历 / 七曜和历 / 干支历 /
+ * 记号）；③ 开局设置：历法五选（默认数字历 / 现代公历 / 七曜和历 / 干支历 /
  * 旧都历，选中预设显示静态样例行，不与 fiction_time::date_label 双写实时换算）、
  * 起始锚「第 N 天 · 时段」（六值下拉，缺省 夜）、首场景地点 / 时间原文（可选）。
  *
@@ -15,8 +15,8 @@
  * 携带表单值。阵容提交为 members（用户位在前 + LLM 位按点选序），后端逐卡
  * 实例化快照（D1）。四内置预设常量与 Rust `domain/fiction_time::presets` 一一
  * 对应——前端只构造 wire DTO（camelCase），落库存储 JSON 由 Rust 序列化 domain
- * 结构得 snake_case，本组件永不手写存储 JSON。预设常量 FR-014 二期起下沉
- * src/components/calendarPresets（角色卡历法编辑共用同一事实源），本组件只消费。
+ * 结构得 snake_case，本组件永不手写存储 JSON。预设常量下沉
+ * src/components/calendarPresets，本组件只消费。
  *
  * 本组件为 app 层内聚（本切片 UI 全在 app 层）；组件全用 Fluent v9 既有件，
  * 表单惯例对齐 CharacterEditorDialog（Text 标签 + aria-label）。
@@ -44,8 +44,8 @@ import type { CharacterSummary, SessionOpeningInput, SessionRosterMember } from 
 import { CALENDAR_PRESETS, type CalendarPresetId } from '../../components/calendarPresets';
 import { CharacterPickGrid } from './CharacterPickGrid';
 
-/** 历法五选项键：follow = 角色卡快照兜底（wire 传 null）。 */
-type PresetKey = 'follow' | CalendarPresetId;
+/** 历法五选项键：default = 不指定（wire 传 null，会话落内置默认历）。 */
+type PresetKey = 'default' | CalendarPresetId;
 type ConcretePreset = CalendarPresetId;
 
 /** 选中预设的静态样例行（预设常量自带说明文本，i18n key）。 */
@@ -66,17 +66,6 @@ const FIC_PARTS: ReadonlyArray<{ value: string; labelKey: string }> = [
   { value: '夜', labelKey: 'sessions.wizard.partNight' },
   { value: '深夜', labelKey: 'sessions.wizard.partLateNight' },
 ];
-
-/** 从角色卡日历 JSON 读历法名（FR-014：跟随角色卡项显示用；坏 JSON 静默降级）。 */
-function characterCalendarName(raw: string | null): string | null {
-  if (raw === null) return null;
-  try {
-    const name = (JSON.parse(raw) as { name?: unknown }).name;
-    return typeof name === 'string' && name !== '' ? name : null;
-  } catch {
-    return null;
-  }
-}
 
 const useStyles = makeStyles({
   dialogHint: {
@@ -136,7 +125,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
   // LLM 阵容：点选序（Set 保序去重），可含扮演位同卡（D2）
   const [roster, setRoster] = useState<number[]>([]);
   // —— 开局表单（进入表单步时重置回缺省值，不残留上次草稿）——
-  const [preset, setPreset] = useState<PresetKey>('follow');
+  const [preset, setPreset] = useState<PresetKey>('default');
   const [ficDay, setFicDay] = useState('1');
   const [ficPart, setFicPart] = useState('夜');
   const [location, setLocation] = useState('');
@@ -151,8 +140,6 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
     }
   }, [open]);
 
-  const userCharacter = characters?.find((c) => c.id === userId) ?? null;
-
   const advanceToRoster = (): void => {
     if (userId !== null) setStage('pickRoster');
   };
@@ -160,7 +147,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
   /** 进入表单步：重置开局草稿（从众原「选角即重置」语义，返回再进不残留）。 */
   const advanceToForm = (): void => {
     if (roster.length === 0) return;
-    setPreset('follow');
+    setPreset('default');
     setFicDay('1');
     setFicPart('夜');
     setLocation('');
@@ -184,7 +171,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
       return trimmed === '' ? null : trimmed;
     };
     return {
-      calendar: preset === 'follow' ? null : CALENDAR_PRESETS[preset],
+      calendar: preset === 'default' ? null : CALENDAR_PRESETS[preset],
       ficDay: Number.isInteger(day) && day >= 1 ? day : null,
       ficPart,
       location: trim(location),
@@ -200,11 +187,6 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
       ...roster.map((characterId) => ({ characterId, isUser: false })),
     ];
   };
-
-  const followCalendarName = characterCalendarName(userCharacter?.calendarConfig ?? null);
-  const followLabel = followCalendarName
-    ? t('sessions.wizard.followWithCalendar', { name: followCalendarName })
-    : t('sessions.wizard.followWithoutCalendar');
 
   /** 时段落库值 → 显示文案（英文档位为「原值 (译名)」；未知值原样显示）。 */
   const partLabel = (value: string): string => {
@@ -255,15 +237,15 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
                     onChange={(_, data) => setPreset(data.value as PresetKey)}
                     aria-label={t('sessions.wizard.calendar')}
                   >
-                    <Radio value="follow" label={t('sessions.wizard.presetFollow')} />
+                    <Radio value="default" label={t('sessions.wizard.presetDefault')} />
                     <Radio value="modern" label={t('sessions.wizard.presetModern')} />
                     <Radio value="seven" label={t('sessions.wizard.presetSeven')} />
                     <Radio value="ganzhi" label={t('sessions.wizard.presetGanzhi')} />
                     <Radio value="fantasy" label={t('sessions.wizard.presetFantasy')} />
                   </RadioGroup>
                   <Text size={200} className={styles.sample}>
-                    {preset === 'follow'
-                      ? followLabel
+                    {preset === 'default'
+                      ? t('sessions.wizard.sampleDefault')
                       : t(SAMPLE_KEYS[preset as ConcretePreset])}
                   </Text>
                 </div>

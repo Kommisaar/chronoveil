@@ -44,20 +44,6 @@ async forkSession(sessionId: number, anchorSceneIdx: number, title: string) : Pr
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * AI 起草历法（FR-014 二期）：按世界观描述起草自定义历法，返回给前端审阅后
- * 由用户走既有保存路径（本命令**不做持久化、不自动应用**）。单次调用、前端
- * 弹窗等待——不走生成注册表（无会话互斥语义）也不流式；cancel 通道本切片
- * 暂无触发方（UI 取消按钮属后续切片），此处预留打断缝。
- */
-async draftCalendar(description: string) : Promise<Result<CalendarConfigDto, IpcError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("draft_calendar", { description }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async listMessages(sessionId: number) : Promise<Result<ChatMessage[], IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_messages", { sessionId }) };
@@ -130,7 +116,7 @@ async createCharacter(input: CharacterInput) : Promise<Result<CharacterSummary, 
     else return { status: "error", error: e  as any };
 }
 },
-async updateCharacter(id: number, input: UpdateCharacterInput) : Promise<Result<null, IpcError>> {
+async updateCharacter(id: number, input: CharacterInput) : Promise<Result<null, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_character", { id, input }) };
 } catch (e) {
@@ -246,8 +232,9 @@ dayNames: string[];
  */
 festivals: Partial<{ [key in number]: string }> | null }
 /**
- * 新建角色卡入参（FR-006）。建卡不带历法——FR-014 开局向导显式指定的历法经
- * `create_session` 回写角色卡（FR-013）；历法编辑走 [`UpdateCharacterInput`]。
+ * 新建 / 更新角色卡入参（FR-006）：整卡覆盖语义，create 与 update 共用同一负载。
+ * 历法不属角色卡（2026-09-13 产品裁剪）——会话历法在建会话时经开局包
+ * （SessionOpeningInput）显式指定或取内置默认历。
  */
 export type CharacterInput = { name: string; 
 /**
@@ -334,12 +321,7 @@ modelConfig: string | null;
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
  */
-accentColor: string | null; 
-/**
- * 角色卡世界观日历 JSON（FR-013；FR-014 起随摘要透传，供开局向导
- * 「跟随角色卡」项显示历法名）；None = 内置默认历。
- */
-calendarConfig: string | null; updatedAt: number; 
+accentColor: string | null; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */
@@ -462,7 +444,7 @@ errorText: string | null }
 /**
  * LLM 调用类别（wire 小写；与 llm_calls.kind 库值一致）。
  */
-export type LlmCallKindDto = "dialogue" | "explorer" | "director" | "draft"
+export type LlmCallKindDto = "dialogue" | "explorer" | "director"
 /**
  * LLM 调用终态（wire 小写；与 llm_calls.status 库值一致）。
  */
@@ -632,36 +614,6 @@ export type StreamEvent =
  * （见 [`TauriCallSink`]）。
  */
 { type: "trace"; call: LlmCallDto }
-/**
- * 更新角色卡入参（FR-006 / FR-013）：[`CharacterInput`] 全字段 + 世界观历法。
- * 编辑器整卡提交（Task-17 `buildInput` 返回 `CharacterInput & { calendarConfig }`，
- * 与本结构 wire 同形）；历法域语义：
- * - `Some(dto)`：经 [`fiction_time::validate`] 校验后序列化落库（snake_case 存储
- * JSON，与会话快照同构），编辑器保存历法即此形态；
- * - `None` / wire 缺键：**清除历法**（回退内置默认历）——整卡覆盖语义与 avatar
- * 从众（既有可空字段无「不动」形态，`Option` 一层即足够，无需嵌套区分）。
- */
-export type UpdateCharacterInput = { name: string; 
-/**
- * None = 更新时清除头像。
- */
-avatar: string | null; persona: string; 
-/**
- * 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
- */
-gender: string | null; age: string | null; renderStyle: string; modelConfig: string | null; 
-/**
- * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
- */
-accentColor: string | null; 
-/**
- * TTS 预留缝（CON-003），前端恒传 null。
- */
-voiceConfig: string | null; 
-/**
- * 世界观历法（FR-013）；None = 清除。
- */
-calendarConfig: CalendarConfigDto | null }
 
 /** tauri-specta globals **/
 

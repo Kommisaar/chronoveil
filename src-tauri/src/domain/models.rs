@@ -54,9 +54,6 @@ pub struct Character {
     pub accent_color: Option<String>,
     /// TTS 预留缝（CON-003），恒 None。
     pub voice_config: Option<String>,
-    /// 角色卡世界观日历 JSON（FR-013；data_model「日历归属与继承」：
-    /// 角色卡是日历的归属地），None = 内置默认历。
-    pub calendar_config: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 软删除墓碑（ADR-009）：None = 在世。
@@ -70,8 +67,9 @@ pub struct Session {
     pub id: i64,
     /// 标题，缺省取首条用户消息截断。
     pub title: String,
-    /// 会话日历快照（FR-013）：建会话时从用户位角色卡复制，之后各自演进互不回写；
-    /// None = 内置默认历。快照列留 sessions 维持现状（方案开放问题的实施裁量）。
+    /// 会话日历快照（FR-013）：建会话时由开局包显式指定（None = 内置默认历），
+    /// 落库后归属本会话行——角色卡不持有历法（2026-09-13 产品裁剪），会话行是
+    /// 会话历法唯一归属。
     pub calendar_config: Option<String>,
     /// 分叉溯源（方案 §2 第 3 步「时间线分叉」）：非 NULL = 本会话是「从此分叉」
     /// 产生的新时间线，值 = 源会话 id。逻辑指向，不设外键——源会话软删不阻断新线
@@ -145,9 +143,6 @@ impl Default for NewCharacter {
 }
 
 /// 更新角色卡入参：整卡覆盖（编辑表单全量提交）；avatar 传 None 即清除头像。
-/// calendar_config 同为整卡覆盖语义（FR-013）：携已校验历法 JSON（命令层把 wire
-/// DTO 校验后 `serde_json` 序列化，snake_case 键，与会话快照同构）则覆盖，传 None
-/// 即清除历法（回退内置默认历）——编辑器整卡提交，历法区为空即此形态。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateCharacter {
     pub name: String,
@@ -159,7 +154,6 @@ pub struct UpdateCharacter {
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
     pub voice_config: Option<String>,
-    pub calendar_config: Option<String>,
 }
 
 /// 开局包（FR-014）：建会话可选携带的「显式日历 + 开场锚」。
@@ -167,7 +161,7 @@ pub struct UpdateCharacter {
 /// （infra/storage/sessions.rs）在同一事务内落会话行 + 开场场景行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpeningSeed {
-    /// 显式指定会话日历（FR-014：向导显式指定 > 角色卡快照兜底）；None = 快照兜底。
+    /// 显式指定会话日历（FR-014）；None = 内置默认历。
     pub calendar: Option<crate::domain::fiction_time::CalendarConfig>,
     /// 开场锚：起始「第 N 天」（None = 1）。
     pub fic_day: Option<i64>,
@@ -197,7 +191,7 @@ pub struct NewSession {
     /// 标题，可空串（缺省由调用方取首条用户消息截断后经 update_session_title 回填）。
     pub title: String,
     /// 开局包（FR-014）；None = 降级路径——同样无条件 seed 默认锚开场行
-    /// （day=1 / part=夜 / date_label 走用户位卡快照日历），保证 latest_scene 存在。
+    /// （day=1 / part=夜 / date_label 走内置默认历），保证 latest_scene 存在。
     pub opening: Option<OpeningSeed>,
 }
 
@@ -393,8 +387,8 @@ pub struct NewCharacterInstance {
 // LLM 调用轨迹（透明化功能）：llm_calls 表投影，一次 HTTP 请求一条记录
 // ---------------------------------------------------------------------------
 
-/// LLM 调用类别（llm_calls.kind CHECK 四值）：主对话流式 / 记忆探索器工具循环 /
-/// 导演结算裁决 / 历法起草。
+/// LLM 调用类别（llm_calls.kind CHECK 三值）：主对话流式 / 记忆探索器工具循环 /
+/// 导演结算裁决。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmCallKind {
@@ -404,8 +398,6 @@ pub enum LlmCallKind {
     Explorer,
     /// 导演结算裁决（director，含修正重试的每次尝试）。
     Director,
-    /// 历法起草（calendar_draft，无会话）。
-    Draft,
 }
 
 impl LlmCallKind {
@@ -414,17 +406,16 @@ impl LlmCallKind {
             LlmCallKind::Dialogue => "dialogue",
             LlmCallKind::Explorer => "explorer",
             LlmCallKind::Director => "director",
-            LlmCallKind::Draft => "draft",
         }
     }
 
-    /// 从库值解析；未知值视为后端数据损坏。
+    /// 从库值解析；未知值视为后端数据损坏。历史「draft」值（历法起草 2026-09-13
+    /// 裁撤）不再识别——应用未发布、无存量数据要保护。
     pub fn from_db(value: &str) -> Result<Self, StorageError> {
         match value {
             "dialogue" => Ok(LlmCallKind::Dialogue),
             "explorer" => Ok(LlmCallKind::Explorer),
             "director" => Ok(LlmCallKind::Director),
-            "draft" => Ok(LlmCallKind::Draft),
             other => Err(StorageError::Backend(format!("未知 LLM 调用类别：{other}"))),
         }
     }
@@ -461,7 +452,7 @@ impl LlmCallStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmCall {
     pub id: i64,
-    /// 所属会话；None = 无会话的起草调用（draft），不进任何会话查询。
+    /// 所属会话；历史起草调用（2026-09-13 裁撤）曾为 None，现行写入方恒 Some。
     pub session_id: Option<i64>,
     pub kind: LlmCallKind,
     pub model: String,

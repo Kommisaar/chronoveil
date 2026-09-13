@@ -379,7 +379,6 @@ mod tests {
                 model_config: llm_card.model_config.clone(),
                 accent_color: llm_card.accent_color.clone(),
                 voice_config: None,
-                calendar_config: None,
             },
         ).unwrap();
         let after = list_sessions_impl(&app).unwrap();

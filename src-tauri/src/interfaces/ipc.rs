@@ -19,8 +19,7 @@
 //!
 //! 本模块是命令域子模块的注册壳（500 行规范拆分，纯搬移）：按命令域分驻
 //! `ipc/` 子模块——sessions（会话/开局包/会话日历）、fork（时间线分叉，Task-44
-//! 契约冻结 stub）、draft_calendar（AI 起草历法）、
-//! messages（消息）、scenes（场景与人物状态）、llm_calls（调用轨迹）、
+//! 契约冻结 stub）、messages（消息）、scenes（场景与人物状态）、llm_calls（调用轨迹）、
 //! generation（生成闭环）、characters（角色 CRUD）、character_cards（卡文件导出/导入）、
 //! config（配置）、error（统一错误）、test_support（测试夹具）。全部 pub 项经下方
 //! `pub use` 原路径再导出，`crate::interfaces::ipc::*` 对外 API 与拆分前逐项一致。
@@ -29,7 +28,6 @@ mod character_cards;
 mod character_inputs;
 mod characters;
 mod config;
-mod draft_calendar;
 mod error;
 mod fork;
 mod generation;
@@ -50,8 +48,6 @@ pub use sessions::{
     create_session, delete_session, list_sessions, CalendarConfigDto, RosterPickInput,
     SessionInstanceDto, SessionOpeningInput, SessionSummary,
 };
-
-pub use draft_calendar::draft_calendar;
 
 // 分叉域（时间线分叉，Task-44 契约冻结 stub；独立成文件因 sessions.rs 500 行纪律）
 pub use fork::fork_session;
@@ -74,7 +70,7 @@ pub use characters::{
     create_character, delete_character, list_characters, update_character, CharacterSummary,
 };
 
-pub use character_inputs::{CharacterInput, UpdateCharacterInput};
+pub use character_inputs::CharacterInput;
 
 pub use character_cards::{export_character, import_character};
 
@@ -94,7 +90,6 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             sessions::create_session,
             sessions::delete_session,
             fork::fork_session,
-            draft_calendar::draft_calendar,
             messages::list_messages,
             scenes::list_scenes,
             scenes::list_character_states,
@@ -141,7 +136,7 @@ mod tests {
             .expect("导出 TS bindings 失败");
         let content = std::fs::read_to_string(&out).unwrap();
         for cmd in [
-            "listSessions", "createSession", "deleteSession", "forkSession", "draftCalendar",
+            "listSessions", "createSession", "deleteSession", "forkSession",
             "listMessages",
             "listScenes", "listCharacterStates",
             "sendMessage", "cancelGeneration", "regenerateLast",

@@ -27,7 +27,7 @@ fn ledger(conn: &Connection) -> Vec<i64> {
 }
 
 /// 最严环境：连接 FK=ON（复刻 Storage::open 迁移前的生产形态；rusqlite 裸连接默认
-/// OFF，须手动开启）。完整迁移链成功、账本 1..=11、foreign_key_check 零违例、
+/// OFF，须手动开启）。完整迁移链成功、账本 1..=12、foreign_key_check 零违例、
 /// 包络结束 foreign_keys 恢复为开。
 #[test]
 fn envelope_runs_full_chain_with_foreign_keys_on() {
@@ -36,7 +36,7 @@ fn envelope_runs_full_chain_with_foreign_keys_on() {
 
     run(&conn).unwrap();
 
-    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert!(
         fk_violating_tables(&conn).is_empty(),
         "FK=ON 连接跑完迁移链不得有外键违例"
@@ -62,7 +62,7 @@ fn envelope_restores_foreign_keys_off_unchanged() {
 
 /// 兜底报错路径：v8 形态库预置一条悬空消息（session_id 指向不存在的会话，即当年
 /// MAJOR-1' 的违例存量形态）。FK=ON 且无包络时 0009 的搬运 INSERT...SELECT 会直接
-/// 撞外键；有包络则迁移跑完、账本推进到 11，再由 foreign_key_check 兜底报错并恢复
+/// 撞外键；有包络则迁移跑完、账本推进到 12，再由 foreign_key_check 兜底报错并恢复
 /// PRAGMA——报错带违例表与父表上下文，连接不留 FK 关闭的脏状态。
 #[test]
 fn envelope_reports_fk_violation_and_restores_pragma() {
@@ -100,7 +100,7 @@ fn envelope_reports_fk_violation_and_restores_pragma() {
         "违例报错应带兜底校验与违例/父表上下文：{msg}"
     );
     // 迁移本身全部落地（悬空行是数据错误而非 schema 错误），报错来自兜底校验。
-    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     // 失败路径不留脏连接状态：FK 恢复为原值（开）。
     assert!(foreign_keys_on(&conn));
     assert_eq!(

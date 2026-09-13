@@ -20,8 +20,6 @@ export type {
   CharacterStateScope,
   /** 新建角色卡入参（含 avatar；FR-006）。 */
   CharacterInput,
-  /** 更新角色卡入参（CharacterInput + 历法整卡覆盖，None/缺键 = 清除；FR-006 / FR-013）。 */
-  UpdateCharacterInput,
   /** 会话日历 wire DTO（FR-014 开局向导；camelCase 仅 wire，存储 JSON 由 Rust 产出）。 */
   CalendarConfigDto,
   /** 开局包入参（FR-014；null = 降级路径）。 */
@@ -41,7 +39,7 @@ export type {
   ProviderDto,
   /** LLM 调用轨迹（透明化功能；promptJson / toolCallsJson 以 string 透传，前端 parse）。 */
   LlmCallDto,
-  /** LLM 调用类别（透明化功能：dialogue / explorer / director / draft）。 */
+  /** LLM 调用类别（透明化功能：dialogue / explorer / director）。 */
   LlmCallKindDto,
   /** LLM 调用终态（透明化功能：ok / error）。 */
   LlmCallStatusDto,

@@ -5,7 +5,6 @@
     "create_session",
     "delete_session",
     "fork_session",
-    "draft_calendar",
     "list_messages",
     "list_scenes",
     "list_character_states",

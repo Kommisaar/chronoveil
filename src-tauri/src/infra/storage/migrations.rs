@@ -40,6 +40,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // 时间线分叉地基（方案《多角色与时间线-最终》§2 第 3 步）：sessions 扩可空
     // 分叉元信息两列（forked_from_session_id 不设外键、fork_anchor_scene_idx 记锚场景号）
     (11, include_str!("../../../migrations/0011_session_fork.sql")),
+    // 角色卡历法裁撤（2026-09-13 产品裁剪，先例同 0004 丢 greeting）：历法不属
+    // 角色卡，sessions.calendar_config 是会话历法唯一归属
+    (12, include_str!("../../../migrations/0012_drop_character_calendar.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

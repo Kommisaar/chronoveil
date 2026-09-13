@@ -26,25 +26,6 @@ fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
     })
 }
 
-/// 用户位卡的日历快照（FR-013「日历归属与继承」在多角色阵容下的裁量为：快照取
-/// **用户扮演位**的卡——会话视角主体；显式开局包优先级更高）。卡不存在时返回 None，
-/// 由实例化路径的逐卡 NotFound 上报真实原因（保持可判别错误语义）。
-fn snapshot_user_calendar(
-    conn: &Connection,
-    character_id: i64,
-) -> Result<Option<String>, StorageError> {
-    match conn.query_row(
-        "SELECT calendar_config FROM characters WHERE id = ?1 AND deleted_at IS NULL",
-        params![character_id],
-        |r| r.get::<_, Option<String>>(0),
-    ) {
-        Ok(v) => Ok(v),
-        // 卡不存在：日历取 None，错误由下方实例化的 characters::get 上报。
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
 /// 建会话（FR-007 + 多角色阵容 + FR-014 开局包），单事务（unchecked_transaction，
 /// 模式同 insert_message / commit_settlement）：会话行、逐卡实例化与开场锚行同生共死，
 /// 任一失败整体回滚。
@@ -74,11 +55,8 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
     let ts = now();
     let tx = conn.unchecked_transaction()?;
 
-    let user_pick = new
-        .roster
-        .iter()
-        .find(|pick| pick.is_user)
-        .expect("阵容校验已保证恰一用户位");
+    // 会话日历（FR-013）：开局包显式指定，未指定 = 内置默认历。角色卡不持有
+    // 历法（2026-09-13 产品裁剪），会话行是历法唯一归属。
     let explicit = new.opening.as_ref().and_then(|o| o.calendar.as_ref());
     let (calendar_config, calendar) = match explicit {
         Some(cal) => {
@@ -86,11 +64,7 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
                 .map_err(|e| StorageError::Backend(format!("会话日历序列化失败：{e}")))?;
             (Some(json), cal.clone())
         }
-        None => {
-            let raw = snapshot_user_calendar(&tx, user_pick.character_id)?;
-            let cal = crate::domain::fiction_time::parse(raw.as_deref());
-            (raw, cal)
-        }
+        None => (None, crate::domain::fiction_time::parse(None)),
     };
 
     tx.execute(

@@ -1,5 +1,5 @@
 //! sessions 表的行为验收测试（自 sessions.rs 外置，源文件 500 行上限）：
-//! 阵容实例化 / 日历快照 / 开场锚行事务性 / CRUD 与排序；新用例在此追加。
+//! 阵容实例化 / 会话日历 / 开场锚行事务性 / CRUD 与排序；新用例在此追加。
 use super::*;
 use crate::domain::fiction_time;
 use crate::domain::models::{MessageRole, NewCharacter, OpeningSeed, RosterPick};
@@ -37,76 +37,6 @@ fn make_session(storage: &crate::infra::storage::Storage, title: &str) -> i64 {
         .id
 }
 
-/// 验收 4（TASK-011）多角色裁量版：create_session 从**用户位卡**复制
-/// characters.calendar_config 快照——用户位卡有日历则会话拿到同值；
-/// 用户位卡为 NULL（内置默认历）则会话亦 NULL。LLM 位卡日历不参与快照。
-#[test]
-fn create_session_snapshots_user_position_calendar() {
-    let (storage, dir) = temp_storage("sess_calendar");
-    let db_path = dir.join("test.db");
-    let with_cal = storage
-        .create_character(&NewCharacter {
-            name: "有历".into(),
-            ..Default::default()
-        })
-        .unwrap()
-        .id;
-    let without_cal = storage
-        .create_character(&NewCharacter {
-            name: "默认".into(),
-            ..Default::default()
-        })
-        .unwrap()
-        .id;
-    drop(storage);
-
-    // 预置角色卡日历（JSON 任意，存储层透传不解释）
-    let config = r#"{"months":["白蜡月"],"days_per_month":30,"dayNames":["晨露日"]}"#;
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute(
-            "UPDATE characters SET calendar_config = ?1 WHERE id = ?2",
-            rusqlite::params![config, with_cal],
-        )
-        .unwrap();
-    }
-
-    let storage = Storage::open(&db_path).unwrap();
-    // 用户位 = 有历卡：快照取它。
-    let snapshotted = storage
-        .create_session(&NewSession {
-            roster: roster(with_cal, without_cal),
-            title: String::new(),
-            opening: None,
-        })
-        .unwrap();
-    assert_eq!(
-        snapshotted.calendar_config.as_deref(),
-        Some(config),
-        "建会话必须复制用户位卡日历快照（FR-013 多角色裁量）"
-    );
-    // 快照随行读回一致
-    assert_eq!(
-        storage.get_session(snapshotted.id).unwrap().calendar_config.as_deref(),
-        Some(config)
-    );
-
-    // 用户位 = 无历卡：会话亦 NULL = 内置默认历（LLM 位卡日历不影响）。
-    let default_cal = storage
-        .create_session(&NewSession {
-            roster: roster(without_cal, with_cal),
-            title: String::new(),
-            opening: None,
-        })
-        .unwrap();
-    assert_eq!(
-        default_cal.calendar_config, None,
-        "用户位卡无日历（NULL）则会话亦 NULL = 内置默认历"
-    );
-    drop(storage);
-    cleanup(&dir);
-}
-
 // ---- FR-014：开局包单事务落库 ----
 
 /// 夹具：建用户位卡「苏鸢」+ LLM 位卡「阿烬」，返回 (storage, dir, user_card, llm_card)。
@@ -123,7 +53,7 @@ fn char_fixture(tag: &str) -> (Storage, std::path::PathBuf, i64, i64) {
     (storage, dir, user_card, llm_card)
 }
 
-/// 显式开局：向导指定的日历 / 锚 / 场景字段逐一落库——日历覆盖快照（snake_case
+/// 显式开局：向导指定的日历 / 锚 / 场景字段逐一落库——日历直接落存储（snake_case
 /// 存储 JSON）、锚行 idx=0、date_label 经 date_label 派生、present = 全部实例 id。
 #[test]
 fn opening_seeds_explicit_calendar_and_anchor_scene() {
@@ -143,7 +73,7 @@ fn opening_seeds_explicit_calendar_and_anchor_scene() {
         })
         .unwrap();
 
-    // 日历显式指定优先于用户位卡快照（本例卡无快照，JSON 为 Rust 序列化产物）。
+    // 日历显式指定直接落库（JSON 为 Rust 序列化产物）。
     let stored = session.calendar_config.as_deref().unwrap();
     assert_eq!(fiction_time::parse(Some(stored)), preset, "显式日历原样落库");
     assert!(stored.contains("days_per_month"), "存储 JSON 为 snake_case：{stored}");
@@ -173,33 +103,12 @@ fn opening_seeds_explicit_calendar_and_anchor_scene() {
     cleanup(&dir);
 }
 
-/// 降级路径（opening = None）也无条件 seed 默认锚行：day=1 / part=夜；日历走
-/// 用户位卡快照兜底，date_label 按快照皮肤派生（§7-6：从第一拍有账可记）。
+/// 降级路径（opening = None）也无条件 seed 默认锚行：day=1 / part=夜；日历取
+/// 内置默认历（角色卡不持有历法，会话行是唯一归属），date_label 为数字形式
+/// （§7-6：从第一拍有账可记）。
 #[test]
-fn degraded_path_still_seeds_default_anchor_from_snapshot() {
-    let (storage, dir) = temp_storage("opening_degraded");
-    let user_card = storage
-        .create_character(&NewCharacter { name: "有历".into(), ..Default::default() })
-        .unwrap()
-        .id;
-    let llm_card = storage
-        .create_character(&NewCharacter { name: "阿烬".into(), ..Default::default() })
-        .unwrap()
-        .id;
-    drop(storage);
-    // 预置用户位卡日历（带皮肤）：降级路径的锚行 date_label 应按快照派生。
-    {
-        let conn = Connection::open(dir.join("test.db")).unwrap();
-        conn.execute(
-            "UPDATE characters SET calendar_config = ?1 WHERE id = ?2",
-            rusqlite::params![
-                r#"{"name":"旧都历","months":["霜月","白蜡月"],"days_per_month":30,"day_names":["晨露日","萤火日"]}"#,
-                user_card
-            ],
-        )
-        .unwrap();
-    }
-    let storage = Storage::open(&dir.join("test.db")).unwrap();
+fn degraded_path_still_seeds_default_anchor() {
+    let (storage, dir, user_card, llm_card) = char_fixture("opening_degraded");
 
     let session = storage
         .create_session(&NewSession {
@@ -208,9 +117,9 @@ fn degraded_path_still_seeds_default_anchor_from_snapshot() {
             opening: None,
         })
         .unwrap();
-    assert!(
-        session.calendar_config.is_some(),
-        "降级路径日历 = 用户位卡快照兜底"
+    assert_eq!(
+        session.calendar_config, None,
+        "降级路径无显式日历 = 内置默认历"
     );
     let scene = storage.latest_scene(session.id).unwrap().unwrap();
     assert_eq!(scene.idx, 0);
@@ -218,8 +127,8 @@ fn degraded_path_still_seeds_default_anchor_from_snapshot() {
     assert_eq!(scene.fic_part.as_deref(), Some("夜"), "part 缺省「夜」");
     assert_eq!(
         scene.date_label.as_deref(),
-        Some("霜月·晨露日·夜"),
-        "date_label 按快照日历派生"
+        Some("第1日·夜"),
+        "date_label 按内置默认历派生（数字形式）"
     );
     assert_eq!(scene.location, None, "降级路径无用户场景字段");
     assert_eq!(scene.time_note, None);

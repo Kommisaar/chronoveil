@@ -17,8 +17,6 @@
  * - 取消：无活跃生成恒 false（幂等 no-op）；mock 无事件流（subscribeStream no-op）；
  * - 角色 CRUD（sessionCount 统计读 is_user）/ config 往返与 10–160 值域校验
  *   （FR-006 / FR-009）；
- * - AI 起草历法（FR-014 二期）：确定性白蜡历样例、空白 / 超长描述错误语义
- *   与 services/calendar_draft 同构；
  * - 错误形态：统一 ApiError，payload.kind 判别值与 Rust IpcError wire 形态一致。
  *
  * mock 模块持有内存态（data.ts 种子 + 游标），每个用例经 vi.resetModules 重新载入，
@@ -26,11 +24,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
-  CalendarConfigDto,
+  CharacterInput,
   ConfigDto,
   SessionOpeningInput,
   SessionRosterMember,
-  UpdateCharacterInput,
 } from '../types';
 
 const BASE = new Date('2026-01-01T12:00:00Z').getTime();
@@ -69,12 +66,9 @@ async function apiErrorOf(promise: Promise<unknown>): Promise<Record<string, unk
 }
 
 /**
- * 角色卡入参样例（updateCharacter 负载形态 UpdateCharacterInput，含历法槽位；
- * 结构兼容 createCharacter 的 CharacterInput——多出的 calendarConfig 由 create 忽略）。
+ * 角色卡入参样例（createCharacter / updateCharacter 共用 CharacterInput 负载形态）。
  */
-function characterInput(
-  overrides: Partial<UpdateCharacterInput> = {},
-): UpdateCharacterInput {
+function characterInput(overrides: Partial<CharacterInput> = {}): CharacterInput {
   return {
     name: '测试角色',
     avatar: 'data:image/png;base64,AAA',
@@ -85,7 +79,6 @@ function characterInput(
     modelConfig: '{"providerId":"p1","model":"m1"}',
     accentColor: '#5e2347',
     voiceConfig: null, // CON-003 TTS 预留缝，前端恒传 null
-    calendarConfig: null, // FR-013 历法槽位；null = 无历法（整卡覆盖 = 清除）
     ...overrides,
   };
 }
@@ -330,58 +323,6 @@ describe('createSession 开局包（FR-014 入参校验对齐 Rust create_sessio
       dayNames: ['晨露日', '萤火日'],
       festivals: { 45: '灯节' },
     } }));
-  });
-});
-
-describe('draftCalendar（FR-014 二期 AI 起草历法，语义对齐 services/calendar_draft）', () => {
-  it('返回确定性白蜡历样例：schema 五字段齐全、festivals 数字字符串键、满足命名皮肤可用性', async () => {
-    const { backend } = await loadMock();
-    const draft = await backend.draftCalendar('修仙世界，一年十二个月每月三十天，有春节中秋');
-    expect(draft.name).toBe('白蜡历');
-    expect(draft.months).toHaveLength(12);
-    expect(draft.daysPerMonth).toBeGreaterThan(0);
-    expect(draft.dayNames.length).toBeGreaterThan(0);
-    // festivals wire 形态：键 = 年内第几天的数字字符串（与 Rust BTreeMap<i64,String> JSON 同形）。
-    expect(Object.keys(draft.festivals ?? {})).toEqual(['45', '360']);
-    expect(draft.festivals?.[45]).toBe('灯节');
-    // 保存侧可用性判定（fiction_time::validate 同构）：daysPerMonth > 0 且月/日名至少其一非空。
-    expect(draft.daysPerMonth > 0 && (draft.months.length > 0 || draft.dayNames.length > 0)).toBe(
-      true,
-    );
-    // 确定性：同输入两次起草结果一致。
-    expect(await backend.draftCalendar('再起草一次')).toEqual(
-      await backend.draftCalendar('再起草一次'),
-    );
-  });
-
-  it('空白描述报 conflict，文案与 Rust InvalidDescription 一致', async () => {
-    const { backend } = await loadMock();
-    for (const blank of ['', '   ', '\n\t ']) {
-      expect(await apiErrorOf(backend.draftCalendar(blank))).toEqual({
-        kind: 'conflict',
-        message: '描述内容为空：请先填写世界观描述',
-      });
-    }
-  });
-
-  it('超长描述（> 4000 字符，按码点计）报 conflict；4000 恰好放行', async () => {
-    const { backend } = await loadMock();
-    expect(await apiErrorOf(backend.draftCalendar('甲'.repeat(4001)))).toEqual({
-      kind: 'conflict',
-      message: '描述过长：4001 字符，上限 4000，请精简后重试',
-    });
-    expect((await backend.draftCalendar('甲'.repeat(4000))).name).toBe('白蜡历');
-  });
-
-  it('返回深拷贝：改动起草结果不污染后续起草', async () => {
-    const { backend } = await loadMock();
-    const first = await backend.draftCalendar('旧都世界观');
-    first.months.push('多余月');
-    if (!first.festivals) throw new Error('起草结果应含节日表');
-    first.festivals[45] = '被改掉的节日';
-    const second = await backend.draftCalendar('旧都世界观');
-    expect(second.months).toHaveLength(12);
-    expect(second.festivals?.[45]).toBe('灯节');
   });
 });
 
@@ -745,39 +686,6 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
     });
   });
 
-  it('updateCharacter 携带历法整卡覆盖（FR-013）：落内存态折叠 snake_case 存储键；null = 清除', async () => {
-    const { backend } = await loadMock();
-    const calendar: CalendarConfigDto = {
-      name: '星槎历',
-      months: ['潮生月', '风信月'],
-      daysPerMonth: 12,
-      dayNames: ['潮日', '汐日', '星日'],
-      festivals: { 2: '归潮祭' },
-    };
-    await backend.updateCharacter(2, characterInput({ calendarConfig: calendar }));
-    const updated = (await backend.listCharacters()).find((c) => c.id === 2);
-    // 与 Rust CharacterSummary wire 契约同构：calendarConfig 为存储 JSON 字符串透传；
-    // 键形为 domain snake_case（ipc.rs update_character_impl 序列化 CalendarConfig 的
-    // 形态；parseCalendarJson 等消费方按 days_per_month / day_names 读）。
-    expect(typeof updated?.calendarConfig).toBe('string');
-    const stored = JSON.parse(updated?.calendarConfig ?? '') as Record<string, unknown>;
-    expect(stored).not.toHaveProperty('daysPerMonth');
-    expect(stored).not.toHaveProperty('dayNames');
-    expect(stored).toEqual({
-      name: '星槎历',
-      months: ['潮生月', '风信月'],
-      days_per_month: 12,
-      day_names: ['潮日', '汐日', '星日'],
-      festivals: { 2: '归潮祭' },
-    });
-
-    // calendarConfig 传 null / 缺键 → 清除（整卡覆盖语义，对齐 Rust update_character_impl）。
-    await backend.updateCharacter(2, characterInput({ name: '林深（再改）' }));
-    const cleared = (await backend.listCharacters()).find((c) => c.id === 2);
-    expect(cleared?.name).toBe('林深（再改）');
-    expect(cleared?.calendarConfig).toBeNull();
-  });
-
   it('deleteCharacter 从列表移除且不级联会话（OQ-002）；重复删除报 NotFound', async () => {
     const { backend } = await loadMock();
     await backend.deleteCharacter(1);
@@ -789,37 +697,6 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
       entity: 'character',
       id: 1,
     });
-  });
-});
-
-describe('calendarConfigToStorageJson（wire DTO → 存储 JSON 键形折叠）', () => {
-  it('逐键折叠为 domain snake_case 形态，与 ipc.rs update_character_impl 的 serde 序列化字节同构', async () => {
-    const { backend } = await loadMock();
-    expect(
-      backend.calendarConfigToStorageJson({
-        name: '星槎历',
-        months: ['潮生月', '风信月'],
-        daysPerMonth: 12,
-        dayNames: ['潮日', '汐日', '星日'],
-        festivals: { 2: '归潮祭' },
-      }),
-    ).toBe(
-      '{"name":"星槎历","months":["潮生月","风信月"],"days_per_month":12,'
-        + '"day_names":["潮日","汐日","星日"],"festivals":{"2":"归潮祭"}}',
-    );
-  });
-
-  it('空缺位折叠：name null → null；festivals null → `{}`（unwrap_or_default 后 BTreeMap 恒序列化为对象）', async () => {
-    const { backend } = await loadMock();
-    expect(
-      backend.calendarConfigToStorageJson({
-        name: null,
-        months: [],
-        daysPerMonth: 30,
-        dayNames: [],
-        festivals: null,
-      }),
-    ).toBe('{"name":null,"months":[],"days_per_month":30,"day_names":[],"festivals":{}}');
   });
 });
 

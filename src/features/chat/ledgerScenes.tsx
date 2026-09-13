@@ -144,7 +144,7 @@ export function LedgerScenesSection({ scenes, instanceNames, onFork }: LedgerSce
                 </div>
               {scene.present.length > 0 && (
                 // 在场实例：次要小字行（从众 sceneMeta 层级，不抢 summary）；
-                // 未知实例 id 回退「角色#id」；名字拼接从众 CalendarSection 的「、」
+                // 未知实例 id 回退「角色#id」；名字以「、」拼接
                 <div className={styles.sceneMeta}>
                   {t('chat.ledger.present', {
                     names: scene.present

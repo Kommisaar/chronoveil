@@ -180,6 +180,22 @@ describe('CharacterEditorDialog 身份行行内编辑收口', () => {
   });
 });
 
+describe('C3 Tooltip 收编（原生 title → Fluent Tooltip）', () => {
+  it('重命名/人设按钮不再携带原生 title，可访问名由 Tooltip 注入保留', async () => {
+    renderView();
+    await openEditorOf('林深');
+    const rename = screen.getByRole('button', { name: '重命名' }) as HTMLButtonElement;
+    expect(rename.getAttribute('title')).toBeNull();
+    expect(rename.getAttribute('aria-label')).toBe('重命名');
+
+    // 人设按钮：无原生 title；切编辑态后可访问名随 Tooltip 文案切换
+    const persona = screen.getByRole('button', { name: '编辑人设' }) as HTMLButtonElement;
+    expect(persona.getAttribute('title')).toBeNull();
+    fireEvent.click(persona);
+    expect(screen.getByRole('button', { name: '完成编辑' }).getAttribute('title')).toBeNull();
+  });
+});
+
 describe('放弃未保存修改确认流（父级脏守卫 × 编辑器关闭路径）', () => {
   it('改动后取消关闭 → 确认对话框出现；「继续编辑」保留改动留在编辑器', async () => {
     renderView();

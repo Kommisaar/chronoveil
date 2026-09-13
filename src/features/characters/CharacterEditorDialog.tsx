@@ -35,6 +35,7 @@ import {
   DialogTitle,
   Text,
   Textarea,
+  Tooltip,
   makeStyles,
   mergeClasses,
   tokens,
@@ -336,18 +337,23 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     <Text size={300} weight="semibold">
                       {t('characters.persona')}
                     </Text>
-                    <Button
-                      appearance="subtle"
-                      size="small"
-                      icon={editingPersona ? <Checkmark20Regular /> : <Edit20Regular />}
-                      aria-label={
-                        editingPersona ? t('characters.personaDone') : t('characters.personaEdit')
+                    {/* C3 收编：原生 title → Fluent Tooltip（relationship="label"
+                        注入 aria-label，随编辑态切换文案，可访问名与收编前一致） */}
+                    <Tooltip
+                      content={
+                        editingPersona
+                          ? t('characters.personaDone')
+                          : t('characters.personaEdit')
                       }
-                      title={
-                        editingPersona ? t('characters.personaDone') : t('characters.personaEdit')
-                      }
-                      onClick={() => setEditingPersona((v) => !v)}
-                    />
+                      relationship="label"
+                    >
+                      <Button
+                        appearance="subtle"
+                        size="small"
+                        icon={editingPersona ? <Checkmark20Regular /> : <Edit20Regular />}
+                        onClick={() => setEditingPersona((v) => !v)}
+                      />
+                    </Tooltip>
                   </div>
                   {editingPersona ? (
                     <Textarea

@@ -8,7 +8,7 @@
  * 触发就把输入态弹回展示态；表单值本随键入实时更新，「编辑态」只是展示
  * 形态，不依赖失焦收口。
  */
-import { Button, Input, Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Button, Input, Text, Tooltip, makeStyles, tokens } from '@fluentui/react-components';
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -167,14 +167,16 @@ export function IdentityField(props: IdentityFieldProps) {
                 {age}
               </Text>
             ) : null}
-            <Button
-              appearance="subtle"
-              size="small"
-              icon={<Edit20Regular />}
-              aria-label={t('characters.rename')}
-              title={t('characters.rename')}
-              onClick={startEditName}
-            />
+            {/* C3 收编：原生 title → Fluent Tooltip（relationship="label"
+                注入 aria-label，可访问名与收编前一致） */}
+            <Tooltip content={t('characters.rename')} relationship="label">
+              <Button
+                appearance="subtle"
+                size="small"
+                icon={<Edit20Regular />}
+                onClick={startEditName}
+              />
+            </Tooltip>
           </>
         )}
         {/* 强调色取色器直接跟在名称后（Office 风格色块下拉） */}

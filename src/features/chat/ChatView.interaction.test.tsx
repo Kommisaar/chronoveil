@@ -110,6 +110,82 @@ afterEach(() => {
   for (const sessionId of [...handlers.keys()]) streamHub.end(sessionId);
   handlers.clear();
   useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: false });
+  restoreScrollPrototype();
+});
+
+// —— U3 滚动几何模拟基建：jsdom 无布局，scrollHeight / clientHeight / scrollTop
+// 全为零——在 Element.prototype 上替换访问器注入受控几何；afterEach 还原。
+const originalScrollDescriptors = new Map(
+  ['scrollTop', 'scrollHeight', 'clientHeight']
+    .map((key) => [key, Object.getOwnPropertyDescriptor(Element.prototype, key)] as const)
+    .filter(([, descriptor]) => descriptor !== undefined),
+);
+let scrollTopValue = 0;
+let scrollHeightValue = 0;
+let clientHeightValue = 0;
+// scrollTop 写入探针：写回受控值（贴近真实滚动语义），并记录调用供断言
+const scrollTopSetter = vi.fn((value: number) => {
+  scrollTopValue = value;
+});
+
+function mockScrollGeometry(geometry: {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}): void {
+  scrollTopValue = geometry.scrollTop;
+  scrollHeightValue = geometry.scrollHeight;
+  clientHeightValue = geometry.clientHeight;
+  scrollTopSetter.mockClear();
+  Object.defineProperty(Element.prototype, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTopValue,
+    set: scrollTopSetter,
+  });
+  Object.defineProperty(Element.prototype, 'scrollHeight', {
+    configurable: true,
+    get: () => scrollHeightValue,
+  });
+  Object.defineProperty(Element.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => clientHeightValue,
+  });
+}
+
+function restoreScrollPrototype(): void {
+  for (const [key, descriptor] of originalScrollDescriptors) {
+    Object.defineProperty(Element.prototype, key, descriptor);
+  }
+}
+
+it('U3：贴底时新消息仍自动吸底', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  // 距底 1000 - 430 - 500 = 70px（< 80 阈值）：用户本就贴底
+  mockScrollGeometry({ scrollTop: 430, scrollHeight: 1000, clientHeight: 500 });
+  renderView();
+  await screen.findByText('你好');
+  expect(scrollTopSetter).toHaveBeenCalledWith(1000);
+});
+
+it('U3：上滚阅读时新消息不把视口拽回底部', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  // 距底 500px：用户上滚阅读中
+  mockScrollGeometry({ scrollTop: 0, scrollHeight: 1000, clientHeight: 500 });
+  renderView();
+  await screen.findByText('你好');
+  expect(scrollTopSetter).not.toHaveBeenCalled();
+});
+
+it('U3：距底恰在阈值（80px）上不吸底', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  // 距底 1000 - 420 - 500 = 80px：恰在阈值上，不判定为贴底
+  mockScrollGeometry({ scrollTop: 420, scrollHeight: 1000, clientHeight: 500 });
+  renderView();
+  await screen.findByText('你好');
+  expect(scrollTopSetter).not.toHaveBeenCalled();
 });
 
 it('U1：IME 组合期的 Enter 不发送，草稿保留', async () => {

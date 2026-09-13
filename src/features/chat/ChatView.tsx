@@ -38,6 +38,11 @@ import { StreamingMessage } from './StreamingMessage';
 import { CANCEL_REASON, streamHub } from './streamHub';
 import { engineThemeVars, useChatViewStyles } from './useChatViewStyles';
 
+// 智能吸底的距底判定阈值（U3，像素）：scrollHeight - scrollTop - clientHeight
+// 小于该值视为用户仍在底部；唯一消费点在下方吸底 effect，测试以同值构造边界
+// 用例（ChatView.interaction.test.tsx「距底恰在阈值」）
+const STICK_BOTTOM_THRESHOLD_PX = 80;
+
 /**
  * 聊天主视图（UI-001 / UC-001 / TASK-006）。
  * 生成闭环接线：发送（用户条落库 → 流式渲染走引擎）→ 终态（done/error/cancel）
@@ -131,9 +136,15 @@ export function ChatView() {
     [refresh, t],
   );
 
+  // 智能吸底（U3）：仅当用户本就贴近底部（距底不足阈值）时才跟随新内容滚动，
+  // 流式期间上滚阅读历史不再被反复拽回底部
   useEffect(() => {
     const el = streamRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceToBottom < STICK_BOTTOM_THRESHOLD_PX) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, hubVersion]);
 
   // 生成终态 → 会话清单事件级刷新（TASK-010 验收 2 / FR-007）：hub 终态回调

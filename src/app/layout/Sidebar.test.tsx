@@ -46,6 +46,7 @@ beforeEach(() => {
     sessionsLoaded: false,
     sessionsLoadError: null,
     newSessionOpen: false,
+    sidebarCollapsed: false,
   });
 });
 
@@ -57,6 +58,7 @@ afterEach(() => {
     sessionsLoaded: false,
     sessionsLoadError: null,
     newSessionOpen: false,
+    sidebarCollapsed: false,
   });
 });
 
@@ -113,4 +115,62 @@ it('A1：清单加载失败渲染 StateBlock error（role="alert"），重试接
 it('A1：加载完成后空清单保持段内级一行空态（不升页面级占位块）', async () => {
   renderSidebar();
   expect(await screen.findByText('还没有会话，选择一个角色开始吧')).toBeTruthy();
+});
+
+// Task-14：收起宽限窗（inner 延迟 visibility:hidden 的 220ms，对齐
+// Sidebar.tsx 的 COLLAPSE_HIDE_MS）内 Tab 曾可落入零宽 aria-hidden 子树的
+// 删除/新建钮。修复 = 收起同帧挂 inert；jsdom 不做 Tab 焦点遍历，按 HTML
+// 标准断言 inert 的焦点排除语义（inert 子树内后代不可聚焦）即等价断言。
+it('Task-14：收起同帧 inner 挂 inert（宽限窗内 aria-hidden 子树不可聚焦），220ms 后才 visibility:hidden', () => {
+  vi.useFakeTimers();
+  try {
+    renderSidebar();
+    const aside = screen.getByRole('complementary');
+    const inner = aside.firstElementChild as HTMLElement;
+    expect(inner.hasAttribute('inert')).toBe(false);
+    expect(inner.style.visibility).toBe('visible');
+
+    act(() => {
+      useUiStore.getState().toggleSidebarCollapsed();
+    });
+
+    // 同帧：aria-hidden 翻 true 的同一渲染里 inert 已在场（键盘可达性即时
+    // 收敛），而 visibility 宽限仍在（只留给过渡视觉）——两机制时序刻意错开
+    expect(aside.getAttribute('aria-hidden')).toBe('true');
+    expect(inner.hasAttribute('inert')).toBe(true);
+    expect(inner.style.visibility).toBe('visible');
+    // 侧栏内全部按钮都落在 inert 子树里：Tab 落不进零宽区
+    const buttons = Array.from(aside.querySelectorAll('button'));
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const btn of buttons) {
+      expect(inner.contains(btn)).toBe(true);
+    }
+
+    // 宽限播完：visibility 才转 hidden，inert 持续在场
+    act(() => {
+      vi.advanceTimersByTime(220); // 对齐 Sidebar.tsx 的 COLLAPSE_HIDE_MS
+    });
+    expect(inner.style.visibility).toBe('hidden');
+    expect(inner.hasAttribute('inert')).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('Task-14：展开同帧摘除 inert 并恢复可见（宽限只留给收起方向）', () => {
+  renderSidebar();
+  const aside = screen.getByRole('complementary');
+  const inner = aside.firstElementChild as HTMLElement;
+
+  act(() => {
+    useUiStore.getState().toggleSidebarCollapsed();
+  });
+  expect(inner.hasAttribute('inert')).toBe(true);
+
+  act(() => {
+    useUiStore.getState().toggleSidebarCollapsed();
+  });
+  expect(aside.getAttribute('aria-hidden')).toBe('false');
+  expect(inner.hasAttribute('inert')).toBe(false);
+  expect(inner.style.visibility).toBe('visible');
 });

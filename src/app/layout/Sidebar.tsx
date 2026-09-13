@@ -20,8 +20,10 @@
 // 错开延迟经行内 --enter-delay 注入）。
 // 右缘 handle（2026-09-08 用户要求）：点击收起/展开侧栏——root 只做
 // 0/232 宽度裁切（overflow hidden + width 过渡），内容在内层固定 232px
-// 的 inner 里滑出而非挤压；收起过渡结束后 inner 隐藏（两段式，避免
-// 文本被压扁、焦点落入零宽区域）。
+// 的 inner 里滑出而非挤压；焦点可达性由收起同帧挂上的 inert 承接
+// （Task-14：宽限窗内 aria-hidden 子树不得可聚焦），过渡结束后 inner 再
+// visibility:hidden（两段式，避免文本被压扁）——inert 与 visibility
+// 分管「不可聚焦」与「不可见」，时序刻意错开（注释见下方 effect 与 JSX）。
 import {
   mergeClasses,
   Tooltip,
@@ -163,7 +165,11 @@ export function Sidebar() {
       : t('sessions.forkedFromUnknown', { id: sourceId });
   };
 
-  // 两段式收起：宽度过渡播完再藏 inner（隐藏后内容不可聚焦），展开时立即可见
+  // 两段式收起的第二段：宽度过渡播完再藏 inner，展开时立即可见。键盘可达性
+  // 不依赖这段——收起翻 true 的同帧 inner 已挂 inert（下方 JSX 的声明式
+  // `inert={collapsed}`），Tab 在 220ms 宽限窗内就进不去零宽区；本定时器只
+  // 服务过渡视觉（内容滑出期间保持渲染，播完才从视觉上摘除）。两机制各管
+  // 各的：inert 管「不可聚焦」，visibility 管「不可见」
   useEffect(() => {
     if (collapsed) {
       const timer = setTimeout(() => setInnerHidden(true), COLLAPSE_HIDE_MS);
@@ -255,9 +261,15 @@ export function Sidebar() {
       aria-label={t('sessions.title')}
       aria-hidden={collapsed}
     >
+      {/* inert 与收起同帧挂载（React 19 布尔 prop，WebView2 Chromium 支持）：
+          与 aside 的 aria-hidden 同一渲染生效，收起宽限窗内 Tab 落不进
+          删除/新建钮；220ms visibility 宽限只留给过渡视觉（与上方 effect
+          注释互指）。展开入口在 AppShell（本组件外），收起态依然可达，
+          不会把键盘用户锁死在 aria-hidden 子树里 */}
       <div
         className={styles.inner}
         style={{ visibility: innerHidden ? 'hidden' : 'visible' }}
+        inert={collapsed}
       >
         <div ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
         <div className={mergeClasses(styles.section, 'sidebar-enter')} style={nextEnter()}>

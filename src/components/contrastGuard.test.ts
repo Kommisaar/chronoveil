@@ -85,14 +85,17 @@ interface UsageEntry {
  */
 const USAGES: readonly UsageEntry[] = [
   // —— app 层 ——
-  // 活动栏条目（图标+文字标签）：rail 显式 bg1；hover 染 bg1Hover；选中染 bg1Selected
-  { file: 'src/app/layout/ActivityBar.tsx', line: 55, style: 'item', token: 'colorNeutralForeground2',
-    context: '导航条目（base300 文字 + 20px 图标）', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover', 'colorNeutralBackground1Selected'] },
-  // 侧栏收起后的展开钮：显式 bg1（hover 变体见下一条）
-  { file: 'src/app/layout/AppShell.tsx', line: 45, style: 'expandBtn', token: 'colorNeutralForeground2',
-    context: '展开钮图标（20px）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/app/layout/AppShell.tsx', line: 51, style: 'expandBtn:hover', token: 'colorNeutralForeground1',
-    context: '展开钮悬停态', backgrounds: ['colorNeutralBackground1Hover'] },
+  // 活动栏条目（图标+文字标签）：rail 显式 bg1。C2 迁移后常态前景由幽灵钮
+  // 钩子（useGhostIconButtonStyles root，components 层条目）承载，本文件只剩
+  // 悬停前景压回覆写（视觉零变化：原设计悬停只提底色不升前景）
+  { file: 'src/app/layout/ActivityBar.tsx', line: 55, style: 'item:hover 覆写', token: 'colorNeutralForeground2',
+    context: '导航条目悬停前景压回（常态前景由钩子承载）', backgrounds: ['colorNeutralBackground1Hover', 'colorNeutralBackground1Selected'] },
+  // 幽灵图标钮统一外观（C2 收编：AppShell expandBtn 覆写不透明 bg1，
+  // Sidebar iconBtn / ActivityBar item 透明底落在宿主 bg1，hover 染 bg1Hover）
+  { file: 'src/components/useGhostIconButtonStyles.ts', line: 62, style: 'root', token: 'colorNeutralForeground2',
+    context: '幽灵钮统一常态前景（20px 图标）', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover', 'colorNeutralBackground1Selected'] },
+  { file: 'src/components/useGhostIconButtonStyles.ts', line: 66, style: 'root:hover', token: 'colorNeutralForeground1',
+    context: '幽灵钮悬停前景升阶（expandBtn 悬停态）', backgrounds: ['colorNeutralBackground1Hover'] },
   // 新建会话对话框内（DialogSurface 默认 bg1）
   { file: 'src/app/layout/CharacterPickGrid.tsx', line: 17, style: 'hint', token: 'colorNeutralForeground3',
     context: '空角色库提示（base200）', backgrounds: ['colorNeutralBackground1'] },
@@ -100,26 +103,29 @@ const USAGES: readonly UsageEntry[] = [
     context: '对话框步骤提示（base200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/app/layout/NewSessionDialog.tsx', line: 112, style: 'sample', token: 'colorNeutralForeground3',
     context: '历法预设样例行', backgrounds: ['colorNeutralBackground1'] },
-  // 会话侧栏：inner 显式 bg1；条目 hover bg1Hover / 选中 bg1Selected
-  { file: 'src/app/layout/Sidebar.tsx', line: 114, style: 'item', token: 'colorNeutralForeground1',
+  // 会话侧栏（C2/A1 后样式在 useSidebarStyles）：inner 显式 bg1；条目 hover
+  // bg1Hover / 选中 bg1Selected
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 48, style: 'item', token: 'colorNeutralForeground1',
     context: '会话条目标题', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover', 'colorNeutralBackground1Selected'] },
   // 删除钮 fg3 只出现在透明底常态（hover 整体换红色，palette 红不在本清单）
-  { file: 'src/app/layout/Sidebar.tsx', line: 139, style: 'deleteBtn', token: 'colorNeutralForeground3',
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 64, style: 'deleteBtn', token: 'colorNeutralForeground3',
     context: '条目删除钮图标（16px）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/app/layout/Sidebar.tsx', line: 180, style: 'section', token: 'colorNeutralForeground3',
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 104, style: 'section', token: 'colorNeutralForeground3',
     context: '「会话」分组小标（base200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/app/layout/Sidebar.tsx', line: 200, style: 'iconBtn', token: 'colorNeutralForeground2',
-    context: '头部图标钮（新建/收起，20px）', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover'] },
-  { file: 'src/app/layout/Sidebar.tsx', line: 215, style: 'meta', token: 'colorNeutralForeground3',
+  // 头部图标钮悬停前景压回（视觉零变化覆写）；常态前景由幽灵钮钩子承载
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 115, style: 'iconBtn:hover 覆写', token: 'colorNeutralForeground2',
+    context: '头部图标钮（新建/收起）悬停前景压回', backgrounds: ['colorNeutralBackground1Hover'] },
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 126, style: 'meta', token: 'colorNeutralForeground3',
     context: '条目相对时间/分叉标识（base200）', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover', 'colorNeutralBackground1Selected'] },
-  { file: 'src/app/layout/Sidebar.tsx', line: 220, style: 'empty', token: 'colorNeutralForeground3',
+  { file: 'src/app/layout/useSidebarStyles.ts', line: 131, style: 'empty', token: 'colorNeutralForeground3',
     context: '空清单提示（base200）', backgrounds: ['colorNeutralBackground1'] },
   // —— components 层 ——
   // 空态宿主两处均为 bg1：ChatView 流（AppShell content）与 CharactersView 页面
   { file: 'src/components/EmptyState.tsx', line: 11, style: 'root', token: 'colorNeutralForeground3',
     context: '跨域空态占位（Text 默认 base300）', backgrounds: ['colorNeutralBackground1'] },
   // 三态占位块（StateBlock）宿主均为 bg1：页面级（CharactersView/SettingsView
-  // 的 AppShell content）与对话框内（CharacterPickGrid 于 DialogSurface 默认 bg1）
+  // 的 AppShell content）、对话框内（CharacterPickGrid 于 DialogSurface 默认 bg1）
+  // 与侧栏清单区（root 透明底，宿主 inner bg1）
   { file: 'src/components/StateBlock.tsx', line: 52, style: 'root', token: 'colorNeutralForeground3',
     context: '加载/错误态文案（Text 默认 base300）', backgrounds: ['colorNeutralBackground1'] },
   // —— features/characters（编辑器对话框 = DialogSurface 默认 bg1）——
@@ -143,11 +149,11 @@ const USAGES: readonly UsageEntry[] = [
   { file: 'src/features/characters/editor/pieces.tsx', line: 206, style: 'collapseBtn', token: 'colorNeutralForeground1',
     context: '覆写折叠钮（hover 换品牌色，不在本清单）', backgrounds: ['colorNeutralBackground1'] },
   // —— features/chat（聊天流与账本面板均为显式 bg1）——
-  { file: 'src/features/chat/ActivityBar.tsx', line: 39, style: 'hit', token: 'colorNeutralForeground3',
+  { file: 'src/features/chat/ActivityBar.tsx', line: 43, style: 'hit', token: 'colorNeutralForeground3',
     context: '幕后活动折叠行（base200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/chat/ActivityBar.tsx', line: 62, style: 'panel', token: 'colorNeutralForeground3',
+  { file: 'src/features/chat/ActivityBar.tsx', line: 66, style: 'panel', token: 'colorNeutralForeground3',
     context: '幕后活动展开轨迹（base200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/chat/ActivityBar.tsx', line: 71, style: 'stepLabel', token: 'colorNeutralForeground2',
+  { file: 'src/features/chat/ActivityBar.tsx', line: 75, style: 'stepLabel', token: 'colorNeutralForeground2',
     context: '活动步骤本地化标签', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/StreamingMessage.tsx', line: 41, style: 'header', token: 'colorNeutralForeground3',
     context: '流式消息头部角色名占位（base200）', backgrounds: ['colorNeutralBackground1'] },

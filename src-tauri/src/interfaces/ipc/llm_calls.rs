@@ -4,7 +4,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri::State;
 
-use crate::domain::models;
+use crate::domain::llm_call;
 use crate::domain::ports::StoragePort;
 use crate::state::AppState;
 
@@ -19,12 +19,12 @@ pub enum LlmCallKindDto {
     Director,
 }
 
-impl From<models::LlmCallKind> for LlmCallKindDto {
-    fn from(kind: models::LlmCallKind) -> Self {
+impl From<llm_call::LlmCallKind> for LlmCallKindDto {
+    fn from(kind: llm_call::LlmCallKind) -> Self {
         match kind {
-            models::LlmCallKind::Dialogue => LlmCallKindDto::Dialogue,
-            models::LlmCallKind::Explorer => LlmCallKindDto::Explorer,
-            models::LlmCallKind::Director => LlmCallKindDto::Director,
+            llm_call::LlmCallKind::Dialogue => LlmCallKindDto::Dialogue,
+            llm_call::LlmCallKind::Explorer => LlmCallKindDto::Explorer,
+            llm_call::LlmCallKind::Director => LlmCallKindDto::Director,
         }
     }
 }
@@ -37,11 +37,11 @@ pub enum LlmCallStatusDto {
     Error,
 }
 
-impl From<models::LlmCallStatus> for LlmCallStatusDto {
-    fn from(status: models::LlmCallStatus) -> Self {
+impl From<llm_call::LlmCallStatus> for LlmCallStatusDto {
+    fn from(status: llm_call::LlmCallStatus) -> Self {
         match status {
-            models::LlmCallStatus::Ok => LlmCallStatusDto::Ok,
-            models::LlmCallStatus::Error => LlmCallStatusDto::Error,
+            llm_call::LlmCallStatus::Ok => LlmCallStatusDto::Ok,
+            llm_call::LlmCallStatus::Error => LlmCallStatusDto::Error,
         }
     }
 }
@@ -75,8 +75,8 @@ pub struct LlmCallDto {
     pub error_text: Option<String>,
 }
 
-impl From<models::LlmCall> for LlmCallDto {
-    fn from(call: models::LlmCall) -> Self {
+impl From<llm_call::LlmCall> for LlmCallDto {
+    fn from(call: llm_call::LlmCall) -> Self {
         Self {
             id: call.id,
             session_id: call.session_id,
@@ -136,10 +136,10 @@ mod tests {
 
     #[test]
     fn llm_call_dto_serializes_camel_case() {
-        let dto = LlmCallDto::from(models::LlmCall {
+        let dto = LlmCallDto::from(llm_call::LlmCall {
             id: 12,
             session_id: Some(3),
-            kind: models::LlmCallKind::Dialogue,
+            kind: llm_call::LlmCallKind::Dialogue,
             model: "test-model".into(),
             started_at: 1_000,
             duration_ms: 250,
@@ -149,7 +149,7 @@ mod tests {
             tool_calls_json: Some(r#"[{"name":"search_history","arguments":"{}"}]"#.into()),
             prompt_tokens: Some(11),
             completion_tokens: None,
-            status: models::LlmCallStatus::Ok,
+            status: llm_call::LlmCallStatus::Ok,
             error_text: None,
         });
         let json = serde_json::to_value(&dto).unwrap();
@@ -190,9 +190,9 @@ mod tests {
 
         for i in 0..3 {
             app.storage
-                .insert_llm_call(&models::NewLlmCall {
+                .insert_llm_call(&llm_call::NewLlmCall {
                     session_id: Some(session.id),
-                    kind: models::LlmCallKind::Explorer,
+                    kind: llm_call::LlmCallKind::Explorer,
                     model: "test-model".into(),
                     started_at: i,
                     duration_ms: 10,
@@ -202,7 +202,7 @@ mod tests {
                     tool_calls_json: None,
                     prompt_tokens: None,
                     completion_tokens: None,
-                    status: models::LlmCallStatus::Ok,
+                    status: llm_call::LlmCallStatus::Ok,
                     error_text: None,
                 })
                 .unwrap();

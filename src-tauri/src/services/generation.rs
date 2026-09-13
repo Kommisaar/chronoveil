@@ -31,7 +31,8 @@ use serde::Deserialize;
 
 use crate::domain::chat::TerminalState;
 use crate::domain::error::StorageError;
-use crate::domain::models::{Character, LlmCallKind, Message, MessageRole, NewMessage};
+use crate::domain::llm_call::LlmCallKind;
+use crate::domain::models::{Character, Message, MessageRole, NewMessage};
 use crate::domain::ports::StoragePort;
 use crate::infra::config::{Config as FileConfig, ProviderConfig};
 use crate::infra::llm::{

@@ -19,9 +19,9 @@ pub use verdict::{
 
 use crate::domain::error::StorageError;
 use crate::domain::fiction_time;
+use crate::domain::llm_call::LlmCallKind;
 use crate::domain::models::{
-    CharacterInstance, CharacterState, LlmCallKind, Message, NewCharacterState, NewScene, Scene,
-    Session,
+    CharacterInstance, CharacterState, Message, NewCharacterState, NewScene, Scene, Session,
 };
 // 外置测试（director/tests.rs）经 `use super::*` 以此指认 scope 枚举；本体已不直接
 // 使用（CharacterStateScope 属 verdict.rs），故 cfg(test) 限定，避免非测试构建的

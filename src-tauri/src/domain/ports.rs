@@ -8,10 +8,10 @@
 //! 时间戳统一 Unix 毫秒。
 
 use crate::domain::error::StorageError;
+use crate::domain::llm_call::{LlmCall, NewLlmCall};
 use crate::domain::models::{
-    Character, CharacterInstance, CharacterState, LlmCall, Message, NewCharacter,
-    NewCharacterInstance, NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, Scene,
-    Session, UpdateCharacter,
+    Character, CharacterInstance, CharacterState, Message, NewCharacter, NewCharacterInstance,
+    NewCharacterState, NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
 };
 
 /// 消息归属半开区间 `(after_message_id, upto_message_id]`（FR-011）：区间内的在世消息

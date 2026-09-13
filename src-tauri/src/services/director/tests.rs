@@ -828,9 +828,9 @@ fn wait_for(mut cond: impl FnMut() -> bool) {
 // ---- 调用轨迹 kind 接线（透明化功能）：director 类别 + 每次重试各一条 ----
 
 /// 轨迹收集器：挂在导演客户端上验证结算裁决每次调用落 director 轨迹。
-struct TraceCollector(std::sync::Mutex<Vec<crate::domain::models::NewLlmCall>>);
+struct TraceCollector(std::sync::Mutex<Vec<crate::domain::llm_call::NewLlmCall>>);
 impl crate::infra::llm::LlmCallSink for TraceCollector {
-    fn record(&self, call: crate::domain::models::NewLlmCall) {
+    fn record(&self, call: crate::domain::llm_call::NewLlmCall) {
         self.0.lock().unwrap().push(call);
     }
 }
@@ -839,7 +839,7 @@ impl crate::infra::llm::LlmCallSink for TraceCollector {
 /// 次条 status ok；kind 均为 director、会话定位一致。
 #[tokio::test]
 async fn run_settlement_records_one_trace_per_attempt() {
-    use crate::domain::models::{LlmCallKind, LlmCallStatus};
+    use crate::domain::llm_call::{LlmCallKind, LlmCallStatus};
     let (storage, dir, session_id, _char_id, _trigger_id) = settlement_setup("dir_trace");
     let attempts = Arc::new(AtomicUsize::new(0));
     let counter = attempts.clone();

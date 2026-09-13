@@ -900,16 +900,16 @@ async fn wrap_up_round_tool_calls_degrades_to_none() {
 // ---- 调用轨迹 kind 接线（透明化功能）：explorer 类别 + 会话定位 ----
 
 /// 轨迹收集器：挂在客户端上验证 explore 的每轮请求都落 explorer 轨迹。
-struct TraceCollector(std::sync::Mutex<Vec<crate::domain::models::NewLlmCall>>);
+struct TraceCollector(std::sync::Mutex<Vec<crate::domain::llm_call::NewLlmCall>>);
 impl crate::infra::llm::LlmCallSink for TraceCollector {
-    fn record(&self, call: crate::domain::models::NewLlmCall) {
+    fn record(&self, call: crate::domain::llm_call::NewLlmCall) {
         self.0.lock().unwrap().push(call);
     }
 }
 
 #[tokio::test]
 async fn explore_records_one_trace_per_tool_round() {
-    use crate::domain::models::LlmCallKind;
+    use crate::domain::llm_call::LlmCallKind;
     let (storage, sid, instances) = storage_with_session("exp_trace");
     storage
         .insert_message(&NewMessage::new(sid, MessageRole::User, "灯塔的旧事"))
@@ -942,7 +942,7 @@ async fn explore_records_one_trace_per_tool_round() {
     for call in &records {
         assert_eq!(call.session_id, Some(sid), "轨迹带会话定位");
         assert_eq!(call.kind, LlmCallKind::Explorer, "探索器调用类别");
-        assert_eq!(call.status, crate::domain::models::LlmCallStatus::Ok);
+        assert_eq!(call.status, crate::domain::llm_call::LlmCallStatus::Ok);
     }
     // 第二轮 prompt 含工具回填（每轮请求形态逐条可回放）。
     let second: serde_json::Value = serde_json::from_str(&records[1].prompt_json).unwrap();

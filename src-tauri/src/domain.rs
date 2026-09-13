@@ -4,6 +4,7 @@ pub mod chat;
 pub mod context;
 pub mod error;
 pub mod fiction_time;
+pub mod llm_call;
 pub mod models;
 pub mod ports;
 pub mod state_expiry;

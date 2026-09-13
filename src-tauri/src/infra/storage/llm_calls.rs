@@ -7,7 +7,7 @@
 use rusqlite::{params, Connection, Row};
 
 use crate::domain::error::StorageError;
-use crate::domain::models::{LlmCall, LlmCallKind, LlmCallStatus, NewLlmCall};
+use crate::domain::llm_call::{LlmCall, LlmCallKind, LlmCallStatus, NewLlmCall};
 
 const COLS: &str = "id, session_id, kind, model, started_at, duration_ms, prompt_json, \
                     response_text, reasoning_text, tool_calls_json, prompt_tokens, \

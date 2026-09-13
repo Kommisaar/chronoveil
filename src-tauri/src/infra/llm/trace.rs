@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 
-use crate::domain::models::{LlmCallKind, LlmCallStatus, NewLlmCall};
+use crate::domain::llm_call::{LlmCallKind, LlmCallStatus, NewLlmCall};
 
 use super::client::LlmClient;
 use super::contract::{chat_message_wire, ChatMessage};

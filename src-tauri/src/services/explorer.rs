@@ -39,7 +39,8 @@
 //! 已取消 → 返回 None，上游 chat_stream 会立刻看到取消并按既有语义走半条落库。
 
 use crate::domain::context;
-use crate::domain::models::{CharacterInstance, LlmCallKind, Message, Scene};
+use crate::domain::llm_call::LlmCallKind;
+use crate::domain::models::{CharacterInstance, Message, Scene};
 use crate::domain::ports::StoragePort;
 use crate::infra::llm::{
     ActivityPhase, CallTrace, CancelHandle, ChatMessage, ChatRole, EventSink, LlmClient, LlmEvent,

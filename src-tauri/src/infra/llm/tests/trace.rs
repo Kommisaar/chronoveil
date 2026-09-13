@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use super::*;
-use crate::domain::models::{LlmCallKind, LlmCallStatus, NewLlmCall};
+use crate::domain::llm_call::{LlmCallKind, LlmCallStatus, NewLlmCall};
 use crate::infra::llm::mock::{
     delta_json, json_body, json_raw_body, sse_data, sse_head, status_head, status_head_with_body,
     MockServer,

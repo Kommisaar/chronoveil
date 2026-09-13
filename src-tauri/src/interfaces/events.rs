@@ -21,7 +21,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::domain::models::NewLlmCall;
+use crate::domain::llm_call::NewLlmCall;
 use crate::infra::llm::{ActivityPhase, EventSink, LlmCallSink, LlmEvent};
 use crate::infra::storage::Storage;
 

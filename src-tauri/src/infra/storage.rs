@@ -21,10 +21,11 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::Connection;
 
 use crate::domain::error::StorageError;
+use crate::domain::llm_call::{LlmCall, NewLlmCall};
 use crate::domain::models::{
-    Character, CharacterInstance, CharacterState, LlmCall, Message, MessageRole, NewCharacter,
-    NewCharacterInstance, NewCharacterState, NewLlmCall, NewMessage, NewScene, NewSession, Scene,
-    Session, UpdateCharacter,
+    Character, CharacterInstance, CharacterState, Message, MessageRole, NewCharacter,
+    NewCharacterInstance, NewCharacterState, NewMessage, NewScene, NewSession, Scene, Session,
+    UpdateCharacter,
 };
 use crate::domain::ports::{SettlementWrite, StoragePort};
 

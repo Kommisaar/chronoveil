@@ -48,9 +48,15 @@ pub struct CharacterInput {
 }
 
 impl CharacterInput {
-    /// 演出参数范围校验（越界报 Conflict，不静默钳制——对齐 config.validate
-    /// 快速失败风格；前端控件域与引擎钳制同源，正常路径到不了这里）。
+    /// create / update 共用入参闸：名称非空白 + 演出参数范围（违规报
+    /// Conflict，不静默钳制——对齐 config.validate 快速失败风格）。名称
+    /// 非空白与导入 parse 层 EmptyName（`character_io::parse_card_json`）、
+    /// 前端 canSave（`useEditorForm.ts`）是同一约束的三道闸，口径取齐；
+    /// 前端控件域与引擎钳制同源，正常路径到不了这里。
     pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("名称不能为空白".to_string());
+        }
         if let Some(ms) = self.anim_duration_ms {
             if !(ANIM_DURATION_MIN_MS..=ANIM_DURATION_MAX_MS).contains(&ms) {
                 return Err(format!(

@@ -233,6 +233,35 @@ describe('ThinkChannel 流式模式（TASK-006，FR-003 接通真实 LLM）', ()
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it('未追平即 finish：收拢前把 body 冲平为全文，胶囊展开回看完整 reasoning 而非前缀', () => {
+    const root = mount();
+    const onDone = vi.fn();
+    const full = '夜'.repeat(600); // 追平需 200 跳 ≈ 4.8s，远超下面几百毫秒的推进预算
+    const ch = new ThinkChannel(root, { text: '', streaming: true, isCurrent: () => true, onDone });
+    ch.start();
+    ch.appendText(full);
+    vi.advanceTimersByTime(550); // 首跳 3 字
+    vi.advanceTimersByTime(THINK_PHASE.stepIntervalMs * 9); // 共 10 跳 30 字，远未追平
+    expect(root.querySelector('.think-body')?.textContent?.length).toBe(30);
+
+    ch.finish(); // 快滚停在此刻：尾巴若不冲平将永久丢失
+    vi.advanceTimersByTime(THINK_PHASE.settlePauseMs - 1);
+    expect(root.querySelector('.think-body')?.textContent).toBe(full); // 落定悬停期全文可见
+
+    vi.advanceTimersByTime(1); // 落定 → 收拢
+    const box = root.querySelector('.think')!;
+    expect(box.classList.contains('done')).toBe(true);
+    expect(box.classList.contains('collapsed')).toBe(true);
+    vi.advanceTimersByTime(THINK_PHASE.beginAfterCollapseMs);
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    (box.querySelector('.think-head') as HTMLButtonElement).click(); // 展开回看
+    expect(box.classList.contains('collapsed')).toBe(false);
+    expect(root.querySelector('.think-body')?.textContent).toBe(full);
+    (box.querySelector('.think-head') as HTMLButtonElement).click(); // 再点收拢
+    expect(box.classList.contains('collapsed')).toBe(true);
+  });
+
   it('finish 幂等：显式 finish 与快滚追平触发的收拢竞争只走一次（demo 模式）', () => {
     const root = mount();
     const onDone = vi.fn();

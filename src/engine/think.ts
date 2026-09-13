@@ -208,6 +208,11 @@ export class ThinkChannel {
   private finishScroll(): void {
     if (this.finishRequested) return; // 幂等：追平触发与显式 finish 只走一次
     this.finishRequested = true;
+    // 流式 finish 可能早于快滚追平（真实 reasoning 数千字，~125 字/秒追不平，done 即收拢）。
+    // demo 语义确立「收拢前全文可见、胶囊展开回看全文」，并非有意截断——故收拢前把 body
+    // 冲平为全文，否则停滚后未上屏的尾巴永久不可回看；demo 追平路径下此冲平为恒等操作。
+    this.shown = this.text.length;
+    if (this.body) this.body.textContent = this.text;
     this.disarm();
     const total = formatThinkDuration(this.visMs / 1000);
     this.delay(() => {

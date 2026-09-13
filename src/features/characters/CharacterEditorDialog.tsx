@@ -210,6 +210,12 @@ const useStyles = makeStyles({
   deleteAction: {
     marginRight: 'auto',
   },
+  // 覆写下拉区的配置加载失败文案（Task-14）：水平内距对齐 OverrideSection
+  // 的 cardBody（'0px 20px 12px'，见 editor/pieces useFieldStyles.cardBody）
+  providersError: {
+    padding: '0px 20px 12px',
+    color: tokens.colorPaletteRedForeground1,
+  },
 });
 
 export interface CharacterEditorDialogProps {
@@ -225,6 +231,10 @@ export interface CharacterEditorDialogProps {
   getTriggerRect?: () => DOMRect | null;
   /** providers 下拉数据源（getConfig 的 providers）。 */
   providers: ProviderDto[];
+  /** 全局配置加载失败的降级文案（Task-14，父组件设置；null = 未失败）：
+      就地落在「其他配置」卡（覆写下拉区域），与「未配置 provider」的
+      空列表可区分——空列表不设此 prop。 */
+  providersError?: string | null;
   /** 演出参数「跟随全局」基准（全局配置派生）；缺省回落模板默认。 */
   animDefaults?: AnimDefaults | undefined;
   /** 保存失败的行内错误文案（父组件设置）。 */
@@ -244,6 +254,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
     onClosed,
     getTriggerRect,
     providers,
+    providersError,
     animDefaults,
     errorText,
     onAutosave,
@@ -362,6 +373,14 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                     onOverrideChange={form.setOverride}
                     providers={providers}
                   />
+                  {/* 全局配置加载失败的降级信号（Task-14）：信号落点即受影响
+                      的覆写下拉所在卡；不用 errorText 通道（那是保存/删除失败
+                      的语义，混入会互相覆盖）。 */}
+                  {providersError ? (
+                    <Text role="alert" size={200} className={styles.providersError}>
+                      {providersError}
+                    </Text>
+                  ) : null}
                 </SettingsCard>
                 {errorText ? (
                   <Text role="alert" size={200} className={field.error}>

@@ -123,6 +123,10 @@ export function CharactersView() {
   // 演出参数「跟随全局」基准（2026-09-13）：全局配置里的三项，编辑器预览与
   // 行描述据此展示；加载失败回落 undefined → 表单钩子取模板默认。
   const [animDefaults, setAnimDefaults] = useState<AnimDefaults | undefined>(undefined);
+  // 全局配置加载失败的降级信号（Task-14）：只影响模型覆写下拉的数据源，
+  // 与「未配置 provider」的空列表可区分；落到编辑器「其他配置」卡的就地
+  // 红字，不引入全局错误态（角色列表主功能不受累）。
+  const [providersError, setProvidersError] = useState<string | null>(null);
   // 编辑目标（既有卡）：新建走「先建卡再编辑」，本视图不再有 create 模式。
   const [editor, setEditor] = useState<CharacterSummary | null>(null);
   // 可见性与挂载分离：editorOpen=false 只触发退场动画，播完 onClosed 才卸载。
@@ -153,7 +157,10 @@ export function CharactersView() {
 
   useEffect(() => {
     // providers 供 model_config 覆写下拉（验收 2）；加载失败不阻塞角色列表，
-    // 只是覆写下拉暂无选项。
+    // 只是覆写下拉暂无选项——失败不空吞，降级信号落 providersError（编辑器
+    // 「其他配置」卡就地红字，Task-14），与「未配置 provider」的空列表可区分；
+    // 不加自动重试/全局错误态：覆写是低频可重进路径，重开视图即重拉。
+    // 依赖刻意只留 []：t 仅在失败时生成文案，i18n 切语言不触发重拉配置。
     let cancelled = false;
     getConfig()
       .then((config) => {
@@ -165,7 +172,12 @@ export function CharactersView() {
           punctPause: config.punctPauseEnabled,
         });
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (cancelled) return;
+        setProvidersError(
+          `${t('characters.providersLoadFailed')}：${describeError(e)}`,
+        );
+      });
     return () => {
       cancelled = true;
     };
@@ -346,6 +358,7 @@ export function CharactersView() {
           character={editor}
           getTriggerRect={getTriggerRect}
           providers={providers}
+          providersError={providersError}
           animDefaults={animDefaults}
           errorText={editorError}
           onAutosave={handleAutosave}

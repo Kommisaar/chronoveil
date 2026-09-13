@@ -186,6 +186,7 @@ export const en = {
     animRhythmUnit: 'ms/char',
     modelOverride: 'Model override',
     overrideHint: 'Leave blank to follow global',
+    providersLoadFailed: 'Failed to load provider configuration; overrides unavailable',
     accentColor: 'Accent color',
     accentFollow: 'Follow poster',
     themeColors: 'Theme Colors',

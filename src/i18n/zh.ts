@@ -182,6 +182,7 @@ export const zh = {
     animRhythmUnit: 'ms/字',
     modelOverride: '模型覆写',
     overrideHint: '留空跟随全局设置',
+    providersLoadFailed: 'Provider 配置加载失败，覆写下拉暂不可用',
     accentColor: '强调色',
     accentFollow: '跟随海报',
     themeColors: '主题颜色',

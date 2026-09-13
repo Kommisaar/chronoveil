@@ -201,7 +201,7 @@ it('U3：距底恰在阈值（80px）上不吸底', async () => {
 it('U5：零会话空态提供「新建会话」直达钮，点击置位 store 开关', () => {
   useUiStore.setState({ activeSessionId: null, sessions: [], sessionsLoaded: true });
   renderView();
-  expect(screen.getByText('选择左侧会话，或点侧栏「+」新建对话')).toBeTruthy();
+  expect(screen.getByText('选择左侧会话，或新建一个对话')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
   expect(useUiStore.getState().newSessionOpen).toBe(true);
 });

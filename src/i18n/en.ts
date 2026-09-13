@@ -69,7 +69,8 @@ export const en = {
     },
   },
   chat: {
-    empty: 'Pick a session on the left, or click "+" in the sidebar to start a new one',
+    // 空态自带「新建会话」直达钮（U5），且侧栏可收起——文案不指认任何具体入口位置
+    empty: 'Pick a session on the left, or start a new one',
     placeholder: 'Type a message… (Enter to send)',
     send: 'Send',
     stop: 'Stop',

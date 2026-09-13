@@ -24,8 +24,9 @@ describe('App', () => {
 
   it('默认视图为聊天空态', () => {
     render(<App />);
-    // 文案随 FR-014 修正：卡片「开新会话」入口已移除，新建入口只在侧栏「+」
-    expect(screen.getByText('选择左侧会话，或点侧栏「+」新建对话')).toBeTruthy();
+    // 文案不再指认具体入口位置：空态自带「新建会话」直达钮（U5），侧栏「+」
+    // 在侧栏收起时不可见，指引不能依赖它
+    expect(screen.getByText('选择左侧会话，或新建一个对话')).toBeTruthy();
   });
 
   it('C3：侧栏收起时展开钮提示迁移 Fluent Tooltip——原生 title 移除，聚焦后 content 挂载', async () => {

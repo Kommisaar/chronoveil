@@ -5,13 +5,18 @@
 import { makeStyles, tokens } from '@fluentui/react-components';
 
 export const useSidebarStyles = makeStyles({
-  // root 只承担宽度裁切：宽度经行内样式注入（0 ↔ 232 过渡）
+  // root 只承担宽度裁切：宽度经行内样式注入（0 ↔ 232 过渡）。宽度过渡属
+  // 装饰性运动，整体收进 no-preference 门控（2026-09-13 补齐，修法参照
+  // useCardLiftStyles）——开启「减弱动态」时收起/展开瞬时完成；两段式
+  // 收起的 inner 隐藏兜底（COLLAPSE_HIDE_MS）不依赖过渡，行为不受影响
   root: {
     overflow: 'hidden',
     flexShrink: 0,
-    transitionProperty: 'width',
-    transitionDuration: tokens.durationGentle,
-    transitionTimingFunction: tokens.curveDecelerateMid,
+    '@media (prefers-reduced-motion: no-preference)': {
+      transitionProperty: 'width',
+      transitionDuration: tokens.durationGentle,
+      transitionTimingFunction: tokens.curveDecelerateMid,
+    },
   },
   inner: {
     position: 'relative', // 共享指示条的定位包含块

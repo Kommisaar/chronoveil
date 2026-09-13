@@ -14,7 +14,8 @@
 //   点击时就地轻提示；
 // - 清单唯一数据源在 ui store（sessions / refreshSessions）：本组件挂载即重拉
 //   （AppShell 仅聊天视图挂载本组件，从其他视图回来自然重拉，验收 3），
-//   ChatView 同源读取，两侧不出现陈旧分叉（验收 4）。
+//   ChatView 同源读取，两侧不出现陈旧分叉（验收 4）；清单加载错误态同源
+//   （sessionsLoadError，Task-11 提升自本组件已退役的本地标记）。
 // 条目入场动画：挂载时逐项浮现一次（app.css 的 sidebar-enter 全局类，
 // 错开延迟经行内 --enter-delay 注入）。
 // 右缘 handle（2026-09-08 用户要求）：点击收起/展开侧栏——root 只做
@@ -89,6 +90,7 @@ export function Sidebar() {
   const activeSessionId = useUiStore((s) => s.activeSessionId);
   const sessions = useUiStore((s) => s.sessions);
   const sessionsLoaded = useUiStore((s) => s.sessionsLoaded);
+  const sessionsLoadError = useUiStore((s) => s.sessionsLoadError);
   const selectSession = useUiStore((s) => s.selectSession);
   const refreshSessions = useUiStore((s) => s.refreshSessions);
   const removeSession = useUiStore((s) => s.removeSession);
@@ -103,9 +105,6 @@ export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
-  // 清单加载失败（本地态）：store 的 refreshSessions 失败不落任何状态
-  // （sessionsLoaded 保持 false），失败可见性由本标记补齐 → StateBlock error
-  const [listLoadFailed, setListLoadFailed] = useState(false);
   const [innerHidden, setInnerHidden] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
@@ -114,16 +113,17 @@ export function Sidebar() {
   useSyncExternalStore(streamHub.subscribe, streamHub.getVersion);
 
   // 挂载即全量重拉（验收 3）：AppShell 只在聊天视图挂载本组件——应用启动
-  // 与从角色/设置视图回到聊天都会经这里刷新，不显示陈旧清单。失败落到
-  // StateBlock error（下方三态分支），不再是无处理的浮空 rejection
+  // 与从角色/设置视图回到聊天都会经这里刷新，不显示陈旧清单。失败可见性由
+  // store 的 sessionsLoadError 承接（StateBlock error 三态分支），catch 只
+  // 收敛 rejection 防浮空，非吞错装成功（同款先例：refreshSessionsQuietly）
   useEffect(() => {
-    refreshSessions().catch(() => setListLoadFailed(true));
+    refreshSessions().catch(() => undefined);
   }, [refreshSessions]);
 
-  // 清单加载失败的重试（StateBlock onRetry）：先回 loading 态再重拉
+  // 清单加载失败的重试（StateBlock onRetry）：进入重拉即由 store 清错误 →
+  // UI 回加载态；rejection 收敛同上
   const retryLoadSessions = (): void => {
-    setListLoadFailed(false);
-    refreshSessions().catch(() => setListLoadFailed(true));
+    void refreshSessions().catch(() => undefined);
   };
 
   // 现役角色清单：新建会话的选择列表 + 空标题条目的回退名（FR-007：标题
@@ -291,10 +291,11 @@ export function Sidebar() {
           </span>
         </div>
         {/* 清单三态（审计 A1）：未加载完 → StateBlock loading（此前是整段
-            空白，加载慢时像坏掉了）；加载失败 → error + 重试（接 refreshSessions）。
+            空白，加载慢时像坏掉了）；加载失败 → error + 重试（接 refreshSessions；
+            错误态自 Task-11 起归 store 的 sessionsLoadError，本组件只消费）。
             空清单刻意保持下方段内级一行小字（见 empty 处注释） */}
         {!sessionsLoaded ? (
-          listLoadFailed ? (
+          sessionsLoadError !== null ? (
             <div className={styles.stateWrap}>
               <StateBlock
                 state="error"

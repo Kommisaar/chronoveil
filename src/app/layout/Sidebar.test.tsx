@@ -44,6 +44,7 @@ beforeEach(() => {
     activeSessionId: null,
     sessions: [],
     sessionsLoaded: false,
+    sessionsLoadError: null,
     newSessionOpen: false,
   });
 });
@@ -54,6 +55,7 @@ afterEach(() => {
     activeSessionId: null,
     sessions: [],
     sessionsLoaded: false,
+    sessionsLoadError: null,
     newSessionOpen: false,
   });
 });

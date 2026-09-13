@@ -17,6 +17,17 @@ interface UiState {
   sessions: SessionSummary[];
   /** 清单是否完成首次加载（首帧区分「未加载」与「确实无会话」） */
   sessionsLoaded: boolean;
+  /**
+   * 会话清单最近一次重拉的失败详情（Task-11 提升自 Sidebar 本地标记）：错误态
+   * 归属与清单数据同源（未来消费视图不必各自兜底）。存原始错误详情而非翻译
+   * 文案——语言档位运行时可切且 store 跨视图存续，通用文案由消费组件 i18n
+   * 渲染（形态对齐 SettingsView 的「t 前缀 + 详情追加」；describeError 同款
+   * 收敛）。null = 最近一次重拉无失败；进入重拉即清值（错误态回加载态），
+   * 成功保持 null。静默路径 refreshSessionsQuietly 的失败同样落值——落值不
+   * 等于冒泡（不抛给调用方、不阻塞聊天路径，TASK-010 契约不变），仅让全局
+   * 错误态如实反映最近一次重拉结果。
+   */
+  sessionsLoadError: string | null;
   /** 活动栏展开态（汉堡双态：48px 收起 / 200px 展开），风格随 relay-harbor */
   railExpanded: boolean;
   /** 会话侧栏收起态（右缘 handle 切换，232px ↔ 0 宽度过渡） */
@@ -35,7 +46,9 @@ interface UiState {
   selectSession: (id: number) => void;
   /**
    * 全量重拉会话清单（TASK-007 刷新策略）：挂载进聊天视图、新建/删除后调用，
-   * 排序在此收口。后端为唯一事实，前端不做增量补丁。
+   * 排序在此收口。后端为唯一事实，前端不做增量补丁。失败落 sessionsLoadError
+   * 并保持原 rejection 契约——调用方仍须收敛 rejection（错误可见性走 store
+   * 状态，异常路径仅是调用方流程控制，如 ledgerPanel 删除/分叉失败提示）。
    */
   refreshSessions: () => Promise<void>;
   /**
@@ -61,6 +74,7 @@ export const useUiStore = create<UiState>()((set, get) => ({
   activeSessionId: null,
   sessions: [],
   sessionsLoaded: false,
+  sessionsLoadError: null,
   railExpanded: false,
   sidebarCollapsed: false,
   newSessionOpen: false,
@@ -69,8 +83,20 @@ export const useUiStore = create<UiState>()((set, get) => ({
   setView: (view) => set({ view }),
   selectSession: (id) => set({ activeSessionId: id, view: 'chat' }),
   refreshSessions: async () => {
-    const sessions = await listSessions();
-    set({ sessions: [...sessions].sort(byRecencyDesc), sessionsLoaded: true });
+    // 进入重拉即清错误（重试语义 = 错误态回加载态）；成功同句再落 null 兜住
+    // 并发重拉的「前次失败后写」竞态（最后完成的成功即事实）
+    set({ sessionsLoadError: null });
+    try {
+      const sessions = await listSessions();
+      set({
+        sessions: [...sessions].sort(byRecencyDesc),
+        sessionsLoaded: true,
+        sessionsLoadError: null,
+      });
+    } catch (e) {
+      set({ sessionsLoadError: e instanceof Error ? e.message : String(e) });
+      throw e;
+    }
   },
   removeSession: (id) =>
     set((s) => ({
@@ -79,7 +105,8 @@ export const useUiStore = create<UiState>()((set, get) => ({
     })),
   refreshSessionsQuietly: () => {
     void get().refreshSessions().catch(() => {
-      // 静默：保持现有清单，等下一个事件时点再对齐（验收 4）
+      // 静默：保持现有清单，等下一个事件时点再对齐（验收 4）；失败详情已落
+      // sessionsLoadError（不冒泡给聊天路径，见该字段注释）
     });
   },
   toggleRailExpanded: () => set((s) => ({ railExpanded: !s.railExpanded })),

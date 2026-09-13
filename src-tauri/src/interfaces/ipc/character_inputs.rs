@@ -40,6 +40,10 @@ pub struct CharacterInput {
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
     /// TTS 预留缝（CON-003），前端恒传 null。
+    // 一次性系统槽位：仅 create / import（卡文件导入复用 create 路径）写入；
+    // update 路径忽略此字段、保留库中原值（见 characters::update_character_impl），
+    // 传任意值均无效。此口径用普通注释承载——`///` 文档会被 tauri-specta 原样
+    // 发射进 src/api/generated/bindings.ts，扩写会造成生成物非零 diff。
     pub voice_config: Option<String>,
 }
 

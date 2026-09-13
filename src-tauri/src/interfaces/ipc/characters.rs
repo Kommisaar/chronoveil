@@ -137,6 +137,13 @@ pub fn create_character(
 fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Result<(), IpcError> {
     input.validate().map_err(|message| IpcError::Conflict { message })?;
     // 整卡覆盖（FR-006：编辑表单全量提交）；目标不存在 / 已软删报 NotFound。
+    // 例外 voice_config（CON-003 TTS 预留缝）：一次性系统槽位，仅 create /
+    // import（卡文件导入复用 create 路径）写入；update 忽略入参、保留库中原值
+    // ——前端 buildInput 恒传 null（useEditorForm.ts），若照搬整卡覆盖，导入
+    // 非空 voiceConfig 的卡后编辑器改任意字段即静默清空该槽位。先读库行取
+    // 原值（StoragePort 既有 get_character，无需新端口方法）；其对不存在 /
+    // 已软删报的 NotFound 与下方 update 同形，错误语义不变。
+    let existing = app.storage.get_character(id)?;
     app.storage.update_character(
         id,
         &models::UpdateCharacter {
@@ -151,7 +158,7 @@ fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Resu
             anim_duration_ms: input.anim_duration_ms,
             anim_rhythm_ms: input.anim_rhythm_ms,
             anim_punct_pause: input.anim_punct_pause,
-            voice_config: input.voice_config,
+            voice_config: existing.voice_config,
         },
     )?;
     Ok(())
@@ -284,7 +291,8 @@ mod tests {
         assert_eq!(lin.session_count, 0);
 
         // 整卡覆盖更新（含清除 avatar；model_config 置回 None = 跟随全局；
-        // 演出参数覆写清除 = 跟随全局）。
+        // 演出参数覆写清除 = 跟随全局）。voice_config 不在此列：一次性系统槽位，
+        // update 忽略入参保留库值（专项测试 update_preserves_voice_config）。
         update_character_impl(
             &app,
             created.id,
@@ -325,6 +333,65 @@ mod tests {
             update_character_impl(&app, other.id, upd_input("苏鸢", &input)),
             Err(IpcError::NotFound { .. })
         ));
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_preserves_voice_config() {
+        let (app, dir) = temp_state("voice_slot");
+        // create 入参带非空 voice_config：模拟卡文件导入（导入经 create 路径
+        // 一次性写入，见 character_cards::import_character_data）；前端建卡
+        // 恒传 null（CON-003），到不了这个形态。
+        let base = CharacterInput {
+            name: "苏鸢".into(),
+            avatar: None,
+            persona: "雨夜电话亭的守夜人".into(),
+            gender: None,
+            age: None,
+            render_style: "typewriter".into(),
+            model_config: None,
+            accent_color: None,
+            anim_duration_ms: None,
+            anim_rhythm_ms: None,
+            anim_punct_pause: None,
+            voice_config: Some(r#"{"tts":"stub"}"#.into()),
+        };
+        let created = create_character_impl(&app, base.clone()).unwrap();
+
+        // update 传 None（前端 buildInput 恒传 null 的现行契约）：槽位保留库值，
+        // 其余字段照常整卡覆盖。
+        update_character_impl(
+            &app,
+            created.id,
+            CharacterInput { voice_config: None, ..upd_input("苏鸢（改）", &base) },
+        )
+        .unwrap();
+        let after = app.storage.get_character(created.id).unwrap();
+        assert_eq!(after.name, "苏鸢（改）", "其余字段整卡覆盖照常生效");
+        assert_eq!(
+            after.voice_config.as_deref(),
+            Some(r#"{"tts":"stub"}"#),
+            "update 传 null 不清空槽位"
+        );
+
+        // update 传任意非空值同样被忽略（一次性系统槽位，无更新通道）。
+        update_character_impl(
+            &app,
+            created.id,
+            CharacterInput {
+                voice_config: Some(r#"{"tts":"other"}"#.into()),
+                ..upd_input("苏鸢（改2）", &base)
+            },
+        )
+        .unwrap();
+        let after = app.storage.get_character(created.id).unwrap();
+        assert_eq!(after.name, "苏鸢（改2）");
+        assert_eq!(
+            after.voice_config.as_deref(),
+            Some(r#"{"tts":"stub"}"#),
+            "update 传任意值均忽略，槽位保持原值"
+        );
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }

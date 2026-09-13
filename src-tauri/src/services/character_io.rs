@@ -49,7 +49,9 @@ pub struct CharacterCardPayload {
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
-    /// TTS 预留缝（CON-003），当前恒 None，仍随卡携带以保持形状对称。
+    /// TTS 预留缝（CON-003），当前恒 None，仍随卡携带以保持形状对称。导入经
+    /// create 路径一次性写入；update 不改写此槽位（保留库值，见
+    /// characters::update_character_impl）。
     pub voice_config: Option<String>,
 }
 

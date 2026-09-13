@@ -14,7 +14,12 @@
  * - 海报文字（首字母水印/名字/问候/元信息）一律用普通 span 而非 Text：
  *   Fluent Card 自带 `.fui-Card哈希 .fui-Text { color: currentcolor }`
  *   两类名后代规则（useCardStyles.styles.raw.js），单类名的 Griffel color
- *   压不过它——暗色下继承值恰为白色被掩盖，亮色下会变成深底深字。
+ *   压不过它——暗色下继承值恰为白色被掩盖，亮色下会变成深底深字；
+ * - 文字区对比度下限（2026-09-13，与选人卡 CharacterPickGrid 同病同修）：
+ *   accent 原色直出可为纯白，白字直落渐变最坏无下界——contentB 挂
+ *   POSTER_SCRIM_ALPHA 黑实底给出数学下限（推导见常量注释与
+ *   contrastGuard.test.ts 海报文字断言组）；scrimB 只剩视觉过渡职能
+ *   （与选人卡 scrim/名字条的分工同构）。
  */
 import {
   Card,
@@ -36,6 +41,31 @@ import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
+
+/**
+ * 海报文字区压暗下限（对比度守卫配对依据，与 src/app/layout/CharacterPickGrid.tsx
+ * 的 PICK_SCRIM_ALPHA 及 src/components/contrastGuard.test.ts 的
+ * POSTER_TEXT_SCRIM_FLOOR 互指）：同为「OnBrand 文字压暗下限」语义，值同为
+ * 0.62——最坏合成数学相同：accent 原色直出（posterGradientOf 不压暗）可为纯白，
+ * 纯白 accent × (1 − 0.62) 黑实底 → 灰 255×0.38=96.9 → 取整 97（向上保守）→
+ * 相对亮度 ≈0.1195 → 白字对比 ≈6.19:1 ≥ AA 4.5:1。选 0.62 而非恰过线的
+ * 0.55（≈4.76:1）留余量，与选人卡同档。语境差异（故不共享常量，各自文件内
+ * 单一事实源 + 守卫文本锚定）：选人卡是迷你卡上逐元素实底（名字条/首字徽标/
+ * 角标），本卡是底部文字区 contentB 整块实底，且实底之下另有 scrimB 渐变负责
+ * 海报→文字带的视觉过渡——实底叠下层时总压暗 = 1 − (1−0.62)(1−s) ≥ 0.62，
+ * 下限不受下层影响（scrimB 为深色调，只会更暗）。
+ */
+const POSTER_SCRIM_ALPHA = 0.62;
+
+/**
+ * 次级文字（元信息行）不透明度：半透明白必须按「文字合成像素 × 背景」计对比，
+ * 0.66 不达标——0.66 白 × 97 灰最坏合成 = 255×0.66+97×0.34=201.28 → 取整 201
+ * （向下保守）→ 对比 ≈3.74:1 < 4.5；0.8 → 合成 255×0.8+97×0.2=223.4 → 223 →
+ * 对比 ≈4.65:1 ≥ 4.5（恰过线的 0.78≈4.52 余量过薄弃用）。选提文字不透明度而非
+ * 提 scrim：0.62 下限与选人卡共享语义，再抬只会让海报更闷。推导与断言见
+ * contrastGuard.test.ts 海报文字断言组，两侧同步改。
+ */
+const POSTER_META_TEXT_ALPHA = 0.8;
 
 const useStyles = makeStyles({
   // —— 海报卡共享件（头像图 / 高光 / 色点） ——
@@ -94,6 +124,10 @@ const useStyles = makeStyles({
   },
   contentB: {
     position: 'relative',
+    // 文字区实底（POSTER_SCRIM_ALPHA 下限）：OnBrand 白字 × 任意 accent ≥AA，
+    // 叠在下方的 scrimB 只会更暗、不破下限（选人卡名字条实底同构分工——
+    // 那边 scrim 只管过渡，这边同）
+    backgroundColor: `rgba(0, 0, 0, ${POSTER_SCRIM_ALPHA})`,
     display: 'flex',
     flexDirection: 'column',
     gap: '6px',
@@ -103,7 +137,9 @@ const useStyles = makeStyles({
   nameB: {
     fontSize: tokens.fontSizeBase400,
     fontWeight: tokens.fontWeightSemibold,
-    color: '#ffffff',
+    // OnBrand token（双主题 #ffffff，运行时读主题）：配对前景与守卫断言同源；
+    // 可读性由 contentB 实底（POSTER_SCRIM_ALPHA）保证，见常量注释
+    color: tokens.colorNeutralForegroundOnBrand,
     wordBreak: 'break-word',
   },
   metaB: {
@@ -115,7 +151,9 @@ const useStyles = makeStyles({
     marginTop: '4px',
   },
   metaTextB: {
-    color: 'rgba(255, 255, 255, 0.66)',
+    // 半透明白次级文字：不透明度下限 POSTER_META_TEXT_ALPHA（0.66 最坏合成
+    // ≈3.74:1 不达标，见常量注释推导）
+    color: `rgba(255, 255, 255, ${POSTER_META_TEXT_ALPHA})`,
     fontSize: tokens.fontSizeBase200,
   },
 

@@ -18,13 +18,19 @@ import { posterGradientOf } from '../../features/characters/posterGradient';
 
 /**
  * 海报文字压暗下限（对比度守卫配对依据，与 src/components/contrastGuard.test.ts
- * 的 POSTER_SCRIM_FLOOR 互指）：卡上 OnBrand 白字的承载元素（名字条/首字徽标/
+ * 的 PICK_SCRIM_FLOOR 互指）：卡上 OnBrand 白字的承载元素（名字条/首字徽标/
  * 对勾角标/扮演位徽标）全部挂本档不透明度的黑色实底，用户强调色原色直出
  * （posterGradientOf 不做程序化压暗，可为纯白）时最坏合成 =
  * 纯白 accent × (1 − 0.62) 黑实底 → 灰 255×0.38=96.9 → 相对亮度 ≈0.119 →
  * 白字对比 ≈6.2:1 ≥ AA 4.5:1（选 0.62 而非恰好过线的 0.55≈4.76:1 留余量，
  * 与原 scrim 底端 0.65 同档观感）。实底再叠 scrim 时总压暗
  * = 1 − (1−0.62)(1−s) ≥ 0.62，下限不受下层影响。
+ *
+ * 与角色页海报卡 CharacterPosterCard.tsx 的 POSTER_SCRIM_ALPHA 同值同语义
+ * （同为「OnBrand 文字压暗下限」，互指）：那边是完整海报卡底部文字区整块
+ * 实底，这边是迷你卡逐元素实底；最坏合成数学相同（97 灰 → ≈6.2:1）故同值。
+ * 不共享常量：两处视觉语境不同，各自文件内单一事实源 + 守卫文本锚定
+ * （跨文件 import 会让锚定常量从源文件消失，反而破坏守卫惯例）。
  */
 const PICK_SCRIM_ALPHA = 0.62;
 

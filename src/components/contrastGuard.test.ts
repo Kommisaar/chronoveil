@@ -32,8 +32,10 @@
  *   与「待修」标记，修复后移出；EXEMPT 内条目若实测已达标同样判失败（防陈旧豁免）；
  * - 海报渐变底用点无法直接配对时先进 UNPAIRABLE（配对不确定清单）只登记不断言，
  *   落定修复（压暗下限/实底）后转入可配对断言——海报 OnBrand 四用点已于
- *   2026-09-13 按 PICK_SCRIM_ALPHA=0.62 实底修复转入下方 POSTER_ON_BRAND 清单，
- *   UNPAIRABLE 机制保留待未来不确定配对。
+ *   2026-09-13 按 PICK_SCRIM_ALPHA=0.62 实底修复转入下方 POSTER_ON_BRAND 清单；
+ *   角色页海报卡（CharacterPosterCard）文字用点同日按 contentB 实底 +
+ *   次级文字 0.8 转入 POSTER_CARD_TEXT 断言组（非 token 用点的结构断言局限
+ *   见该组注释），UNPAIRABLE 机制保留待未来不确定配对。
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -236,14 +238,52 @@ const UNPAIRABLE: readonly { file: string; line: number; style: string; token: s
  * - sRGB 相对亮度(97) ≈ 0.1193 → 白字对比 = (1.0+0.05)/(0.1193+0.05) ≈ 6.19
  *   ≥ 4.5（AA 正文线，留 1.7 余量；0.55 档仅 4.76 故弃）；
  * - 实底叠 scrim 时总压暗 = 1 − (1−0.62)(1−s) ≥ 0.62（s ∈ [0,1]），下限不破。
+ *
+ * 常量名说明：本常量配对的是选人卡（CharacterPickGrid 的 PICK_SCRIM_ALPHA），
+ * 2026-09-13 自 POSTER_SCRIM_FLOOR 改名——角色页海报卡
+ * （CharacterPosterCard）的文字下限另入 POSTER_TEXT_SCRIM_FLOOR，避免两个
+ * 「POSTER_」常量一个实际管选人卡、一个管海报卡的撞名歧义。
  */
-const POSTER_SCRIM_FLOOR = 0.62;
+const PICK_SCRIM_FLOOR = 0.62;
 
 const POSTER_ON_BRAND: readonly { file: string; line: number; style: string; context: string }[] = [
   { file: 'src/app/layout/CharacterPickGrid.tsx', line: 77, style: 'letter', context: '居中首字徽标（圆形实底）' },
   { file: 'src/app/layout/CharacterPickGrid.tsx', line: 106, style: 'name', context: '底部名字条实底' },
   { file: 'src/app/layout/CharacterPickGrid.tsx', line: 121, style: 'check', context: '右上角选中对勾角标（实底）' },
   { file: 'src/app/layout/CharacterPickGrid.tsx', line: 134, style: 'roleBadge', context: '左上角扮演位徽标（实底）' },
+];
+
+/**
+ * 海报卡文字用点（2026-09-13 新增，自「静态清单盲区」转入可配对断言）：
+ * CharacterPosterCard（角色页完整海报卡）的文字区原本 #ffffff 角色名与
+ * rgba(255,255,255,0.66) 元信息直落任意 accent 渐变（可为纯白）→ 最坏无下界。
+ * 修复 = 文字区容器 contentB 挂 rgba(0,0,0,POSTER_SCRIM_ALPHA) 黑实底（与
+ * CharacterPickGrid 的 PICK_SCRIM_ALPHA 同值同语义互指，见各源文件注释），
+ * 角色名改走 OnBrand token，元信息不透明度 0.66 → POSTER_META_TEXT_ALPHA=0.8。
+ *
+ * 配对数学（最坏合成推导，与 POSTER_ON_BRAND 同构）：
+ * - 最坏背景 = 纯白 accent，实底之下再叠 scrimB 渐变（深色调）只会更暗，
+ *   故实底单独决定下限：合成灰 = ceil(255 × (1 − 0.62)) = 97（取整方向保守）；
+ * - 主文字（OnBrand token，双主题 #ffffff）：对比 = 1.05/(L(97)+0.05) ≈ 6.19:1；
+ * - 次文字（半透明白必须按合成像素计）：0.66 时合成 = floor(255×0.66+97×0.34)
+ *   = 201 → 对比 ≈3.74:1 < 4.5 不达标（这正是提到 0.8 的原因）；0.8 时合成 =
+ *   floor(255×0.8+97×0.2) = 223 → 对比 ≈4.65:1 ≥ 4.5（恰过线的 0.78≈4.52
+ *   余量过薄弃用）。
+ *
+ * 静态清单局限（本组不解决，review 把关）：非 token 的字面量/常量用点不进
+ * 上方 USAGES，靠下方结构断言锚定源文件文本；首字水印 letterB
+ * （rgba(255,255,255,0.24)，88px 装饰性水印，WCAG 1.4.3 豁免纯装饰文字，
+ * 可读角色名在下方实底区）与右上角 ⋯ 触发器图标（#ffffff，非文字且浮在
+ * 原始渐变上无下限，残留已知项）不入本清单；新增字面量白字用点仍不会被
+ * 自动发现。
+ */
+const POSTER_TEXT_SCRIM_FLOOR = 0.62;
+const POSTER_TEXT_META_ALPHA = 0.8;
+const POSTER_CARD_FILE = 'src/features/characters/CharacterPosterCard.tsx';
+
+const POSTER_CARD_TEXT: readonly { line: number; style: string; context: string }[] = [
+  { line: 137, style: 'nameB', context: '底部角色名（OnBrand token）' },
+  { line: 153, style: 'metaTextB', context: '元信息行（POSTER_META_TEXT_ALPHA 半透明白）' },
 ];
 
 /**
@@ -332,10 +372,10 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
     for (const entry of POSTER_ON_BRAND) {
       const source = readSource(entry.file);
       expect(source, `文件已无 OnBrand 用点（需同步 POSTER_ON_BRAND 清单）：${entry.file}`).toContain('colorNeutralForegroundOnBrand');
-      expect(source, `压暗下限常量被移除或改值（需同步 POSTER_SCRIM_FLOOR）：${entry.file}`).toContain('PICK_SCRIM_ALPHA = 0.62');
+      expect(source, `压暗下限常量被移除或改值（需同步 PICK_SCRIM_FLOOR）：${entry.file}`).toContain('PICK_SCRIM_ALPHA = 0.62');
     }
     // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守
-    const channel = Math.ceil(255 * (1 - POSTER_SCRIM_FLOOR));
+    const channel = Math.ceil(255 * (1 - PICK_SCRIM_FLOOR));
     const worst: [number, number, number] = [channel, channel, channel];
     const failures: string[] = [];
     for (const [themeName, theme] of Object.entries(THEMES)) {
@@ -348,6 +388,67 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       const ratio = contrastRatio(fg, worst);
       if (ratio < WCAG_AA) {
         failures.push(`海报 OnBrand × 最坏合成 ${themeName} = ${ratio.toFixed(2)}:1 < ${WCAG_AA}`);
+      }
+    }
+    expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('海报卡文字用点：源文件仍持压暗实底与次级文字常量，主/次文字 × 最坏合成背景双主题 ≥4.5', () => {
+    // 完整性锚（静态清单惯例，不跨模块 import 源码）：常量声明与实底挂载
+    // 模板串仍在（值改动需同步 POSTER_TEXT_SCRIM_FLOOR / POSTER_TEXT_META_ALPHA）
+    const source = readSource(POSTER_CARD_FILE);
+    expect(
+      source,
+      `文字区实底常量被移除或改值（需同步 POSTER_TEXT_SCRIM_FLOOR）：${POSTER_CARD_FILE}`,
+    ).toContain(`POSTER_SCRIM_ALPHA = ${POSTER_TEXT_SCRIM_FLOOR}`);
+    expect(
+      source,
+      `文字区实底未挂 POSTER_SCRIM_ALPHA（下限失效）：${POSTER_CARD_FILE}`,
+    ).toContain('rgba(0, 0, 0, ${POSTER_SCRIM_ALPHA})');
+    expect(
+      source,
+      `次级文字常量被移除或改值（需同步 POSTER_TEXT_META_ALPHA）：${POSTER_CARD_FILE}`,
+    ).toContain(`POSTER_META_TEXT_ALPHA = ${POSTER_TEXT_META_ALPHA}`);
+    expect(
+      source,
+      `次级文字未经 POSTER_META_TEXT_ALPHA 出色（直改字面量绕过常量锚）：${POSTER_CARD_FILE}`,
+    ).toContain('rgba(255, 255, 255, ${POSTER_META_TEXT_ALPHA})');
+    expect(
+      source,
+      `角色名未走 OnBrand token（与断言的配对前景脱钩）：${POSTER_CARD_FILE}`,
+    ).toContain('colorNeutralForegroundOnBrand');
+    // 清单条目仍指向存续的样式类（类名删改需同步 POSTER_CARD_TEXT）
+    for (const entry of POSTER_CARD_TEXT) {
+      expect(source, `样式类已不存在（需同步清单）：${POSTER_CARD_FILE} ${entry.style}`).toContain(
+        `${entry.style}: {`,
+      );
+    }
+
+    // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守
+    const channel = Math.ceil(255 * (1 - POSTER_TEXT_SCRIM_FLOOR));
+    const worst: [number, number, number] = [channel, channel, channel];
+    // 次级文字合成像素：半透明白叠最坏背景，通道向下取整保守（合成越暗对比越低）
+    const metaChannel = Math.floor(
+      255 * POSTER_TEXT_META_ALPHA + channel * (1 - POSTER_TEXT_META_ALPHA),
+    );
+    const metaComposite: [number, number, number] = [metaChannel, metaChannel, metaChannel];
+    const failures: string[] = [];
+    for (const [themeName, theme] of Object.entries(THEMES)) {
+      const fgHex: string | undefined = theme['colorNeutralForegroundOnBrand'];
+      if (typeof fgHex !== 'string' || fgHex === '') {
+        throw new Error(`主题缺 token 值：colorNeutralForegroundOnBrand（${themeName}）`);
+      }
+      const fg = parseHexColor(fgHex);
+      if (fg === null) throw new Error(`token 值非 #rrggbb：colorNeutralForegroundOnBrand=${fgHex}`);
+      const primary = contrastRatio(fg, worst);
+      const secondary = contrastRatio(metaComposite, worst);
+      if (primary < WCAG_AA) {
+        failures.push(`海报卡主文字 × 最坏合成 ${themeName} = ${primary.toFixed(2)}:1 < ${WCAG_AA}`);
+      }
+      if (secondary < WCAG_AA) {
+        failures.push(
+          `海报卡次文字（${POSTER_TEXT_META_ALPHA} 合成） × 最坏合成 ${themeName} = ${secondary.toFixed(2)}:1 < ${WCAG_AA}`,
+        );
       }
     }
     expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);

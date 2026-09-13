@@ -2,6 +2,8 @@
 // 「⑂ 源会话名」前缀（源经清单解析显示名）；源不在清单（软删 / 缺席）回退
 // 「⑂ 源会话 #id」；非分叉会话不出标识。清单唯一数据源在 ui store（TASK-007），
 // 挂载重拉与选中路径照常（本文件只断言标识渲染）。
+// 另含 C3 删除钮 Tooltip 迁移断言（用本文件的现有清单数据：aria-label 带
+// 会话名，tooltip 用 description 关系不覆盖可访问名）。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -95,4 +97,20 @@ it('源会话不在清单（软删 / 缺席）→ 回退「⑂ 源会话 #id」�
   expect(screen.getByText(/⑂ 源会话 #99/)).toBeTruthy();
   // 全清单恰好两处分叉标识（分叉条目 2 + 断源条目 3），源条目（id 1）不带
   expect((container.textContent ?? '').match(/⑂/g)).toHaveLength(2);
+});
+
+it('C3：删除钮提示迁移 Fluent Tooltip——description 关系接线，可访问名仍带会话名', () => {
+  renderSidebar();
+  const deleteBtn = screen.getByRole('button', { name: '删除会话：雨夜来电' });
+  expect(deleteBtn.getAttribute('title')).toBeNull();
+  // 替代验证说明：v9 Tooltip 的 content 在 jsdom 中常驻 DOM，显示/隐藏由真实
+  // 浏览器承担；此处断言接线与语义——description 关系（aria-describedby）不
+  // 覆盖可访问名，tooltip 只承载原 title 的短文案；键盘 focus 出提示的行为
+  // 由 Fluent Tooltip 保证
+  const describedBy = deleteBtn.getAttribute('aria-describedby');
+  expect(describedBy).toBeTruthy();
+  const tip = document.getElementById(describedBy ?? '');
+  expect(tip?.getAttribute('role')).toBe('tooltip');
+  expect(tip?.textContent).toBe('删除会话');
+  expect(screen.getByRole('button', { name: '删除会话：雨夜来电' })).toBeTruthy();
 });

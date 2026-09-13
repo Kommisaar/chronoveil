@@ -25,6 +25,7 @@ import {
   makeStyles,
   mergeClasses,
   tokens,
+  Tooltip,
 } from '@fluentui/react-components';
 import {
   Add16Regular,
@@ -380,27 +381,31 @@ export function Sidebar() {
         <div className={mergeClasses(styles.section, 'sidebar-enter')} style={nextEnter()}>
           <span>{t('sessions.title')}</span>
           <span className={styles.sectionActions}>
-            <button
-              type="button"
-              className={mergeClasses(ghostMedium.root, styles.iconBtn)}
-              onClick={openNewSession}
-              aria-haspopup="dialog"
-              aria-label={t('sessions.new')}
-              title={t('sessions.new')}
-            >
-              <Add16Regular />
-            </button>
-            <button
-              type="button"
-              className={mergeClasses(ghostMedium.root, styles.iconBtn)}
-              onClick={toggleSidebarCollapsed}
-              aria-controls="sessions-sidebar"
-              aria-expanded="true"
-              aria-label={t('sessions.collapse')}
-              title={t('sessions.collapse')}
-            >
-              <PanelLeftContract16Regular />
-            </button>
+            {/* 原生 title 换 Fluent Tooltip（审计 C3）：键盘 focus 也出提示；
+                below 贴近原 title 的弹出方位（头部行，右/上弹会越出侧栏） */}
+            <Tooltip content={t('sessions.new')} relationship="label" positioning="below">
+              <button
+                type="button"
+                className={mergeClasses(ghostMedium.root, styles.iconBtn)}
+                onClick={openNewSession}
+                aria-haspopup="dialog"
+                aria-label={t('sessions.new')}
+              >
+                <Add16Regular />
+              </button>
+            </Tooltip>
+            <Tooltip content={t('sessions.collapse')} relationship="label" positioning="below">
+              <button
+                type="button"
+                className={mergeClasses(ghostMedium.root, styles.iconBtn)}
+                onClick={toggleSidebarCollapsed}
+                aria-controls="sessions-sidebar"
+                aria-expanded="true"
+                aria-label={t('sessions.collapse')}
+              >
+                <PanelLeftContract16Regular />
+              </button>
+            </Tooltip>
           </span>
         </div>
         {!sessionsLoaded ? null : sessions.length === 0 ? (
@@ -435,15 +440,19 @@ export function Sidebar() {
                     </span>
                   </span>
                 </button>
-                <button
-                  type="button"
-                  className={mergeClasses(ghostSmall.root, styles.deleteBtn)}
-                  aria-label={`${t('sessions.delete')}：${displayTitle(session)}`}
-                  title={t('sessions.delete')}
-                  onClick={() => requestDelete(session)}
-                >
-                  <Delete16Regular />
-                </button>
+                {/* relationship 用 description：aria-label 带会话名（「删除会话：
+                    某某」），label 关系会让 tooltip 文案覆盖可访问名丢掉会话名；
+                    tooltip 只保留原 title 的短文案 */}
+                <Tooltip content={t('sessions.delete')} relationship="description" positioning="below">
+                  <button
+                    type="button"
+                    className={mergeClasses(ghostSmall.root, styles.deleteBtn)}
+                    aria-label={`${t('sessions.delete')}：${displayTitle(session)}`}
+                    onClick={() => requestDelete(session)}
+                  >
+                    <Delete16Regular />
+                  </button>
+                </Tooltip>
               </div>
             );
           })

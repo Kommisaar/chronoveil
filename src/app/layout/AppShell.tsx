@@ -5,7 +5,7 @@
 // 侧栏收合按钮为千问式（2026-09-08 用户要求）：收起在侧栏头部（‹），
 // 展开在主区左上角（›）。
 import { PanelLeftExpand16Regular } from '@fluentui/react-icons';
-import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens, Tooltip } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
 import { CharactersView } from '../../features/characters/CharactersView';
 import { ChatView } from '../../features/chat/ChatView';
@@ -59,18 +59,21 @@ export function AppShell() {
       {/* 展开按钮挂 root（main 是滚动容器，绝对定位会随内容滚走）；
           left 随活动栏宽度换算，视觉上贴主内容区左上角 */}
       {view === 'chat' && sidebarCollapsed ? (
-        <button
-          type="button"
-          className={mergeClasses(ghost.root, styles.expandBtn)}
-          style={{ left: railExpanded ? 212 : 60 }}
-          onClick={toggleSidebarCollapsed}
-          aria-controls="sessions-sidebar"
-          aria-expanded="false"
-          aria-label={t('sessions.expand')}
-          title={t('sessions.expand')}
-        >
-            <PanelLeftExpand16Regular />
-        </button>
+        // 原生 title 换 Fluent Tooltip（审计 C3）：键盘 focus 也出提示；
+        // below 贴近原 title 的弹出方位（主区左上角，右弹会压住正文）
+        <Tooltip content={t('sessions.expand')} relationship="label" positioning="below">
+          <button
+            type="button"
+            className={mergeClasses(ghost.root, styles.expandBtn)}
+            style={{ left: railExpanded ? 212 : 60 }}
+            onClick={toggleSidebarCollapsed}
+            aria-controls="sessions-sidebar"
+            aria-expanded="false"
+            aria-label={t('sessions.expand')}
+          >
+              <PanelLeftExpand16Regular />
+          </button>
+        </Tooltip>
       ) : null}
       <main className={styles.content}>
         {view === 'chat' && <ChatView />}

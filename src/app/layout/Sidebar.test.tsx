@@ -75,3 +75,16 @@ it('U5：store 关闭动作经侧栏接线收合对话框（双向接线）', ()
   expect(useUiStore.getState().newSessionOpen).toBe(false);
   expect(screen.queryByRole('dialog')).toBeNull();
 });
+
+it('C3：头部工具钮提示迁移 Fluent Tooltip——原生 title 移除，聚焦后 content 以 role="tooltip" 挂载', async () => {
+  renderSidebar();
+  const newBtn = screen.getByRole('button', { name: '新建会话' });
+  expect(newBtn.getAttribute('title')).toBeNull();
+  // label 关系：Fluent 把文案写到 trigger 的 aria-label（与原 aria-label 同值）；
+  // content 仅在显示时挂载（label 模式无需常驻 DOM）——聚焦触发挂载，
+  // 真实浏览器中的视觉浮现由 Fluent Tooltip 保证（jsdom 断言不到 CSS 显示）
+  expect(newBtn.getAttribute('aria-label')).toBe('新建会话');
+  fireEvent.focus(newBtn);
+  expect(await screen.findByRole('tooltip')).toBeTruthy();
+  expect(screen.getByRole('tooltip').textContent).toBe('新建会话');
+});

@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // 动效 token 守卫（2026-09-13 M1 token 收敛）。三类断言：
 // 1. token 值锁存：曲线镜像 @fluentui/tokens 同名全局 token（同构声明
 //    附逐值对照，motion.ts 注释与断言互证）；

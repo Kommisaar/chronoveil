@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 import { describe, expect, it } from 'vitest';
 import { CreditClock, microPauseMs, speedFactor, tickIntervalMs } from './clock';
 import { textUnit } from './queue';

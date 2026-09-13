@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // calendarForm 纯逻辑单测：存储 JSON 解析（snake_case / 坏 JSON 降级 /
 // festivals 数字字符串键）、表单字段序列化（节日按天升序、行归一）、
 // buildCalendar 客户端校验（对齐 Rust fiction_time::validate：天数 ≥1 且

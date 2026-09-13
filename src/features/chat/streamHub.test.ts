@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 /**
  * streamHub 单测（TASK-006 / FR-007 / ADR-007）：流状态机、终态回调、多会话
  * 隔离与订阅面（subscribe / getVersion / onEvent），以及调用轨迹通道

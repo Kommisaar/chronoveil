@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 import { describe, expect, it } from 'vitest';
 import { StreamParser } from './parser';
 import { isPara, type StreamUnit } from './queue';

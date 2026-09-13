@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // relativeTime 纯函数全覆盖（审计批次 C：Intl 边界最易补）。
 // fake timers 钉死 Date.now 让取整边界落到确定分支；文案断言取 Node 22
 // （full-icu，本机实测）的 zh/en auto 输出——zh 有「此刻 / 昨天 / 前天」

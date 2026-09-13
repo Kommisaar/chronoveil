@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // ui store 单测（Task-11）：refreshSessions 的错误态落值契约——失败落
 // sessionsLoadError、进入重拉即清值、成功清值并落清单；rejection 契约不变
 // （调用方仍须收敛）；静默路径失败落值但不向调用方冒泡（TASK-010 验收 4）。

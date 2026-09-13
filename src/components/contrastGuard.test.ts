@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 /**
  * UI 层中性前景对比度守卫（WCAG AA，engine 同规格）。
  *

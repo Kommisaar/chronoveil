@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // 海报渐变派生纯函数单测（强调色派生回归防线）：合法 #RRGGBB 原色直出、
 // 非法 accent 串按未设置回落 id 取模、None 跟随派生、小圆点用 id+1 邻位色对、
 // rgba 叠加色非法输入落黑。全部为纯函数，不涉及 DOM。

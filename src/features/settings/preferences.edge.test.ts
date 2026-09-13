@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // preferences.test.ts 的补充边界单测（独立成文件，不改动既有用例）：
 // validateProvider 结构化输出、isValidHttpUrl 直测、withoutModel 越界下标、
 // parseAnimBaseMs 余量输入、RHYTHM 常量、newProviderId 无 randomUUID 回退。

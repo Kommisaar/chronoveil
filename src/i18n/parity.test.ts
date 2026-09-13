@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 /**
  * i18n 奇偶守卫（AGENTS.md：`src/i18n/zh.ts` 与 `en.ts` 要同步加 key，默认 zh）：
  * - 两语言 key 集合必须完全一致（深层递归，任一侧缺失即失败并打印缺失清单）；

@@ -1,3 +1,4 @@
+// @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // 设置域纯逻辑单测（TASK-009；双层级 provider→models 2026-09-09）：规范化、
 // 值域校验、草稿转换、模型列表增删。
 import { describe, expect, it } from 'vitest';

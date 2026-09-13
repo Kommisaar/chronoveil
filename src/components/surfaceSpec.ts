@@ -1,0 +1,19 @@
+/**
+ * 表面圆角层级规范（审计 A2 归档）：仓库内「页面级卡面」统一 16px 大圆角，
+ * 不落 Fluent token 阶梯——token 阶梯顶档 borderRadiusXLarge 仅 8px，在 880px
+ * 级的大卡面上视觉过方（CharacterEditorDialog 定稿时已验证），故页面级卡面
+ * 脱离 token 阶梯，以此常量为单一事实源。
+ *
+ * 两档语义（层级不同属合理差异，不得混用）：
+ * - 页面级卡面 = 16px（本常量）：用户视作「一整块面板/卡片」的顶层表面——
+ *   角色编辑器对话框面板、海报卡、聊天输入卡。三处消费点（互指，改值须同步）：
+ *   · src/features/characters/CharacterEditorDialog.tsx（surface，定稿注释在该处）
+ *   · src/features/characters/CharacterPosterCard.tsx（cardB，含 --fui-Card--border-radius 联动）
+ *   · src/features/chat/useChatViewStyles.ts（composerCard）
+ * - 分组卡 = tokens.borderRadiusLarge（Fluent v9 实际值 6px，非 8px）：卡片内
+ *   再分组的次级卡面（SettingsView 的 SettingsCard），贴 token 阶梯不另立常量。
+ *
+ * 小件（按钮/徽标/行内块）继续直接用 Fluent token 阶梯：Small 2px / Medium 4px /
+ * Circular 全圆，与主题联动，不经本文件。
+ */
+export const SURFACE_RADIUS_PAGE_CARD = '16px';

@@ -5,6 +5,7 @@
  */
 import { makeStyles, shorthands, tokens } from '@fluentui/react-components';
 import type { CSSProperties } from 'react';
+import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 
 export const useChatViewStyles = makeStyles({
   // 根改双列（叙事账本面板，FR-012）：聊天列 + 可选账本列；面板开合不挤压
@@ -115,7 +116,9 @@ export const useChatViewStyles = makeStyles({
     padding: '12px 0 20px',
   },
   // 输入卡（2026-09-08 用户参照图样式）：大圆角卡片，文本域无边框融入
-  // 卡片，底部动作行只留发送按钮
+  // 卡片，底部动作行只留发送按钮。16px 是「页面级卡面」档（与角色编辑器
+  // 面板、海报卡同层），单一事实源见 src/components/surfaceSpec.ts 的两档
+  // 规范——分组卡（SettingsCard）走 token 阶梯，不属本档
   composerCard: {
     display: 'flex',
     flexDirection: 'column',
@@ -123,7 +126,7 @@ export const useChatViewStyles = makeStyles({
     padding: '10px 12px 10px 16px',
     backgroundColor: tokens.colorNeutralBackground1,
     border: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderRadius: '16px',
+    borderRadius: SURFACE_RADIUS_PAGE_CARD,
     ':focus-within': { ...shorthands.borderColor(tokens.colorBrandStroke1) },
   },
   // Textarea 的 Fluent 边框/背景/焦点装饰由 app.css 全局中和（含 hover/

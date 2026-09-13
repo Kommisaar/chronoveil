@@ -38,6 +38,9 @@ const useStyles = makeStyles({
     // 选中圈：常态透明 2px 描边（griffel 禁 border 简写，走 shorthands 展开
     // longhand——同 ChatView composerCard 的 focus 描边先例），选中换品牌色
     ...shorthands.border('2px', 'solid', 'transparent'),
+    // 行内档圆角 = borderRadiusMedium（三档圆角规范最内档：分组卡 =
+    // borderRadiusLarge 见 SettingsCard，页面级卡片表面 = 16px 见
+    // CharacterEditorDialog surface / CharacterPosterCard cardB）
     borderRadius: tokens.borderRadiusMedium,
     overflow: 'hidden',
     cursor: 'pointer',

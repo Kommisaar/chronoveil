@@ -33,6 +33,9 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     gap: tokens.spacingVerticalS,
     padding: tokens.spacingVerticalM,
+    // 行内档圆角 = borderRadiusMedium（三档圆角规范最内档：分组卡 =
+    // borderRadiusLarge 见 SettingsCard，页面级卡片表面 = 16px 见
+    // CharacterEditorDialog surface / CharacterPosterCard cardB）
     borderRadius: tokens.borderRadiusMedium,
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     backgroundColor: tokens.colorNeutralBackground2,

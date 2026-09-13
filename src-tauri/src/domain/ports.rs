@@ -175,7 +175,7 @@ pub trait StoragePort: Send + Sync {
     /// 插入一条调用轨迹（一次 HTTP 请求一条）。本表**不做软删除**（无墓碑列）：
     /// 轨迹是日志性质数据，只插不改不删，ADR-009 在此不适用。
     fn insert_llm_call(&self, new: &NewLlmCall) -> Result<LlmCall, StorageError>;
-    /// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。无会话的起草调用
-    /// （session_id = NULL）不进任何会话查询。
+    /// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。无会话轨迹（session_id
+    /// = NULL，历史起草调用遗留形态）不进任何会话查询。
     fn list_llm_calls(&self, session_id: i64, limit: u32) -> Result<Vec<LlmCall>, StorageError>;
 }

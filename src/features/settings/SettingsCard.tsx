@@ -15,9 +15,10 @@ const useStyles = makeStyles({
     flexDirection: 'column',
     backgroundColor: tokens.colorNeutralBackground1,
     border: `1px solid ${tokens.colorNeutralStroke1}`,
-    // 分组卡圆角 = borderRadiusLarge（三档圆角规范中间档：行内 =
-    // borderRadiusMedium 见 ProviderCard，页面级卡片表面 = 16px 见
-    // CharacterEditorDialog surface / CharacterPosterCard cardB）
+    // 分组卡圆角 = borderRadiusLarge（Fluent v9 实测 6px，非 8px；三档圆角
+    // 规范中间档：行内 = Medium 4px 见 ProviderCard，页面级卡片表面 = 16px
+    // 见 CharacterEditorDialog surface，规范常量 SURFACE_RADIUS_PAGE_CARD
+    // 在 src/components/surfaceSpec.ts）
     borderRadius: tokens.borderRadiusLarge,
   },
   header: {

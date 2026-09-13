@@ -74,12 +74,14 @@ const useStyles = makeStyles({
     height: 'min(640px, 92vh)',
     padding: '0px',
     overflow: 'hidden',
-    // 页面级卡片表面 16px（三档圆角规范最上一档：分组卡 = borderRadiusLarge、
-    // 行内 = borderRadiusMedium，见 SettingsCard / ProviderCard 同款注释）：
-    // Fluent 默认 XLarge(8px) 在 880px 宽的面板上太方，海报贴边时几乎不可见；
-    // 16px 与海报卡（CharacterPosterCard cardB，含 --fui-Card--border-radius
-    // 变量同步）、聊天 composerCard 同档互指——规范常量由聊天侧任务落地后
-    // 统一引用（overflow hidden 已有，海报随曲面裁切）
+    // 页面级卡片表面 16px（三档圆角规范最上一档：分组卡 = Large 6px、
+    // 行内 = Medium 4px，Fluent token 实测值见 SettingsCard / ProviderCard
+    // 同款注释）：Fluent 默认 XLarge(8px) 在 880px 宽的面板上太方，海报
+    // 贴边时几乎不可见；16px 与海报卡（CharacterPosterCard cardB，含
+    // --fui-Card--border-radius 变量同步）、聊天 composerCard 同档，规范
+    // 常量 = src/components/surfaceSpec.ts 的 SURFACE_RADIUS_PAGE_CARD
+    // （Task-07 归档，本分支树上尚无该文件，合并后改用常量引用；
+    // overflow hidden 已有，海报随曲面裁切）
     borderRadius: '16px',
     // 与毛玻璃层（backdrop）同处 FluentProvider 层叠上下文：10 > 9 压住它
     zIndex: '10',

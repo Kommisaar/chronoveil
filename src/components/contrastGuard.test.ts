@@ -30,8 +30,10 @@
  *   未登记的新用点不会被本测试发现（静态清单的固有盲区，review 把关）；
  * - 不达标项进 EXEMPT（豁免清单，键 = 文件:行 样式类×背景×主题），附实测比值
  *   与「待修」标记，修复后移出；EXEMPT 内条目若实测已达标同样判失败（防陈旧豁免）；
- * - 海报渐变底（任意 accent 原色直出）无法静态配对，进 UNPAIRABLE（配对不确定
- *   清单），只登记不断言比值，待后续批次决策。
+ * - 海报渐变底用点无法直接配对时先进 UNPAIRABLE（配对不确定清单）只登记不断言，
+ *   落定修复（压暗下限/实底）后转入可配对断言——海报 OnBrand 四用点已于
+ *   2026-09-13 按 PICK_SCRIM_ALPHA=0.62 实底修复转入下方 POSTER_ON_BRAND 清单，
+ *   UNPAIRABLE 机制保留待未来不确定配对。
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -116,6 +118,10 @@ const USAGES: readonly UsageEntry[] = [
   // 空态宿主两处均为 bg1：ChatView 流（AppShell content）与 CharactersView 页面
   { file: 'src/components/EmptyState.tsx', line: 11, style: 'root', token: 'colorNeutralForeground3',
     context: '跨域空态占位（Text 默认 base300）', backgrounds: ['colorNeutralBackground1'] },
+  // 三态占位块（StateBlock）宿主均为 bg1：页面级（CharactersView/SettingsView
+  // 的 AppShell content）与对话框内（CharacterPickGrid 于 DialogSurface 默认 bg1）
+  { file: 'src/components/StateBlock.tsx', line: 52, style: 'root', token: 'colorNeutralForeground3',
+    context: '加载/错误态文案（Text 默认 base300）', backgrounds: ['colorNeutralBackground1'] },
   // —— features/characters（编辑器对话框 = DialogSurface 默认 bg1）——
   { file: 'src/features/characters/editor/pieces.tsx', line: 36, style: 'sectionTitle', token: 'colorNeutralForeground3',
     context: '折叠段小标（base200 semibold）', backgrounds: ['colorNeutralBackground1'] },
@@ -201,16 +207,37 @@ const USAGES: readonly UsageEntry[] = [
     context: '设置页尾注（base200，页面 bg1）', backgrounds: ['colorNeutralBackground1'] },
 ];
 
-/** 配对不确定清单：海报渐变底（accent 原色直出 = 任意 hex）无法静态配对。 */
-const UNPAIRABLE: readonly { file: string; line: number; style: string; token: string; reason: string }[] = [
-  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 64, style: 'letter', token: 'colorNeutralForegroundOnBrand',
-    reason: '首字直落海报渐变（posterGradientOf：accent 原色直出可为任意色，含全白），无压暗层，最坏情形无下界；默认 6 组深色调色板下白字 ≥6:1，但用户强调色不受约束。待修方向：约束 accent 亮度或加 scrim。' },
-  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 82, style: 'name', token: 'colorNeutralForegroundOnBrand',
-    reason: '名字落在底部黑 scrim（0.65→0 渐变）叠任意 accent 上：以文字上缘最浅处（scrim≈0.52）× 全白 accent 估算 ≈4.3:1，可低于 AA；以 scrim 顶格 0.65 估算 7.0:1。位置相关，无法静态定值。待修方向：scrim 底端加深或名字区加实底。' },
-  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 94, style: 'check', token: 'colorNeutralForegroundOnBrand',
-    reason: '选中对勾位于卡片上部（scrim 覆盖不到），同 letter：任意 accent 底无下界。待修方向：对勾加角标底。' },
-  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 106, style: 'roleBadge', token: 'colorNeutralForegroundOnBrand',
-    reason: '徽标自带 rgba(0,0,0,0.55) 实底叠任意 accent：全白 accent 最坏合成 #737373，白字 4.74:1 恰过线，但合成值依赖 scrim 不透明度假设，余量过薄（<0.25）。待修方向：徽标底改不透明深色。' },
+/** 配对不确定清单（当前为空）：海报渐变底等无法静态定值配对的用点先进此处
+ *  只登记不断言，落定修复后转入可配对断言（海报 OnBrand 四用点的转移先例
+ *  见 POSTER_ON_BRAND）。 */
+const UNPAIRABLE: readonly { file: string; line: number; style: string; token: string; reason: string }[] = [];
+
+/**
+ * 海报 OnBrand 文字用点（2026-09-13 自 UNPAIRABLE 四条修复转入可配对清单）：
+ * CharacterPickGrid 迷你海报卡的 colorNeutralForegroundOnBrand（OnBrand 双主题
+ * 均为 #ffffff，运行时读主题不硬编码）原本直落任意 accent 渐变，用户强调色
+ * 原色直出（posterGradientOf 不压暗）可为纯白 → 最坏情形无下界。修复 = 四个
+ * 承载元素全部挂 rgba(0,0,0,0.62) 黑实底（PICK_SCRIM_ALPHA，与源文件常量互指）：
+ * - name：底部名字条实底（渐变 scrim 只剩视觉过渡职能）；
+ * - letter：居中首字徽标（圆形实底，aria-hidden 装饰冗余仍按可读文本配对）；
+ * - check：右上角选中对勾角标（实底，同 roleBadge 形态）；
+ * - roleBadge：左上角扮演位徽标（原 0.55 → 共享下限 0.62）。
+ *
+ * 配对数学（最坏合成推导，配对 = 文字色 × 最坏合成背景 ≥4.5）：
+ * - 最坏背景 = 纯白 accent #ffffff：合成灰随背景通道值单调，白色使合成最亮；
+ * - 合成 = 背景 × (1 − 0.62) 黑实底 → 每通道 255 × 0.38 = 96.9，向上取整
+ *   97（取整方向保守：背景更亮 → 对比更低）；
+ * - sRGB 相对亮度(97) ≈ 0.1193 → 白字对比 = (1.0+0.05)/(0.1193+0.05) ≈ 6.19
+ *   ≥ 4.5（AA 正文线，留 1.7 余量；0.55 档仅 4.76 故弃）；
+ * - 实底叠 scrim 时总压暗 = 1 − (1−0.62)(1−s) ≥ 0.62（s ∈ [0,1]），下限不破。
+ */
+const POSTER_SCRIM_FLOOR = 0.62;
+
+const POSTER_ON_BRAND: readonly { file: string; line: number; style: string; context: string }[] = [
+  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 77, style: 'letter', context: '居中首字徽标（圆形实底）' },
+  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 106, style: 'name', context: '底部名字条实底' },
+  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 121, style: 'check', context: '右上角选中对勾角标（实底）' },
+  { file: 'src/app/layout/CharacterPickGrid.tsx', line: 134, style: 'roleBadge', context: '左上角扮演位徽标（实底）' },
 ];
 
 /**
@@ -291,6 +318,32 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       const source = readSource(entry.file);
       expect(source, `文件已无 ${entry.token} 用点：${entry.file}`).toContain(entry.token);
     }
-    expect(UNPAIRABLE.length, '海报渐变底用点必须显式登记（当前 4 项 OnBrand）').toBeGreaterThan(0);
+  });
+
+  it('海报 OnBrand 用点：源文件仍持压暗下限常量，OnBrand × 最坏合成背景双主题 ≥4.5', () => {
+    // 完整性锚（静态清单惯例，不跨模块 import 源码）：源文件仍含共享常量
+    // PICK_SCRIM_ALPHA = 0.62 与 OnBrand 用点（改动需同步 POSTER_SCRIM_FLOOR）
+    for (const entry of POSTER_ON_BRAND) {
+      const source = readSource(entry.file);
+      expect(source, `文件已无 OnBrand 用点（需同步 POSTER_ON_BRAND 清单）：${entry.file}`).toContain('colorNeutralForegroundOnBrand');
+      expect(source, `压暗下限常量被移除或改值（需同步 POSTER_SCRIM_FLOOR）：${entry.file}`).toContain('PICK_SCRIM_ALPHA = 0.62');
+    }
+    // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守
+    const channel = Math.ceil(255 * (1 - POSTER_SCRIM_FLOOR));
+    const worst: [number, number, number] = [channel, channel, channel];
+    const failures: string[] = [];
+    for (const [themeName, theme] of Object.entries(THEMES)) {
+      const fgHex: string | undefined = theme['colorNeutralForegroundOnBrand'];
+      if (typeof fgHex !== 'string' || fgHex === '') {
+        throw new Error(`主题缺 token 值：colorNeutralForegroundOnBrand（${themeName}）`);
+      }
+      const fg = parseHexColor(fgHex);
+      if (fg === null) throw new Error(`token 值非 #rrggbb：colorNeutralForegroundOnBrand=${fgHex}`);
+      const ratio = contrastRatio(fg, worst);
+      if (ratio < WCAG_AA) {
+        failures.push(`海报 OnBrand × 最坏合成 ${themeName} = ${ratio.toFixed(2)}:1 < ${WCAG_AA}`);
+      }
+    }
+    expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
   });
 });

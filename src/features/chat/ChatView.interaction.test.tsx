@@ -263,3 +263,26 @@ it('U2：快速切会话时慢返的旧响应不覆盖新会话消息', async ()
   expect(screen.queryByText('旧回复')).toBeNull();
   expect(screen.getByText('新回复')).toBeTruthy();
 });
+
+// —— C3 Tooltip 统一：原生 title 移除，悬停提示与可访问名由 Fluent Tooltip 承载 ——
+
+it('C3：发送钮与账本开关的原生 title 移除，可访问名由 Tooltip relationship="label" 静态注入', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  renderView();
+  // 图标钮无可见文字：getByRole 按名解析成功本身就证明 aria-label 已由
+  // Tooltip 静态注入（等值迁移，读屏语义不变）
+  const send = await screen.findByRole('button', { name: '发送' });
+  const ledgerToggle = screen.getByRole('button', { name: '叙事账本' });
+  expect(send.getAttribute('title')).toBeNull();
+  expect(ledgerToggle.getAttribute('title')).toBeNull();
+});
+
+it('C3：聚焦发送钮弹出 Fluent 气泡（role="tooltip"，原生 title 的悬停提示不丢）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  renderView();
+  const textbox = await screen.findByRole('textbox');
+  // 空草稿下发送钮禁用（禁用钮不响应焦点事件）：先让草稿非空再聚焦
+  fireEvent.change(textbox, { target: { value: '你好' } });
+  fireEvent.focus(screen.getByRole('button', { name: '发送' }));
+  expect(await screen.findByRole('tooltip', {}, { timeout: 2000 })).toBeTruthy();
+});

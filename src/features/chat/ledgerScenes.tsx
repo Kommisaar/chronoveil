@@ -20,6 +20,7 @@ import {
   AccordionPanel,
   Button,
   Text,
+  Tooltip,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
@@ -111,6 +112,7 @@ export function LedgerScenesSection({ scenes, instanceNames, onFork }: LedgerSce
     <section className={chrome.section} aria-label={t('chat.ledger.scenes')}>
       <Text className={chrome.sectionTitle}>{t('chat.ledger.scenes')}</Text>
       {sceneRows.length === 0 ? (
+        // 段内空态保持一行小字（同 ledgerStates 的形制决策，审计 A1）
         <Text className={chrome.groupTitle}>{t('chat.ledger.scenesEmpty')}</Text>
       ) : (
         sceneRows.map((scene) => {
@@ -125,16 +127,20 @@ export function LedgerScenesSection({ scenes, instanceNames, onFork }: LedgerSce
                   {scene.location !== null && scene.location !== '' && (
                     <span className={styles.sceneMeta}>{scene.location}</span>
                   )}
-                  {/* 分叉锚点候选（Task-44）：以本场为锚分叉新会话，执行在面板壳 */}
-                  <Button
-                    className={styles.forkBtn}
-                    size="small"
-                    appearance="transparent"
-                    icon={<BranchFork16Regular />}
-                    aria-label={`${t('chat.ledger.forkHere')}：${t('chat.ledger.sceneNo', { index: scene.idx })}`}
-                    title={t('chat.ledger.forkHere')}
-                    onClick={() => onFork(scene)}
-                  />
+                  {/* 分叉锚点候选（Task-44）：以本场为锚分叉新会话，执行在面板壳。
+                      悬停提示走 Fluent Tooltip（C3）；可访问名保留带场号的富
+                      aria-label（比气泡内容更具体），气泡文字已含于名内——
+                      relationship="inaccessible" 不再叠 aria 语义 */}
+                  <Tooltip content={t('chat.ledger.forkHere')} relationship="inaccessible">
+                    <Button
+                      className={styles.forkBtn}
+                      size="small"
+                      appearance="transparent"
+                      icon={<BranchFork16Regular />}
+                      aria-label={`${t('chat.ledger.forkHere')}：${t('chat.ledger.sceneNo', { index: scene.idx })}`}
+                      onClick={() => onFork(scene)}
+                    />
+                  </Tooltip>
                 </div>
               {scene.present.length > 0 && (
                 // 在场实例：次要小字行（从众 sceneMeta 层级，不抢 summary）；

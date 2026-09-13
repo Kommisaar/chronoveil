@@ -7,6 +7,7 @@ import {
   Button,
   Text,
   Textarea,
+  Tooltip,
   mergeClasses,
 } from '@fluentui/react-components';
 import {
@@ -264,18 +265,25 @@ export function ChatView() {
     <div className={styles.root}>
       <div className={styles.chatColumn}>
         {/* 叙事账本开关（FR-012）：聊天列右上角浮动钮（布局无头部条带，
-            从众 AppShell 展开钮先例），aria-expanded 即开合语义 */}
-        <button
-          type="button"
-          className={styles.ledgerToggle}
-          aria-controls="ledger-panel"
-          aria-expanded={ledgerOpen}
-          aria-label={t('chat.ledger.title')}
-          title={t('chat.ledger.title')}
-          onClick={() => setLedgerOpen((open) => !open)}
+            从众 AppShell 展开钮先例），aria-expanded 即开合语义。
+            悬停提示与可访问名统一走 Fluent Tooltip（C3，从众 ActivityBar
+            railTip 先例）：relationship="label" 静态注入 aria-label 取代原生
+            title；钮在窗口顶缘，气泡向下弹避免越界 */}
+        <Tooltip
+          content={t('chat.ledger.title')}
+          relationship="label"
+          positioning="below"
         >
-          <Notebook24Regular />
-        </button>
+          <button
+            type="button"
+            className={styles.ledgerToggle}
+            aria-controls="ledger-panel"
+            aria-expanded={ledgerOpen}
+            onClick={() => setLedgerOpen((open) => !open)}
+          >
+            <Notebook24Regular />
+          </button>
+        </Tooltip>
         <div
           className={styles.stream}
           ref={streamRef}
@@ -370,36 +378,41 @@ export function ChatView() {
               )}
             >
               {lastIsAssistant && (
-                <Button
-                  size="small"
-                  className={styles.regenerate}
-                  icon={<ArrowSync24Regular />}
-                  aria-label={t('chat.regenerate')}
-                  title={t('chat.regenerate')}
-                  disabled={busy}
-                  onClick={() => void onRegenerate()}
-                >
-                  {t('chat.regenerate')}
-                </Button>
+                // 重新生成：可见文字已构成可访问名，气泡仅作悬停提示——
+                // relationship="inaccessible"（C3，不叠 aria 语义）
+                <Tooltip content={t('chat.regenerate')} relationship="inaccessible">
+                  <Button
+                    size="small"
+                    className={styles.regenerate}
+                    icon={<ArrowSync24Regular />}
+                    aria-label={t('chat.regenerate')}
+                    disabled={busy}
+                    onClick={() => void onRegenerate()}
+                  >
+                    {t('chat.regenerate')}
+                  </Button>
+                </Tooltip>
               )}
               {streamState ? (
-                <Button
-                  appearance="primary"
-                  icon={<RecordStop24Regular />}
-                  aria-label={t('chat.stop')}
-                  title={t('chat.stop')}
-                  disabled={streamState.status === 'stopping'}
-                  onClick={() => void onStop()}
-                />
+                // 停止（图标钮）：可访问名由 Tooltip relationship="label" 静态
+                // 注入的 aria-label 承担（C3，同账本开关）
+                <Tooltip content={t('chat.stop')} relationship="label">
+                  <Button
+                    appearance="primary"
+                    icon={<RecordStop24Regular />}
+                    disabled={streamState.status === 'stopping'}
+                    onClick={() => void onStop()}
+                  />
+                </Tooltip>
               ) : (
-                <Button
-                  appearance="primary"
-                  icon={<ArrowUp24Regular />}
-                  aria-label={t('chat.send')}
-                  title={t('chat.send')}
-                  disabled={busy || draft.trim().length === 0}
-                  onClick={() => void onSend()}
-                />
+                <Tooltip content={t('chat.send')} relationship="label">
+                  <Button
+                    appearance="primary"
+                    icon={<ArrowUp24Regular />}
+                    disabled={busy || draft.trim().length === 0}
+                    onClick={() => void onSend()}
+                  />
+                </Tooltip>
               )}
             </div>
           </div>

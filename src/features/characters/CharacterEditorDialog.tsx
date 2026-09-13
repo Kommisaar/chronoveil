@@ -43,6 +43,7 @@ import {
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkmark20Regular, Edit20Regular } from '@fluentui/react-icons';
+import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import {
   ACCELERATE_CURVE,
@@ -79,10 +80,9 @@ const useStyles = makeStyles({
     // 同款注释）：Fluent 默认 XLarge(8px) 在 880px 宽的面板上太方，海报
     // 贴边时几乎不可见；16px 与海报卡（CharacterPosterCard cardB，含
     // --fui-Card--border-radius 变量同步）、聊天 composerCard 同档，规范
-    // 常量 = src/components/surfaceSpec.ts 的 SURFACE_RADIUS_PAGE_CARD
-    // （Task-07 归档，本分支树上尚无该文件，合并后改用常量引用；
-    // overflow hidden 已有，海报随曲面裁切）
-    borderRadius: '16px',
+    // 常量见 src/components/surfaceSpec.ts 的 SURFACE_RADIUS_PAGE_CARD；
+    // overflow hidden 已有，海报随曲面裁切
+    borderRadius: SURFACE_RADIUS_PAGE_CARD,
     // 与毛玻璃层（backdrop）同处 FluentProvider 层叠上下文：10 > 9 压住它
     zIndex: '10',
   },

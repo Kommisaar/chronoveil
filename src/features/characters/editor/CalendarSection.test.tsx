@@ -127,7 +127,7 @@ describe('CalendarSection 查看↔编辑往返', () => {
     );
   });
 
-  it('校验未过不放回查看态：完成钮禁用带提示，修正后恢复（C7：防「未配置」假象）', () => {
+  it('校验未过不放回查看态：完成钮禁用带提示，修正后恢复（C7：防「未配置」假象）', async () => {
     renderUi(<Harness initialFields={EMPTY_CALENDAR_FIELDS} />);
     fireEvent.click(screen.getByRole('button', { name: '编辑历法' }));
     // 造出 invalid（每月天数 0），完成钮禁用且点击无效
@@ -135,7 +135,14 @@ describe('CalendarSection 查看↔编辑往返', () => {
     fireEvent.change(screen.getByLabelText('月名（每行一个）'), { target: { value: '一月' } });
     const done = screen.getByRole('button', { name: '完成编辑' }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
-    expect(done.getAttribute('title')).toBe('历法未通过校验，修正或清空后才能完成编辑');
+    // 提示走 Fluent Tooltip（C3 收编后不再有原生 title 属性）：聚焦触发器
+    // 后 content 以 role="tooltip" 挂载（惯例同 Sidebar.test；真实浏览器中
+    // 的视觉浮现由 Fluent 保证）
+    expect(done.getAttribute('title')).toBeNull();
+    fireEvent.focus(done);
+    expect(await screen.findByRole('tooltip')).toBeTruthy();
+    expect(screen.getByRole('tooltip').textContent).toBe('历法未通过校验，修正或清空后才能完成编辑');
+    fireEvent.blur(done);
     fireEvent.click(done);
     // 仍处编辑态：字段还在上屏，未泄漏成「未配置」查看态
     expect(screen.getByLabelText('每月天数')).toBeTruthy();

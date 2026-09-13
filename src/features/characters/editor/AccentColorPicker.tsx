@@ -7,7 +7,7 @@
  * 存储值仍为 #rrggbb 单色。字段级样式沿用 pieces 的 useFieldStyles（三壳共用
  * 单一事实源）。
  */
-import { Text, mergeClasses } from '@fluentui/react-components';
+import { Text, Tooltip, mergeClasses } from '@fluentui/react-components';
 import { ChevronDown20Regular, Color20Regular } from '@fluentui/react-icons';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -78,18 +78,19 @@ function PaletteSwatch(props: {
 }) {
   const styles = useFieldStyles();
   return (
-    <button
-      type="button"
-      className={mergeClasses(
-        styles.paletteSwatch,
-        props.selected && styles.paletteSwatchSelected,
-      )}
-      style={{ backgroundColor: props.color }}
-      aria-label={props.color}
-      aria-pressed={props.selected}
-      title={props.color}
-      onClick={props.onSelect}
-    />
+    <Tooltip content={props.color} relationship="label">
+      <button
+        type="button"
+        className={mergeClasses(
+          styles.paletteSwatch,
+          props.selected && styles.paletteSwatchSelected,
+        )}
+        style={{ backgroundColor: props.color }}
+        aria-label={props.color}
+        aria-pressed={props.selected}
+        onClick={props.onSelect}
+      />
+    </Tooltip>
   );
 }
 
@@ -128,20 +129,21 @@ export function AccentColorPicker(props: AccentColorPickerProps) {
   const current = props.accentColor;
   return (
     <div className={styles.chipWrapper} ref={wrapRef}>
-      <button
-        type="button"
-        className={styles.chipTrigger}
-        aria-label={t('characters.accentColor')}
-        aria-expanded={open}
-        title={t('characters.accentColor')}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span
-          className={styles.chipColor}
-          style={{ backgroundColor: current ?? props.baseColor }}
-        />
-        <ChevronDown20Regular />
-      </button>
+      <Tooltip content={t('characters.accentColor')} relationship="label">
+        <button
+          type="button"
+          className={styles.chipTrigger}
+          aria-label={t('characters.accentColor')}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <span
+            className={styles.chipColor}
+            style={{ backgroundColor: current ?? props.baseColor }}
+          />
+          <ChevronDown20Regular />
+        </button>
+      </Tooltip>
       {open ? (
         // 弹出动画：palette-pop-in 落在 app.css（Griffel 不透出 keyframes），
         // 缩放淡入 150ms 减速曲线，锚点在色块左上（transform-origin 同位）

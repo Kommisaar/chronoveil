@@ -33,6 +33,7 @@ import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CharacterSummary } from '../../api/types';
 import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
+import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
 
@@ -62,10 +63,11 @@ const useStyles = makeStyles({
     justifyContent: 'flex-end',
     minHeight: '300px',
     overflow: 'hidden',
-    // 16px 大圆角与编辑器面板对齐；喂给 Card 的圆角变量让 ::after
+    // 16px 大圆角与编辑器面板对齐（SURFACE_RADIUS_PAGE_CARD，页面级卡面
+    // 规范见 surfaceSpec.ts）；喂给 Card 的圆角变量让 ::after
     // 聚焦环同步跟随（否则键盘 focus 时方角环会露出来）
-    borderRadius: '16px',
-    '--fui-Card--border-radius': '16px',
+    borderRadius: SURFACE_RADIUS_PAGE_CARD,
+    '--fui-Card--border-radius': SURFACE_RADIUS_PAGE_CARD,
   },
   letterB: {
     position: 'absolute',

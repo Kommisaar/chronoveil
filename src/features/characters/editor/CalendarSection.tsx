@@ -9,7 +9,7 @@
  *   components/calendarPresets，与开局向导同一事实源）；校验对齐
  *   Rust fiction_time::validate，拦截在 useEditorForm.canSave（保存按钮）。
  */
-import { Button, Dropdown, Input, Option, Text, Textarea, mergeClasses } from '@fluentui/react-components';
+import { Button, Dropdown, Input, Option, Text, Textarea, Tooltip, mergeClasses } from '@fluentui/react-components';
 import { Checkmark20Regular, ChevronRight20Regular, Edit20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
 import {
@@ -216,17 +216,34 @@ export function CalendarSection(props: {
             <Text size={300}>{t('characters.calendar.unconfigured')}</Text>
           )}
           <div className={styles.row}>
-            <Button
-              appearance="subtle"
-              size="small"
-              icon={props.editing ? <Checkmark20Regular /> : <Edit20Regular />}
-              disabled={doneBlocked}
-              title={doneBlocked ? t('characters.calendar.doneBlocked') : undefined}
-              aria-label={props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
-              onClick={() => props.onEditingChange((editing) => !editing)}
-            >
-              {props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
-            </Button>
+            {/* 禁用原因提示：原生 title 对禁用钮不保证显示，Tooltip 可达；
+                仅在拦截时挂提示（relationship="label" 注入 aria，会被按钮
+                已有 aria-label 优先保留——原 title 行为等价迁移） */}
+            {doneBlocked ? (
+              <Tooltip content={t('characters.calendar.doneBlocked')} relationship="label">
+                <Button
+                  appearance="subtle"
+                  size="small"
+                  icon={props.editing ? <Checkmark20Regular /> : <Edit20Regular />}
+                  disabled={doneBlocked}
+                  aria-label={props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
+                  onClick={() => props.onEditingChange((editing) => !editing)}
+                >
+                  {props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
+                </Button>
+              </Tooltip>
+            ) : (
+              <Button
+                appearance="subtle"
+                size="small"
+                icon={props.editing ? <Checkmark20Regular /> : <Edit20Regular />}
+                disabled={doneBlocked}
+                aria-label={props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
+                onClick={() => props.onEditingChange((editing) => !editing)}
+              >
+                {props.editing ? t('characters.calendar.done') : t('characters.calendar.edit')}
+              </Button>
+            )}
             <Button appearance="subtle" size="small" onClick={props.onDraftClick}>
               {t('characters.calendar.draft')}
             </Button>

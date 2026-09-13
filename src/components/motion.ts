@@ -45,3 +45,16 @@ export const EDITOR_BODY_OUT_MS = 70;
 /** 共享选中指示条位移动画（含中途纵向拉长形变，行程长，用 durationSlower
     同值的更慢档）。 */
 export const INDICATOR_MOVE_MS = 400;
+
+// —— 清单浮现错峰 ——
+
+/** 清单浮现统一错峰档：会话侧栏条目（sidebar-enter）与海报墙批内揭示
+    （useRevealOnScroll）共用——两处是同一种「清单浮现」语言，原
+    16ms/60ms 并存（3.75 倍差）系漂移非设计（2026-09-13 收敛）。取
+    中庸 24ms：侧栏小行错峰可辨，海报墙一批（约 10 张大卡）在
+    0~216ms 内全部起播——首卡 pop（POP_IN_MS=400ms）过半时尾卡起播，
+    同一波内完成，无 60ms 档 0~540ms 的拖尾，也不似 16ms 档近乎同步。 */
+export const ENTER_STAGGER_MS = 24;
+
+/** 错峰封顶：过长清单只对首屏节奏负责，封顶后的条目同刻浮现。 */
+export const ENTER_STAGGER_CAP_MS = 360;

@@ -1,15 +1,14 @@
 // 视口内触发的入场 stagger（方案 2 标准做法，替代全局索引 stagger +
 // 封顶）：首屏元素手动判交立即揭示（getBoundingClientRect 不依赖渲
 // 染帧钟，帧钟停摆的嵌入预览也能出首屏），折叠线以下的元素由
-// IntersectionObserver 接管、滚入视口才播；同批揭示的元素按 60ms 步
-// 进给批内小错峰。resetKey 变化（卡片形态 / 入场形态切换导致网格重
+// IntersectionObserver 接管、滚入视口才播；同批揭示的元素按清单浮现
+// 统一错峰档（motion.ts 的 ENTER_STAGGER_MS，封顶 ENTER_STAGGER_CAP_MS）
+// 给批内小错峰。resetKey 变化（卡片形态 / 入场形态切换导致网格重
 // 挂）时重置揭示状态以重播；仅列表增删（如保存新角色）不重置，只有
 // 新元素才播。无 IntersectionObserver 的环境（jsdom / SSR）全部立即
 // 揭示。
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-
-/** 批内错峰步长：同批滚入的元素逐个 +60ms（首屏约 10 张 → 0~540ms）。 */
-const BATCH_STEP_MS = 60;
+import { ENTER_STAGGER_CAP_MS, ENTER_STAGGER_MS } from './motion';
 
 /** 触发阈值：元素露出 15% 即开始入场。 */
 const THRESHOLD = 0.15;
@@ -61,13 +60,13 @@ export function useRevealOnScroll(count: number, resetKey: string): RevealOnScro
     return registerFnsRef.current[index];
   }, []);
 
-  // 同批揭示：按传入序号顺序赋 60ms 步进延迟。
+  // 同批揭示：按传入序号顺序赋统一错峰档步进延迟（motion.ts 单源）。
   const assignBatch = useCallback((indices: number[]) => {
     if (indices.length === 0) return;
     setReveal((prev) => {
       const next = { ...prev };
       for (const [i, idx] of indices.entries()) {
-        if (next[idx] === undefined) next[idx] = i * BATCH_STEP_MS;
+        if (next[idx] === undefined) next[idx] = Math.min(i * ENTER_STAGGER_MS, ENTER_STAGGER_CAP_MS);
       }
       return next;
     });

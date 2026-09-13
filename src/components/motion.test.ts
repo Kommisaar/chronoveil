@@ -23,6 +23,8 @@ import {
   EDITOR_BODY_IN_MS,
   EDITOR_BODY_OUT_MS,
   EDITOR_FADE_MS,
+  ENTER_STAGGER_CAP_MS,
+  ENTER_STAGGER_MS,
   INDICATOR_MOVE_MS,
   MORPH_OUT_MS,
   POP_IN_MS,
@@ -64,6 +66,34 @@ describe('动效 token 值锁存（对照表随提交走，改动必须显式过
     expect(EDITOR_BODY_IN_DELAY_MS).toBe(90);
     expect(EDITOR_BODY_OUT_MS).toBe(70);
     expect(INDICATOR_MOVE_MS).toBe(400);
+    expect(ENTER_STAGGER_MS).toBe(24); // 原 sidebar 16 / 海报墙 60 统一
+    expect(ENTER_STAGGER_CAP_MS).toBe(360); // 原 sidebar 240 / 海报墙无封顶 统一
+  });
+});
+
+describe('清单浮现错峰单源（M2）', () => {
+  const SIDEBAR = SOURCES['app/layout/Sidebar.tsx'] ?? '';
+  const REVEAL = SOURCES['components/useRevealOnScroll.ts'] ?? '';
+
+  it('两处消费方源码均在扫描集内（路径漂移时守卫先行失明报警）', () => {
+    expect(SIDEBAR).not.toBe('');
+    expect(REVEAL).not.toBe('');
+  });
+
+  it('均从 motion.ts 导入错峰档，无本地重复声明（防回潮）', () => {
+    const noLocalDecl = (source: string): boolean =>
+      !/(?:const|let)\s+(?:ENTER_STAGGER_MS|ENTER_STAGGER_CAP_MS|BATCH_STEP_MS)\b/.test(source);
+    expect(noLocalDecl(SIDEBAR), 'Sidebar 不得本地声明 stagger 常量').toBe(true);
+    expect(noLocalDecl(REVEAL), 'useRevealOnScroll 不得本地声明 stagger 常量').toBe(true);
+
+    expect(
+      SIDEBAR,
+      'Sidebar 应从 components/motion 导入 ENTER_STAGGER_MS',
+    ).toMatch(/import\s*\{[^}]*ENTER_STAGGER_MS[^}]*\}\s*from\s*'\.\.\/\.\.\/components\/motion'/);
+    expect(
+      REVEAL,
+      'useRevealOnScroll 应从 ./motion 导入 ENTER_STAGGER_MS',
+    ).toMatch(/import\s*\{[^}]*ENTER_STAGGER_MS[^}]*\}\s*from\s*'\.\/motion'/);
   });
 });
 

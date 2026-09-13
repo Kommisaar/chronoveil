@@ -49,25 +49,25 @@ import type {
 } from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
+import { ENTER_STAGGER_CAP_MS, ENTER_STAGGER_MS } from '../../components/motion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
 import { NewSessionDialog } from './NewSessionDialog';
 import { SessionDeleteDialog } from './SessionDeleteDialog';
 
-// 入场动画：淡入 + 8px 上移，逐项错开 16ms、错开总量钳制 240ms（过长
-// 清单只对首屏节奏负责）。关键帧 sidebar-item-enter 落 app.css 全局
-// （Griffel 不透出 keyframes 工具）；单一 enter 类经行内 CSS 变量取错开值
-const ENTER_STAGGER_MS = 16;
-const ENTER_STAGGER_CAP_MS = 240;
-// 收起过渡（durationGentle）结束后再藏 inner 的宽限
-const COLLAPSE_HIDE_MS = 220;
-// 轻提示（禁删 / 操作失败）自动消隐
-const HINT_CLEAR_MS = 4000;
-
+// 入场动画：淡入 + 8px 上移，逐项错峰取清单浮现统一档（motion.ts 单源：
+// ENTER_STAGGER_MS 步进、ENTER_STAGGER_CAP_MS 封顶，过长清单只对首屏
+// 节奏负责）。关键帧 sidebar-item-enter 落 app.css 全局（Griffel 不透出
+// keyframes 工具）；单一 enter 类经行内 CSS 变量取错开值
 function enterDelayStyle(index: number): CSSProperties {
   const delay = Math.min(index * ENTER_STAGGER_MS, ENTER_STAGGER_CAP_MS);
   return { '--enter-delay': `${delay}ms` } as CSSProperties;
 }
+
+// 收起过渡（durationGentle）结束后再藏 inner 的宽限
+const COLLAPSE_HIDE_MS = 220;
+// 轻提示（禁删 / 操作失败）自动消隐
+const HINT_CLEAR_MS = 4000;
 
 /** 生成中的判定（FR-007 多路并发）：streamHub 有该会话的活动流跟踪即禁删。 */
 function isGenerating(sessionId: number): boolean {

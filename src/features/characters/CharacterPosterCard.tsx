@@ -4,7 +4,8 @@
  *
  * - 每角色渐变按 id 取模 6 组深色低饱和调色板（posterGradientOf），同人恒同色；
  * - 入场动画定稿弹性（card-enter-pop）：揭示延迟由父级的 useRevealOnScroll
- *   按视口序号下发（首屏立即成批、折叠线以下滚入才播，批内 60ms 错峰）；
+ *   按视口序号下发（首屏立即成批、折叠线以下滚入才播，批内按 motion.ts
+ *   的清单浮现统一档错峰）；
  *   必须走 Griffel 类 + mergeClasses：Fluent Card 内部对 className 再过一次
  *   Griffel 合并，字符串拼接的全局类会被静默丢弃（repo 规约）；
  * - 卡菜单（Task-04）：海报右上角 ⋯ 触发器出「导出角色卡」；点击/键盘事件

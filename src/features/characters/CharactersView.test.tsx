@@ -107,6 +107,25 @@ it('未保存切换选中项提示丢弃确认：放弃后换载目标角色（�
   expect(inputOf('名称').value).toBe('苏鸢');
 });
 
+it('丢弃确认打开时按 Esc 取消：不执行切换，编辑器与未提交值保留（C1 收编修复）', async () => {
+  renderView();
+  fireEvent.click(await screen.findByText('林深'));
+  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
+
+  fireEvent.click(screen.getByText('苏鸢'));
+  expect(screen.getByText('放弃未保存的修改？')).toBeTruthy();
+
+  // 收编前该对话框无 onOpenChange，Esc 无法取消；收编后 Esc = 取消（不授权
+  // 切换）。Esc 派发到对话框正文节点，冒泡至 DialogSurface 的 keydown 处理。
+  fireEvent.keyDown(screen.getByText('当前修改尚未保存，切换后将丢失。'), {
+    key: 'Escape',
+  });
+  await waitFor(() => expect(screen.queryByText('放弃未保存的修改？')).toBeNull());
+  // 取消语义：编辑器留在原角色，行内输入的未提交值原样保留
+  expect(inputOf('名称').value).toBe('林深（改）');
+});
+
 it('删除：软删 + 确认对话框（文案明示历史保留），卡片消失且历史会话保留（验收 5）', async () => {
   renderView();
   await screen.findByText('林深');

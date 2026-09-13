@@ -1,19 +1,13 @@
 /**
  * 会话删除确认对话框（ADR-009 软删除）：文案明示「聊天记录软删除」，从
- * Sidebar 抽出的纯展示件（行为零变化）——开关与删除执行留在父层，本件只
- * 负责确认文案与取消/确认两钮（删除进行中双钮禁用）。
+ * Sidebar 抽出的纯展示件——开关与删除执行留在父层，本件只负责确认文案与
+ * 取消/确认两钮（删除进行中双钮禁用）。C1 收编：模板与交互契约（Esc/背板
+ * 可取消、aria 抑制、破坏性键红色弱化）统一落在 ConfirmDialog，本件只做
+ * 会话删除的文案组装，外部 props 不变。
  */
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-} from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
 import type { SessionSummary } from '../../api/types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 export interface SessionDeleteDialogProps {
   /** 待删会话；null = 关闭。 */
@@ -30,28 +24,20 @@ export function SessionDeleteDialog(props: SessionDeleteDialogProps) {
   const { target, targetTitle, deleting, onCancel, onConfirm } = props;
   const { t } = useTranslation();
   return (
-    <Dialog
+    <ConfirmDialog
       open={target !== null}
-      onOpenChange={(_, data) => {
-        if (!data.open) onCancel();
+      onOpenChange={(open) => {
+        if (!open) onCancel();
       }}
-    >
-      <DialogSurface aria-describedby={undefined}>
-        <DialogBody>
-          <DialogTitle>{t('sessions.delete')}</DialogTitle>
-          <DialogContent>
-            {target !== null ? t('sessions.deleteBody', { title: targetTitle }) : null}
-          </DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" disabled={deleting} onClick={onCancel}>
-              {t('sessions.cancel')}
-            </Button>
-            <Button appearance="primary" disabled={deleting} onClick={onConfirm}>
-              {t('sessions.deleteConfirm')}
-            </Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
-    </Dialog>
+      title={t('sessions.delete')}
+      content={
+        target !== null ? t('sessions.deleteBody', { title: targetTitle }) : null
+      }
+      confirmLabel={t('sessions.deleteConfirm')}
+      cancelLabel={t('sessions.cancel')}
+      destructive
+      busy={deleting}
+      onConfirm={onConfirm}
+    />
   );
 }

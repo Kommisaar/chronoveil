@@ -9,12 +9,6 @@
 //   已移除，建会话走侧栏新建）。
 import {
   Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   Text,
   Title1,
   makeStyles,
@@ -33,6 +27,7 @@ import {
   updateCharacter,
 } from '../../api/commands';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
@@ -344,47 +339,40 @@ export function CharactersView() {
         />
       ) : null}
 
-      {/* 丢弃确认（验收 3）：切换选中项 / 关闭编辑器且有未保存修改时弹出。 */}
-      <Dialog open={discardOpen}>
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>{t('characters.discardTitle')}</DialogTitle>
-            <DialogContent>{t('characters.discardText')}</DialogContent>
-            <DialogActions>
-              <Button appearance="primary" onClick={cancelDiscard}>
-                {t('characters.keepEditing')}
-              </Button>
-              <Button onClick={discardAndContinue}>{t('characters.discard')}</Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+      {/* 丢弃确认（验收 3）：切换选中项 / 关闭编辑器且有未保存修改时弹出。
+          C1 收编：Esc/背板可取消（此前无 onOpenChange 不可取消），放弃键
+          红色弱化、继续编辑为主键（安全动作优先）。 */}
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelDiscard();
+        }}
+        title={t('characters.discardTitle')}
+        content={t('characters.discardText')}
+        confirmLabel={t('characters.discard')}
+        cancelLabel={t('characters.keepEditing')}
+        destructive
+        onConfirm={discardAndContinue}
+      />
 
-      {/* 删除确认（验收 5）：就地 Fluent Dialog，文案明示软删语义。 */}
-      <Dialog open={deleteTarget !== null}>
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>{t('characters.deleteConfirmTitle')}</DialogTitle>
-            <DialogContent>
-              {deleteTarget
-                ? t('characters.deleteConfirmText', { name: deleteTarget.name })
-                : ''}
-            </DialogContent>
-            <DialogActions>
-              <Button disabled={deleting} onClick={() => setDeleteTarget(null)}>
-                {t('characters.cancel')}
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={deleting}
-                onClick={() => void confirmDelete()}
-              >
-                {t('characters.confirmDelete')}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
+      {/* 删除确认（验收 5）：文案明示软删语义；C1 收编后 Esc/背板可取消。 */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={t('characters.deleteConfirmTitle')}
+        content={
+          deleteTarget
+            ? t('characters.deleteConfirmText', { name: deleteTarget.name })
+            : ''
+        }
+        confirmLabel={t('characters.confirmDelete')}
+        cancelLabel={t('characters.cancel')}
+        destructive
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

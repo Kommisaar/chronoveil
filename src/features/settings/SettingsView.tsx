@@ -14,12 +14,6 @@
 import {
   Badge,
   Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
   Input,
   Radio,
   RadioGroup,
@@ -38,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfig, saveConfig } from '../../api/commands';
 import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useUiStore } from '../../stores/ui';
 import {
@@ -456,34 +451,27 @@ export function SettingsView() {
             <Text className={styles.issues}>{issues.join('；')}</Text>
           ) : null}
 
-          {/* 删除确认（UI-003）：激活中的 provider 要求先转移激活，确认键禁用 */}
-          <Dialog
+          {/* 删除确认（UI-003）：激活中的 provider 要求先转移激活，确认键禁用。
+              C1 收编：Esc/背板可取消，删除键红色弱化、取消键为主键。 */}
+          <ConfirmDialog
             open={deleteTarget !== null}
-            onOpenChange={(_, d) => {
-              if (!d.open) setDeleteTarget(null);
+            onOpenChange={(open) => {
+              if (!open) setDeleteTarget(null);
             }}
-          >
-            <DialogSurface>
-              <DialogBody>
-                <DialogTitle>{t('settings.deleteConfirmTitle')}</DialogTitle>
-                <DialogContent>
-                  {deleteIsActive
-                    ? t('settings.deleteActiveBlocked')
-                    : t('settings.deleteConfirmBody', {
-                        name: deleteTarget?.name.trim() || deleteTarget?.id,
-                      })}
-                </DialogContent>
-                <DialogActions>
-                  <Button appearance="secondary" onClick={() => setDeleteTarget(null)}>
-                    {t('settings.cancel')}
-                  </Button>
-                  <Button appearance="primary" disabled={deleteIsActive} onClick={confirmDelete}>
-                    {t('settings.deleteProvider')}
-                  </Button>
-                </DialogActions>
-              </DialogBody>
-            </DialogSurface>
-          </Dialog>
+            title={t('settings.deleteConfirmTitle')}
+            content={
+              deleteIsActive
+                ? t('settings.deleteActiveBlocked')
+                : t('settings.deleteConfirmBody', {
+                    name: deleteTarget?.name.trim() || deleteTarget?.id,
+                  })
+            }
+            confirmLabel={t('settings.deleteProvider')}
+            cancelLabel={t('settings.cancel')}
+            destructive
+            confirmDisabled={deleteIsActive}
+            onConfirm={confirmDelete}
+          />
         </>
       ) : null}
 

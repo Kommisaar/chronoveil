@@ -1,25 +1,16 @@
 /**
  * 会话分叉确认对话框（时间线分叉，Task-44）：从叙事账本场景行「从此分叉」
  * 进入——输入新会话标题（默认「原标题（分叉）」，由父层派生填入）并确认。
- * 形态从 SessionDeleteDialog 先例（纯展示件）：开关、标题输入值与分叉执行
- * 都留在父层（LedgerPanel），本件负责文案、输入框与取消 / 确认两钮（分叉
- * 进行中或标题为空时禁用确认）。失败文案经 error prop 就地显示（错误必须
- * 可见，禁止静默）。
+ * 开关、标题输入值与分叉执行都留在父层（LedgerPanel），本件负责文案、输入
+ * 框与取消 / 确认两钮（分叉进行中或标题为空时禁用确认）。失败文案经 error
+ * prop 就地显示（错误必须可见，禁止静默）。
+ * C1 收编：对话框模板与交互契约（Esc/背板可取消、aria 抑制、动作键样式）
+ * 统一落在 ConfirmDialog，本件只做分叉特有的正文组装；外部 props 不变。
  */
-import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Input,
-  makeStyles,
-  tokens,
-} from '@fluentui/react-components';
+import { Input, makeStyles, tokens } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
 import type { SceneDto } from '../../api/types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 
 const useStyles = makeStyles({
   titleField: {
@@ -54,48 +45,38 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
   const styles = useStyles();
   const { t } = useTranslation();
   return (
-    <Dialog
+    <ConfirmDialog
       open={target !== null}
-      onOpenChange={(_, data) => {
-        if (!data.open) onCancel();
+      onOpenChange={(open) => {
+        if (!open) onCancel();
       }}
-    >
-      <DialogSurface aria-describedby={undefined}>
-        <DialogBody>
-          <DialogTitle>{t('chat.ledger.forkDialogTitle')}</DialogTitle>
-          <DialogContent>
-            {target !== null &&
-              t('chat.ledger.forkIntro', {
-                scene: t('chat.ledger.sceneNo', { index: target.idx }),
-              })}
-            <Input
-              className={styles.titleField}
-              aria-label={t('chat.ledger.forkTitleField')}
-              placeholder={t('chat.ledger.forkTitleField')}
-              value={title}
-              disabled={forking}
-              onChange={(_, data) => onTitleChange(data.value)}
-            />
-            {error !== null && (
-              <div className={styles.error} role="alert">
-                {error}
-              </div>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" disabled={forking} onClick={onCancel}>
-              {t('sessions.cancel')}
-            </Button>
-            <Button
-              appearance="primary"
-              disabled={forking || title.trim().length === 0}
-              onClick={onConfirm}
-            >
-              {forking ? t('chat.ledger.forking') : t('chat.ledger.forkConfirm')}
-            </Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
-    </Dialog>
+      title={t('chat.ledger.forkDialogTitle')}
+      content={
+        <>
+          {target !== null &&
+            t('chat.ledger.forkIntro', {
+              scene: t('chat.ledger.sceneNo', { index: target.idx }),
+            })}
+          <Input
+            className={styles.titleField}
+            aria-label={t('chat.ledger.forkTitleField')}
+            placeholder={t('chat.ledger.forkTitleField')}
+            value={title}
+            disabled={forking}
+            onChange={(_, data) => onTitleChange(data.value)}
+          />
+          {error !== null && (
+            <div className={styles.error} role="alert">
+              {error}
+            </div>
+          )}
+        </>
+      }
+      confirmLabel={forking ? t('chat.ledger.forking') : t('chat.ledger.forkConfirm')}
+      cancelLabel={t('sessions.cancel')}
+      busy={forking}
+      confirmDisabled={title.trim().length === 0}
+      onConfirm={onConfirm}
+    />
   );
 }

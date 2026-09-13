@@ -93,7 +93,7 @@ const useStyles = makeStyles({
   // 不能挂在 surface 伪元素上（fixed 的 surface 是 fixed 后代的包含块，
   // 层会被钳在面板大小），必须是 surface 之外的独立 fixed 元素。
   // 背板拦截点击 = 关闭（用户预期：点外面是返回，不是穿透切换角色）；
-  // 脏态由父级 onClose 的守卫接管（弹丢弃确认）。
+  // 点击 = requestClose：flushSave 补存最后一拍后直接关闭（修改即保存，无丢弃确认）。
   backdrop: {
     position: 'fixed',
     inset: '0px',

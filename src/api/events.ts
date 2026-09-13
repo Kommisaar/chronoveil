@@ -44,8 +44,9 @@ const ACTIVITY_PHASES = new Set<string>([
   'researchSkipped',
 ]);
 
-/** wire kind 合法值（与 llm_calls.kind CHECK 四值同源，透明化功能）。 */
-const LLM_CALL_KINDS = new Set<string>(['dialogue', 'explorer', 'director', 'draft']);
+/** wire kind 合法值（与生成端 LlmCallKindDto 三值同源，透明化功能）。历史「draft」
+ * （历法起草 2026-09-13 裁撤）不再合法：Rust from_db 判后端数据损坏，前端同口径拒收。 */
+const LLM_CALL_KINDS = new Set<string>(['dialogue', 'explorer', 'director']);
 
 /** wire status 合法值（ok | error）。 */
 const LLM_CALL_STATUSES = new Set<string>(['ok', 'error']);
@@ -92,7 +93,7 @@ export function fromWireEvent(raw: unknown): AnyStreamEvent | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const wire = raw as Record<string, unknown>;
   // 轨迹事件（透明化功能）先于公共路由键提取：它没有顶层 session_id / message_id，
-  // 会话定位在 call.sessionId（可空 = 无会话的起草调用）。
+  // 会话定位在 call.sessionId（可空：历史起草调用遗留形态，现行写入方恒有会话）。
   if (wire.type === 'trace') {
     return isLlmCallDto(wire.call) ? { type: 'trace', call: wire.call } : null;
   }
@@ -147,7 +148,7 @@ export function subscribeStream(sessionId: number, handler: StreamEventHandler):
 
 /**
  * 订阅某会话的 LLM 调用轨迹事件（透明化功能），返回取消函数。按 `call.sessionId`
- * 过滤——不匹配即丢弃；null（无会话的起草调用）不属于任何会话，同样不投递。
+ * 过滤——不匹配即丢弃；null（历史起草调用的无会话形态）不属于任何会话，同样不投递。
  * 与 `listLlmCalls` 同源同序：事件里的轨迹行已落库（携带库内 id，可与查询结果对齐）。
  */
 export function subscribeTrace(sessionId: number, handler: (call: LlmCallDto) => void): () => void {
@@ -171,7 +172,7 @@ export function subscribeTrace(sessionId: number, handler: (call: LlmCallDto) =>
 /**
  * 应用级轨迹订阅（不过滤会话）：消费方（账本面板的 streamHub 桥）自行按
  * `call.sessionId` 过滤当前会话。与 [`subscribeTrace`] 的差别仅在无会话过滤——
- * null（起草调用）也投递，消费方不需要时可忽略。
+ * null（无会话调用）也投递，消费方不需要时可忽略。
  */
 export function subscribeTraces(handler: (call: LlmCallDto) => void): () => void {
   if (!isTauri) {

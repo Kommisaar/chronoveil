@@ -232,14 +232,15 @@ const CALLS: LlmCall[] = [
     errorText: 'provider 超时',
   },
   {
+    // 无 usage 的 ok 记录：token 合计记 0、行内显「—」（draft 类别已随契约裁撤）
     id: 104,
     sessionId: 3,
-    kind: 'draft',
+    kind: 'dialogue',
     model: 'glm-4-air',
     startedAt: localTime(14, 23, 8),
     durationMs: 300,
     promptJson: '[]',
-    responseText: '历法草案已生成。',
+    responseText: '后台补记的回复。',
     reasoningText: null,
     toolCallsJson: null,
     promptTokens: null,
@@ -454,18 +455,17 @@ it('调用轨迹段渲染：面板打开即拉取、汇总条数学（N 含失�
   // 「序号+徽标」复合串：单查 '#N' 会撞上「角色#id」回退文案（第 3 场 present
   // 含未配置进清单的 id 2）
   const text = container.textContent ?? '';
-  expect(text.indexOf('#4起草')).toBeLessThan(text.indexOf('#3结算'));
+  expect(text.indexOf('#4对话')).toBeLessThan(text.indexOf('#3结算'));
   expect(text.indexOf('#3结算')).toBeLessThan(text.indexOf('#2探索'));
   expect(text.indexOf('#2探索')).toBeLessThan(text.indexOf('#1对话'));
 
-  // kind 徽标中文映射（四种齐备）；秒级钟面时间（HH:mm:ss）
-  expect(screen.getByText('对话')).toBeTruthy();
+  // kind 徽标中文映射（三种齐备；#1 与 #4 同为对话）；秒级钟面时间（HH:mm:ss）
+  expect(screen.getAllByText('对话')).toHaveLength(2);
   expect(screen.getByText('探索')).toBeTruthy();
   expect(screen.getByText('结算')).toBeTruthy();
-  expect(screen.getByText('起草')).toBeTruthy();
   expect(screen.getByText(/14:23:05/)).toBeTruthy();
 
-  // token null → 「—」（错误记录与起草记录两条均为 null）；有值 → 数字
+  // token null → 「—」（错误记录与无 usage 的第 4 条两条均为 null）；有值 → 数字
   expect(screen.getAllByText(/↑ — · ↓ —/)).toHaveLength(2);
   expect(screen.getByText(/↑ 90 · ↓ —/)).toBeTruthy();
 
@@ -482,7 +482,8 @@ it('展开详情：请求消息按 role 分色渲染（role 标签 + 内容）�
   // 默认全收起：详情标题不可见
   expect(screen.queryByText('请求消息')).toBeNull();
 
-  fireEvent.click(screen.getByRole('button', { name: /对话/ }));
+  // 展开行 #1（对话）：#4 也是对话徽标，按钟面 14:23:05 唯一定位
+  fireEvent.click(screen.getByRole('button', { name: /14:23:05/ }));
   await screen.findByText('请求消息');
   // 请求消息：每条带 role 标签 + 内容（system / user 各一条）
   expect(screen.getByText('system')).toBeTruthy();
@@ -549,7 +550,7 @@ it('onTrace 实时流：本会话新轨迹头部插入（不重拉全量）；�
   await screen.findByText('#5');
   expect(mocks.listLlmCalls).toHaveBeenCalledTimes(1); // 未重拉全量
   const text = container.textContent ?? '';
-  expect(text.indexOf('#5对话')).toBeLessThan(text.indexOf('#4起草'));
+  expect(text.indexOf('#5对话')).toBeLessThan(text.indexOf('#4对话'));
   expect(screen.getByText('live-model')).toBeTruthy();
 
   // 同 id 补发 → 原位更新（仍是 #5），内容替换，不新增行

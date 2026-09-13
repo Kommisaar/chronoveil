@@ -286,7 +286,7 @@ export async function sendMessage(
   // 透明化功能（演示数据）：mock 不真调 LLM——真实后端里 dialogue 轨迹由网关在
   // 每次 HTTP 请求后落库并广播 Trace 事件；浏览器 mock 无网关，sendMessage 时合成
   // 一条 dialogue 轨迹让轨迹面板有演示数据。内容明确标注 mock（含 usage 演示值），
-  // 不伪装成真实调用；探索器 / 结算 / 起草路径在 mock 中不产生轨迹（诚实缺省）。
+  // 不伪装成真实调用；探索器 / 结算路径在 mock 中不产生轨迹（诚实缺省）。
   llmCalls.push({
     id: nextLlmCallId++,
     sessionId,

@@ -206,7 +206,6 @@ const KIND_KEY: Record<LlmCall['kind'], string> = {
   dialogue: 'chat.ledger.kind.dialogue',
   explorer: 'chat.ledger.kind.explorer',
   director: 'chat.ledger.kind.director',
-  draft: 'chat.ledger.kind.draft',
 };
 
 /** 请求消息（promptJson 条目形态）；role 是协议原文，渲染为分色标签。 */

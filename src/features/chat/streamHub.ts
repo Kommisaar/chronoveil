@@ -29,7 +29,7 @@
  */
 import { subscribeStream, type StreamEvent } from '../../api/events';
 import * as eventsModule from '../../api/events';
-import type { ActivityPhase } from '../../api/generated/bindings';
+import type { ActivityPhase, LlmCallKindDto } from '../../api/generated/bindings';
 
 export type StreamStatus = 'streaming' | 'stopping' | 'done' | 'error';
 
@@ -46,15 +46,16 @@ export interface ActivityStep {
 export const CANCEL_REASON = 'cancelled';
 
 /**
- * LLM 调用轨迹单条（契约先行：后端并行分支落地 `LlmCallDto`，此处为前端契约
- * 锚点，逐字段结构对齐；api 类型落地后切换为 type 对齐 / re-export，消费方不动）。
- * promptJson / toolCallsJson 是 JSON 字符串（大字段：仅展开详情时 parse，列表行
- * 不碰）；id 是幂等更新键；sessionId 为 null 表示无会话归属的调用（如起草试算）。
+ * LLM 调用轨迹单条（与生成端 LlmCallDto 逐字段结构对齐；kind 直接引用
+ * LlmCallKindDto 同源——生成端契约变更时此处编译期暴露）。promptJson /
+ * toolCallsJson 是 JSON 字符串（大字段：仅展开详情时 parse，列表行不碰）；
+ * id 是幂等更新键；sessionId 为 null 表示无会话归属的调用（仅历史起草调用
+ * 遗留形态——2026-09-13 裁撤，现行写入方恒有会话，防御性保留）。
  */
 export interface LlmCall {
   readonly id: number;
   readonly sessionId: number | null;
-  readonly kind: 'dialogue' | 'explorer' | 'director' | 'draft';
+  readonly kind: LlmCallKindDto;
   readonly model: string;
   /** 开始时刻（epoch ms） */
   readonly startedAt: number;

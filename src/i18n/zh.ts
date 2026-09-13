@@ -117,7 +117,6 @@ export const zh = {
         dialogue: '对话',
         explorer: '探索',
         director: '结算',
-        draft: '起草',
       },
       promptMessages: '请求消息',
       responseText: '回复正文',

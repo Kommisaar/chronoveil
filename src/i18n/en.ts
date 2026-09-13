@@ -120,7 +120,6 @@ export const en = {
         dialogue: 'Dialogue',
         explorer: 'Explorer',
         director: 'Director',
-        draft: 'Draft',
       },
       promptMessages: 'Prompt messages',
       responseText: 'Response',

@@ -37,7 +37,10 @@ let nextMessageId =
   Math.max(...Object.values(messagesBySession).flat().map((m) => m.id)) + 1;
 
 /** 与 Rust NotFound 等价（ADR-009：不存在 / 已软删对调用方等价）；entity 取 storage 层常量。 */
-function notFound(entity: 'session' | 'character' | 'scene', id: number): ApiError {
+function notFound(
+  entity: 'session' | 'character' | 'scene' | 'character_state',
+  id: number,
+): ApiError {
   return new ApiError({ kind: 'notFound', entity, id });
 }
 
@@ -224,6 +227,13 @@ export async function listCharacterStates(sessionId: number): Promise<CharacterS
   sessionOf(sessionId);
   // mock 无 character_state 存储：诚实返回空数组。
   return [];
+}
+
+export async function clearCharacterState(stateId: number): Promise<void> {
+  // 手动清除（FR-012，Task-09）：Rust 侧软删状态行、行不存在 / 已清除报 NotFound。
+  // mock 无 character_state 存储（list 恒空数组，见上）→ 永无在世行可清除，任何
+  // id 报 NotFound；entity 值逐字对齐 Rust character_states::ENTITY（wire 契约）。
+  throw notFound('character_state', stateId);
 }
 
 // ---- LLM 调用轨迹（透明化功能）----

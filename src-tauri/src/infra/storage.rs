@@ -320,9 +320,9 @@ impl StoragePort for Storage {
         self.with_conn(|conn| character_states::list_as_of_scene(conn, session_id, scene_idx))
     }
 
-    // FR-012 手动清除状态预留：生产清除走 commit_settlement 清算支路（内部直调
-    // character_states::soft_delete），直连端口接线前无生产调用方（仅测试消费）。
-    #[allow(dead_code)]
+    // FR-012 手动清除状态（Task-09 接线）：生产调用方 = clear_character_state IPC 命令
+    // （ipc/scenes.rs）；结算侧清除仍走 commit_settlement 清算支路（内部直调
+    // character_states::soft_delete，复用其外层事务）。
     fn soft_delete_character_state(&self, id: i64) -> Result<(), StorageError> {
         self.with_conn(|conn| {
             let ts = now();

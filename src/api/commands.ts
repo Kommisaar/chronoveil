@@ -103,6 +103,19 @@ export async function listCharacterStates(sessionId: number): Promise<CharacterS
     : mock.listCharacterStates(sessionId);
 }
 
+/**
+ * 手动清除人物状态（FR-012，Task-09）：软删该状态行（ADR-009 墓碑），行立即从
+ * 账本消失；清除过的键不进后续结算 prompt 的【当前状态集】，结算清算对其幂等
+ * 跳过（不复活）。行不存在 / 已清除报 NotFound（重复点击对调用方等价）。
+ */
+export async function clearCharacterState(stateId: number): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.clearCharacterState(stateId));
+    return;
+  }
+  return mock.clearCharacterState(stateId);
+}
+
 // ---- LLM 调用轨迹（透明化功能）----
 
 /**

@@ -876,3 +876,60 @@ async fn run_settlement_records_one_trace_per_attempt() {
     drop(storage);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 手动清除 × 结算清算语义（FR-012 手动清除，Task-09 验收核心）：状态行被手动清除
+/// （soft_delete 置墓碑，clear_character_state IPC 命令委托的同一存储原语）后，
+/// 「会复活该状态的结算路径」不得把该键带回在世账本——墓碑行不进 list 读路径 →
+/// 结算 prompt 的【当前状态集】不含该键（模型无从维护）；裁决对已清除键再发 clear
+/// 时 build_write 只映射手头在世行 → 幂等跳过；ADR-009 宁可缺失、不虚构复活。
+#[tokio::test]
+async fn run_settlement_does_not_resurrect_manually_cleared_state() {
+    let (storage, dir, session_id, char_id, _trigger_id) = settlement_setup("dir_clear");
+    let stale = storage
+        .upsert_character_state(&NewCharacterState {
+            instance_id: char_id,
+            scope: CharacterStateScope::State,
+            key: "别扭".into(),
+            value: "欲言又止".into(),
+            expiry: None,
+            source_scene: None,
+        })
+        .unwrap();
+    // 手动清除：行立即从账本读路径消失。
+    storage.soft_delete_character_state(stale.id).unwrap();
+    assert!(storage.list_character_states(session_id).unwrap().is_empty());
+
+    // 会复活该键的结算路径：裁决对已清除的键再发 clear（模拟模型从叙事上下文捡回
+    // 旧键），同时 upsert 新键「情绪」以证明结算本身照常落库。
+    let captured: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let cap = captured.clone();
+    let server = MockServer::start(move |req, stream| {
+        cap.lock().unwrap().push(req.json());
+        let _ = json_body(
+            stream,
+            r#"{"location":"旧书店 · 打烊后","time_note":"次日清晨","fic_day":2,"fic_part":"清晨","summary":"钟楼下的对峙无果而终","present":[1],"states":[{"instance_id":1,"clear":"别扭"},{"instance_id":1,"scope":"state","key":"情绪","value":"释然","expiry":"scene_end"}]}"#,
+        );
+    });
+    let registry = GenerationRegistry::new();
+    let ticket = registry.begin(session_id).unwrap();
+    let deps = deps_with_director(&storage, &server.url());
+    run_settlement(&deps, &ticket, &trigger_of(&storage, session_id)).await;
+
+    // 不复活的机制证据：prompt 状态集不含已清除键（墓碑不进读路径）。
+    let user = captured.lock().unwrap()[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!user.contains("别扭"), "结算 prompt 不得含已清除键：{user}");
+    // 结算成功落库（「情绪」已上账），但「别扭」不被复活。
+    let states = storage.list_character_states(session_id).unwrap();
+    assert_eq!(states.len(), 1, "只有新键「情绪」上账，「别扭」不得复活");
+    assert_eq!(states[0].key, "情绪");
+    // 墓碑行本体未动：仍处已删态（重复清除报 NotFound，墓碑不会被打捞）。
+    assert!(
+        storage.soft_delete_character_state(stale.id).is_err(),
+        "墓碑行不得复活"
+    );
+    drop(storage);
+    let _ = std::fs::remove_dir_all(&dir);
+}

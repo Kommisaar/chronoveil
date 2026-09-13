@@ -3,9 +3,12 @@
  *
  * 按 scope 分「当前状态」「关系」两组，`key：value` 行；组空省标题（整组
  * 含标题一起省），全空显示空态文案。expiry 不展示——那是结算清算线索，
- * 不是叙事信息。数据由面板壳拉取后经 props 下发，本组件只管渲染。
+ * 不是叙事信息。数据由面板壳拉取后经 props 下发，本组件只管渲染；每行附
+ * 「清除状态」入口（FR-012 手动清除，Task-09），点击经 onClear 上抛，确认
+ * 对话框与执行在面板壳。
  */
-import { Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Button, Text, Tooltip, makeStyles, tokens } from '@fluentui/react-components';
+import { Delete16Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
 import type { CharacterStateDto } from '../../api/types';
 import { useLedgerSectionStyles } from './useLedgerSectionStyles';
@@ -30,10 +33,28 @@ const useStyles = makeStyles({
   stateText: {
     minWidth: 0,
   },
+  // 清除入口钮：行尾缘（对齐 ledgerScenes 分叉钮的克制小件交互），
+  // 图标钮带完整 aria 标注
+  clearBtn: {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    alignSelf: 'center',
+    minWidth: '24px',
+    height: '24px',
+    padding: '0px',
+  },
 });
 
 /** 状态分组（组空由调用方省略整组含标题）：`key：value` 行，expiry 不展示。 */
-function StateGroup({ title, rows }: { title: string; rows: CharacterStateDto[] }) {
+function StateGroup({
+  title,
+  rows,
+  onClear,
+}: {
+  title: string;
+  rows: CharacterStateDto[];
+  onClear: (state: CharacterStateDto) => void;
+}) {
   const styles = useStyles();
   const chrome = useLedgerSectionStyles();
   const { t } = useTranslation();
@@ -48,6 +69,19 @@ function StateGroup({ title, rows }: { title: string; rows: CharacterStateDto[] 
           <span className={styles.stateText}>
             {t('chat.ledger.stateRow', { key: s.key, value: s.value })}
           </span>
+          {/* 行级清除（FR-012 手动清除，Task-09）：悬停提示走 Fluent Tooltip（C3）；
+              可访问名保留带键名的富 aria-label（比气泡内容更具体），气泡文字已含于
+              名内——relationship="inaccessible" 不再叠 aria 语义 */}
+          <Tooltip content={t('chat.ledger.clearState')} relationship="inaccessible">
+            <Button
+              className={styles.clearBtn}
+              size="small"
+              appearance="transparent"
+              icon={<Delete16Regular />}
+              aria-label={`${t('chat.ledger.clearState')}：${s.key}`}
+              onClick={() => onClear(s)}
+            />
+          </Tooltip>
         </div>
       ))}
     </div>
@@ -57,9 +91,12 @@ function StateGroup({ title, rows }: { title: string; rows: CharacterStateDto[] 
 export interface LedgerStatesSectionProps {
   /** 会话级人物状态列表（面板壳拉取；null = 拉取未落定，渲染为空列表）。 */
   states: CharacterStateDto[] | null;
+  /** 「清除状态」回调（FR-012 手动清除，Task-09）：携带状态行上抛，确认对话框
+   * 与清除执行在面板壳（本组件只管渲染）。 */
+  onClear: (state: CharacterStateDto) => void;
 }
 
-export function LedgerStatesSection({ states }: LedgerStatesSectionProps) {
+export function LedgerStatesSection({ states, onClear }: LedgerStatesSectionProps) {
   const chrome = useLedgerSectionStyles();
   const { t } = useTranslation();
   const stateList = states ?? [];
@@ -75,9 +112,11 @@ export function LedgerStatesSection({ states }: LedgerStatesSectionProps) {
         <Text className={chrome.groupTitle}>{t('chat.ledger.statesEmpty')}</Text>
       ) : (
         <>
-          {stateRows.length > 0 && <StateGroup title={t('chat.ledger.groupState')} rows={stateRows} />}
+          {stateRows.length > 0 && (
+            <StateGroup title={t('chat.ledger.groupState')} rows={stateRows} onClear={onClear} />
+          )}
           {relationRows.length > 0 && (
-            <StateGroup title={t('chat.ledger.groupRelation')} rows={relationRows} />
+            <StateGroup title={t('chat.ledger.groupRelation')} rows={relationRows} onClear={onClear} />
           )}
         </>
       )}

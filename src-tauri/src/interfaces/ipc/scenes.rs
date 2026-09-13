@@ -1,4 +1,4 @@
-//! 场景与人物状态域（FR-011 / FR-012 读路径）：叙事账本面板数据地基。
+//! 场景与人物状态域（FR-011 / FR-012 读路径 + FR-012 手动清除写路径）：叙事账本面板数据地基。
 
 use serde::Serialize;
 use specta::Type;
@@ -158,6 +158,27 @@ pub fn list_character_states(
     list_character_states_impl(&state, session_id)
 }
 
+// ---- 人物状态手动清除（FR-012，Task-09：账本状态行级「清除」入口）----
+
+fn clear_character_state_impl(app: &AppState, state_id: i64) -> Result<(), IpcError> {
+    // 软删（ADR-009 墓碑，存储层置 deleted_at）；行不存在 / 已清除 → NotFound
+    // （对调用方等价，重放安全）。不做会话在世预检：命令只收状态行 id（UI 只能
+    // 经在世会话的面板触达该行），清除已软删会话名下的状态行无观察副作用。
+    // 清除语义 = 墓碑即终点：被清除的键不再出现在 list_character_states 读路径
+    // 与结算 prompt 的【当前状态集】（读路径滤墓碑），后续结算对其 clear 幂等
+    // 跳过（director::build_write 只映射手头在世行）——「结算清算不复活」由
+    // list 滤墓碑 + clear 映射在世行两处既有约定共同保证（语义测试见
+    // services/director/tests.rs 与本文件 tests）。
+    app.storage.soft_delete_character_state(state_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn clear_character_state(state: State<'_, AppState>, state_id: i64) -> Result<(), IpcError> {
+    clear_character_state_impl(&state, state_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +245,52 @@ mod tests {
 
         let relation = to_json(models::CharacterStateScope::Relation);
         assert_eq!(relation["scope"], "relation");
+    }
+
+    #[test]
+    fn clear_character_state_deletes_and_reports_not_found() {
+        let (app, dir) = temp_state("scenes_clear_state");
+        let user_card = sample_character(&app, "旅人");
+        let llm_card = sample_character(&app, "苏鸢");
+        let session = app
+            .storage
+            .create_session(&NewSession {
+                roster: vec![
+                    RosterPick { character_id: llm_card.id, is_user: false },
+                    RosterPick { character_id: user_card.id, is_user: true },
+                ],
+                title: String::new(),
+                opening: None,
+            })
+            .unwrap();
+        let state = app
+            .storage
+            .upsert_character_state(&NewCharacterState {
+                instance_id: 1,
+                scope: models::CharacterStateScope::State,
+                key: "情绪".into(),
+                value: "强撑镇定".into(),
+                expiry: Some("scene_end".into()),
+                source_scene: None,
+            })
+            .unwrap();
+
+        // 手动清除：行立即从读路径消失（账本即时可见语义，Task-09 验收核心之一）。
+        assert!(list_character_states_impl(&app, session.id).unwrap().len() == 1);
+        clear_character_state_impl(&app, state.id).unwrap();
+        assert!(list_character_states_impl(&app, session.id).unwrap().is_empty());
+
+        // 墓碑即终点：重复清除 / 不存在的行一律 NotFound（ADR-009：不存在与已软删
+        // 对调用方等价），entity 字段对齐 storage 层 ENTITY 常量（mock 文案对齐基准）。
+        for id in [state.id, 999_999] {
+            let error = clear_character_state_impl(&app, id).unwrap_err();
+            assert!(
+                matches!(error, IpcError::NotFound { ref entity, .. } if entity == "character_state"),
+                "entity 应为 character_state：{error:?}"
+            );
+        }
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

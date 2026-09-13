@@ -1,7 +1,7 @@
 //! Tauri 命令层（ADR-010 interfaces 层；TASK-005）。
 //!
 //! 命令面（验收 4）：会话列表/创建/软删、消息列表、发送消息、取消生成、重新生成最后一条、
-//! 场景 / 人物状态列表（叙事账本读路径）、
+//! 场景 / 人物状态列表（叙事账本读路径）、人物状态手动清除（FR-012，Task-09）、
 //! 角色 CRUD（含 avatar）、角色卡单卡导出/导入（Task-04，原生文件对话框）、config.json 读取/保存。
 //!
 //! wire 契约（类型同源，ADR-010）：
@@ -54,7 +54,10 @@ pub use fork::fork_session;
 
 pub use messages::{list_messages, ChatMessage, MessageRole};
 
-pub use scenes::{list_character_states, list_scenes, CharacterStateDto, CharacterStateScope, SceneDto};
+pub use scenes::{
+    clear_character_state, list_character_states, list_scenes, CharacterStateDto,
+    CharacterStateScope, SceneDto,
+};
 
 pub use llm_calls::{
     list_llm_calls, DEFAULT_LLM_CALL_LIST_LIMIT, LlmCallDto, LlmCallKindDto, LlmCallStatusDto,
@@ -93,6 +96,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             messages::list_messages,
             scenes::list_scenes,
             scenes::list_character_states,
+            scenes::clear_character_state,
             llm_calls::list_llm_calls,
             generation::send_message,
             generation::cancel_generation,
@@ -138,7 +142,7 @@ mod tests {
         for cmd in [
             "listSessions", "createSession", "deleteSession", "forkSession",
             "listMessages",
-            "listScenes", "listCharacterStates",
+            "listScenes", "listCharacterStates", "clearCharacterState",
             "sendMessage", "cancelGeneration", "regenerateLast",
             "listCharacters", "createCharacter", "updateCharacter", "deleteCharacter",
             "exportCharacter", "importCharacter",

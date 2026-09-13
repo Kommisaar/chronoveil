@@ -10,7 +10,8 @@
  * - 消息：先取会话（不存在 / 已删 → NotFound）、characterId wire 定案（assistant 条 =
  *   说话实例真值，user 条恒 null）；
  * - 场景 / 人物状态列表（FR-011 / FR-012）：mock 无存储诚实返回空数组、
- *   会话不存在 / 已软删 → NotFound；
+ *   会话不存在 / 已软删 → NotFound；手动清除（Task-09）恒 NotFound（mock 无
+ *   状态存储，entity 对齐 Rust character_states::ENTITY）；
  * - 发送：检查顺序（先会话后内容）、只回执用户条 + mock 占位回复、FR-007 标题
  *   缺省取首条用户消息截断（generation::default_title：20 字 + 省略号）；
  * - 重新生成：返回被替换的旧条（ipc.rs regenerate_last_impl 契约，前端据以移除）；
@@ -410,6 +411,15 @@ describe('listScenes / listCharacterStates（FR-011 / FR-012 读路径）', () =
       kind: 'notFound',
       entity: 'session',
       id: 3,
+    });
+  });
+
+  it('clearCharacterState（Task-09）：mock 无状态存储恒 NotFound，entity 逐字对齐 Rust character_states::ENTITY', async () => {
+    const { backend } = await loadMock();
+    expect(await apiErrorOf(backend.clearCharacterState(7))).toEqual({
+      kind: 'notFound',
+      entity: 'character_state',
+      id: 7,
     });
   });
 });

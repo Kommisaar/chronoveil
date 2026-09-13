@@ -68,6 +68,14 @@ async listCharacterStates(sessionId: number) : Promise<Result<CharacterStateDto[
     else return { status: "error", error: e  as any };
 }
 },
+async clearCharacterState(stateId: number) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_character_state", { stateId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listLlmCalls(sessionId: number, limit: number | null) : Promise<Result<LlmCallDto[], IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_llm_calls", { sessionId, limit }) };

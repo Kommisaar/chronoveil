@@ -6,7 +6,9 @@
  * ChatView 侧注释）。
  *
  * 内容三段，顺序固定，渲染与段内交互各自独立成文件：
- * - 人物状态（ledgerStates.tsx）：scope 分组 `key：value` 行，expiry 不展示。
+ * - 人物状态（ledgerStates.tsx）：scope 分组 `key：value` 行，expiry 不展示；
+ *   行级「清除状态」入口（FR-012 手动清除，Task-09）——确认对话框与执行在本壳
+ *   （clearStateDialog.tsx），成功后走 refreshTick 单点重拉。
  * - 场景史（ledgerScenes.tsx）：idx 倒序，场号 + 单枚时间标签 + 地点 + summary，
  *   桥场带「展开回顾」折叠。
  * - 调用轨迹（ledgerTrace.tsx）：本会话 LLM 调用记录，倒序 + 行展开详情；
@@ -24,11 +26,12 @@
 import { Text, makeStyles, tokens } from '@fluentui/react-components';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { forkSession, listCharacterStates, listLlmCalls, listScenes } from '../../api/commands';
+import { clearCharacterState, forkSession, listCharacterStates, listLlmCalls, listScenes } from '../../api/commands';
 import type { CharacterStateDto, SceneDto } from '../../api/types';
 import { StateBlock } from '../../components/StateBlock';
 import { useUiStore } from '../../stores/ui';
 import { streamHub, type LlmCall } from './streamHub';
+import { ClearStateDialog } from './clearStateDialog';
 import { ForkSessionDialog } from './forkSessionDialog';
 import { LedgerScenesSection } from './ledgerScenes';
 import { LedgerStatesSection } from './ledgerStates';
@@ -96,6 +99,10 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
   const [forkTitle, setForkTitle] = useState('');
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  // 清除状态（FR-012，Task-09）：待清除行 + 进行中标记 + 就地错误文案
+  const [clearTarget, setClearTarget] = useState<CharacterStateDto | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   // 拉取：打开（挂载）、会话切换（sessionId 变化）、终态 / 重试（refreshTick）。
   // 场景 / 状态 / 调用轨迹按会话查询；三者同库同源，失败一并走错误态重试。
@@ -160,6 +167,24 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
     }
   };
 
+  // 清除执行（FR-012，Task-09）：clearCharacterState 软删状态行 → 面板既有
+  // refreshTick 单点重拉（行立即从账本消失）。失败文案就地可见（对话框不关闭，
+  // 用户可重试），不静默。
+  const confirmClear = async (): Promise<void> => {
+    if (clearTarget === null || clearing) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      await clearCharacterState(clearTarget.id);
+      setClearTarget(null);
+      setRefreshTick((tick) => tick + 1);
+    } catch (e) {
+      setClearError(`${t('chat.ledger.clearFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   // 新完成消息 → 静默重拉（FR-012）：终态事件（done / error 均已落库，ADR-001）
   // 在 done 放行前 scenes / character_state 已结算在库（ADR-005），直接重拉无竞态；
   // 只认本会话的终态（后台会话的账本不归本面板管）。面板关闭即随卸载摘订阅。
@@ -216,7 +241,7 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
         </div>
       ) : (
         <>
-          <LedgerStatesSection states={states} />
+          <LedgerStatesSection states={states} onClear={setClearTarget} />
           <LedgerScenesSection scenes={scenes} instanceNames={instanceNames} onFork={openForkDialog} />
           <LedgerTraceSection sessionId={sessionId} calls={calls} />
         </>
@@ -231,6 +256,15 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
         error={forkError}
         onCancel={() => setForkTarget(null)}
         onConfirm={() => void confirmFork()}
+      />
+
+      {/* 清除状态确认（FR-012，Task-09）：开关与执行留本壳，展示件只管文案 */}
+      <ClearStateDialog
+        target={clearTarget}
+        clearing={clearing}
+        error={clearError}
+        onCancel={() => setClearTarget(null)}
+        onConfirm={() => void confirmClear()}
       />
     </aside>
   );

@@ -49,6 +49,7 @@ import type {
 } from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
+import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 import { ENTER_STAGGER_CAP_MS, ENTER_STAGGER_MS } from '../../components/motion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
@@ -120,28 +121,15 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1Selected,
     ':hover': { backgroundColor: tokens.colorNeutralBackground1Selected },
   },
-  // 条目删除钮：低调常驻（前景三阶，悬停染危险色）；生成中禁删的守卫在
+  // 条目删除钮本地特例（small 档外观/尺寸/悬停底色由钩子承载）：右距 +
+  // 常态前景三阶（比钩子默认的次级前景再淡一阶，低调常驻的原设计）+
+  // 悬停染危险色（语义特例，钩子头注预告的覆写点）。生成中禁删的守卫在
   // 点击路径上（requestDelete），不禁用按钮以便给出可发现的提示
   deleteBtn: {
-    width: '28px',
-    height: '28px',
     flexShrink: 0,
     marginRight: '2px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0px',
-    border: 'none',
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: 'transparent',
-    fontFamily: 'inherit',
-    cursor: 'pointer',
     color: tokens.colorNeutralForeground3,
-    '> svg': { width: '16px', height: '16px', fontSize: '16px' },
-    ':hover': {
-      backgroundColor: tokens.colorNeutralBackground1Hover,
-      color: tokens.colorPaletteRedForeground1,
-    },
+    ':hover': { color: tokens.colorPaletteRedForeground1 },
   },
   // 共享选中指示条：与活动栏同款（3×16 品牌色圆角竖条）。位置（translate）
   // 由 JS 写入——需 X+Y 双轴位移；默认隐藏，定位后显示。绝对定位子项不
@@ -158,6 +146,9 @@ const useStyles = makeStyles({
     pointerEvents: 'none',
     visibility: 'hidden',
   },
+  // 条目选择钮的抹平类：它是文字钮（条目 padding、正文字号），不在幽灵
+  // 图标钮钩子的收编范围——钩子的固定容器档位（28/36px 居中 + svg 规格）
+  // 与其形态冲突，硬套需覆写全部档位属性，得不偿失（审计 C2 仅迁图标钮）
   buttonReset: {
     border: 'none',
     padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
@@ -184,24 +175,11 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: '2px',
   },
-  // 头部图标钮（新建 / 收起共用规格；原生 button 手动抹平默认外观，
-  // 不与 buttonReset 合并——后者的条目 padding 会覆盖此处的 0）
+  // 头部图标钮（新建 / 收起）本地特例（medium 档外观/尺寸/悬停底色由钩子
+  // 承载，两钮共用规格）：悬停前景压回次级——原设计悬停只提底色不升前景，
+  // 按「视觉零变化」以原值为准覆写钩子的悬停前景升阶
   iconBtn: {
-    width: '36px',
-    height: '36px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0px',
-    border: 'none',
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: 'transparent',
-    fontFamily: 'inherit',
-    color: tokens.colorNeutralForeground2,
-    cursor: 'pointer',
-    // 图标与活动栏同规格（20px）
-    '> svg': { width: '20px', height: '20px', fontSize: '20px' },
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
+    ':hover': { color: tokens.colorNeutralForeground2 },
   },
   title: {
     display: 'block',
@@ -230,6 +208,10 @@ const useStyles = makeStyles({
 /** 会话侧栏（FR-007 多会话管理）：清单走 ui store 单一数据源，挂载即重拉。 */
 export function Sidebar() {
   const styles = useStyles();
+  // 头部工具钮（medium：36px + 20px 图标）与条目删除钮（small：28px + 16px
+  // 图标）两档；禁用态不使用（禁删守卫在点击路径上给出提示）
+  const ghostMedium = useGhostIconButtonStyles('medium');
+  const ghostSmall = useGhostIconButtonStyles('small');
   const { t, i18n } = useTranslation();
   const activeSessionId = useUiStore((s) => s.activeSessionId);
   const sessions = useUiStore((s) => s.sessions);
@@ -400,7 +382,7 @@ export function Sidebar() {
           <span className={styles.sectionActions}>
             <button
               type="button"
-              className={styles.iconBtn}
+              className={mergeClasses(ghostMedium.root, styles.iconBtn)}
               onClick={openNewSession}
               aria-haspopup="dialog"
               aria-label={t('sessions.new')}
@@ -410,7 +392,7 @@ export function Sidebar() {
             </button>
             <button
               type="button"
-              className={styles.iconBtn}
+              className={mergeClasses(ghostMedium.root, styles.iconBtn)}
               onClick={toggleSidebarCollapsed}
               aria-controls="sessions-sidebar"
               aria-expanded="true"
@@ -455,7 +437,7 @@ export function Sidebar() {
                 </button>
                 <button
                   type="button"
-                  className={styles.deleteBtn}
+                  className={mergeClasses(ghostSmall.root, styles.deleteBtn)}
                   aria-label={`${t('sessions.delete')}：${displayTitle(session)}`}
                   title={t('sessions.delete')}
                   onClick={() => requestDelete(session)}

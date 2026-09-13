@@ -5,11 +5,12 @@
 // 侧栏收合按钮为千问式（2026-09-08 用户要求）：收起在侧栏头部（‹），
 // 展开在主区左上角（›）。
 import { PanelLeftExpand16Regular } from '@fluentui/react-icons';
-import { makeStyles, tokens } from '@fluentui/react-components';
+import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
 import { CharactersView } from '../../features/characters/CharactersView';
 import { ChatView } from '../../features/chat/ChatView';
 import { SettingsView } from '../../features/settings/SettingsView';
+import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 import { useUiStore } from '../../stores/ui';
 import { ActivityBar } from './ActivityBar';
 import { Sidebar } from './Sidebar';
@@ -27,34 +28,24 @@ const useStyles = makeStyles({
     overflowY: 'auto',
     backgroundColor: tokens.colorNeutralBackground1,
   },
-  // 侧栏收起后的展开按钮：悬于主内容区左上角（千问同位）
+  // 侧栏收起后的展开按钮：悬于主内容区左上角（千问同位）。外观/尺寸/悬停
+  // 反馈由 useGhostIconButtonStyles('medium') 承载（36px 容器 + 20px 图标，
+  // 与迁移前逐项一致）；本地特例只剩定位与不透明底——浮于滚动内容之上，
+  // 钩子默认透明底会让内容从钮底透出（钩子头注预告的浮层覆写点）。
   expandBtn: {
     position: 'absolute',
     top: '8px', // 与活动栏首条目同一水平带
     left: '12px',
     zIndex: 2,
-    width: '36px',
-    height: '36px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0px',
-    border: 'none',
-    borderRadius: tokens.borderRadiusMedium,
     backgroundColor: tokens.colorNeutralBackground1,
-    color: tokens.colorNeutralForeground2,
-    cursor: 'pointer',
-    // 图标与活动栏同规格（20px）
-    '> svg': { width: '20px', height: '20px', fontSize: '20px' },
-    ':hover': {
-      backgroundColor: tokens.colorNeutralBackground1Hover,
-      color: tokens.colorNeutralForeground1,
-    },
   },
 });
 
 export function AppShell() {
   const styles = useStyles();
+  // 展开钮统一外观（medium 档：36px 容器 + 20px 图标）；禁用态恒不成立，
+  // 不传 options
+  const ghost = useGhostIconButtonStyles('medium');
   const { t } = useTranslation();
   const view = useUiStore((s) => s.view);
   const railExpanded = useUiStore((s) => s.railExpanded);
@@ -70,7 +61,7 @@ export function AppShell() {
       {view === 'chat' && sidebarCollapsed ? (
         <button
           type="button"
-          className={styles.expandBtn}
+          className={mergeClasses(ghost.root, styles.expandBtn)}
           style={{ left: railExpanded ? 212 : 60 }}
           onClick={toggleSidebarCollapsed}
           aria-controls="sessions-sidebar"

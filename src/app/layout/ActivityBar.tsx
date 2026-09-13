@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { moveIndicator } from '../../components/indicatorMotion';
+import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 import { useUiStore } from '../../stores/ui';
 import type { View } from '../../stores/ui';
 
@@ -44,30 +45,14 @@ const useStyles = makeStyles({
   railExpanded: {
     width: '200px',
   },
+  // 条目本地特例（36px 档外观/尺寸/svg 规格由 useGhostIconButtonStyles
+  // 'medium' 承载）：flexShrink:0 —— 动画末尾内容区变窄时 svg 作为 flex
+  // 子项会被挤压缩小，空间不足由标签裁剪；悬停前景压回次级——原设计悬停
+  // 只提底色不升前景，按「视觉零变化」以原值为准覆写钩子的悬停前景升阶
   item: {
-    width: '36px',
-    height: '36px',
     flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: tokens.borderRadiusMedium,
-    color: tokens.colorNeutralForeground2,
     textDecoration: 'none',
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
-    // 图标统一 20px：部分图标 svg 带显式 width/height="24" 属性，仅设
-    // font-size 对其无效，必须用 CSS width/height 覆盖，否则收起（居中）
-    // 与展开（左对齐）两态偏移不一致导致图标跳动。flexShrink:0 —— 动画
-    // 末尾内容区变窄时 svg 作为 flex 子项会被挤压缩小，空间不足由标签裁剪
-    '> svg': { fontSize: '20px', width: '20px', height: '20px', flexShrink: 0 },
-  },
-  // 原生 button 无 Fluent 外观重置：默认边框/底色/光标需手动抹平
-  buttonReset: {
-    border: 'none',
-    padding: '0px',
-    backgroundColor: 'transparent',
-    fontFamily: 'inherit',
-    cursor: 'pointer',
+    ':hover': { color: tokens.colorNeutralForeground2 },
   },
   itemExpanded: {
     width: '100%',
@@ -122,6 +107,9 @@ const TOP_ITEMS: { view: View; Icon: ComponentType; labelKey: string }[] = [
 
 export function ActivityBar() {
   const styles = useStyles();
+  // 条目统一外观（medium 档：36px 容器 + 20px 图标，替代原 item+buttonReset
+  // 双类样板）；禁用态不使用
+  const ghost = useGhostIconButtonStyles('medium');
   const { t } = useTranslation();
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
@@ -189,7 +177,7 @@ export function ActivityBar() {
         railLabel,
         <button
           type="button"
-          className={mergeClasses(styles.item, styles.buttonReset)}
+          className={mergeClasses(ghost.root, styles.item)}
           onClick={toggleRailExpanded}
           aria-label={railLabel}
           aria-expanded={railExpanded}
@@ -209,8 +197,8 @@ export function ActivityBar() {
               <button
                 type="button"
                 className={mergeClasses(
+                  ghost.root,
                   styles.item,
-                  styles.buttonReset,
                   contentExpanded && styles.itemExpanded,
                   active && styles.active,
                 )}
@@ -232,8 +220,8 @@ export function ActivityBar() {
         <button
           type="button"
           className={mergeClasses(
+            ghost.root,
             styles.item,
-            styles.buttonReset,
             contentExpanded && styles.itemExpanded,
             view === 'settings' && styles.active,
           )}

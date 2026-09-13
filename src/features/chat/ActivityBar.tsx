@@ -26,7 +26,11 @@ const useStyles = makeStyles({
     alignItems: 'flex-start',
     gap: '2px',
   },
-  // 折叠行与让位小标记共用：无边框透明按钮（整行可点展开回看），细字次级色
+  // 折叠行与让位小标记共用：无边框透明按钮（整行可点展开回看），细字次级色。
+  // 审计 C2 曾列为本钩子候选，实测不迁：hit 是文字钮（无固定尺寸、无图标、
+  // 无悬停反馈，靠可见文案本身可点），useGhostIconButtonStyles 的档位语义
+  // （固定 28/36px 容器 + svg 规格 + 悬停反馈）与其形态全部冲突，硬套需逐条
+  // 覆写尺寸/居中/悬停/前景，样板不减反增且语义错位
   hit: {
     alignSelf: 'flex-start',
     padding: 0,

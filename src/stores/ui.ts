@@ -7,6 +7,14 @@ export type View = 'chat' | 'characters' | 'settings';
 /** 会话清单排序约定（FR-007）：updated_at 倒序，落 store 前统一保证。 */
 const byRecencyDesc = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;
 
+/**
+ * 重拉请求序号（模块级单调递增）：refreshSessions 与 refreshSessionsQuietly
+ * 共用此序号源（后者委托 get().refreshSessions()，天然同源）。并发重拉时仅
+ * 序号等于最新值的响应可落 store，收敛「先发后至」竞态（Task-11：删除会话
+ * 的重拉与流终态静默刷新并发时，陈旧响应不得把已删会话写回清单）。
+ */
+let refreshSeq = 0;
+
 interface UiState {
   view: View;
   activeSessionId: number | null;
@@ -25,7 +33,8 @@ interface UiState {
    * 收敛）。null = 最近一次重拉无失败；进入重拉即清值（错误态回加载态），
    * 成功保持 null。静默路径 refreshSessionsQuietly 的失败同样落值——落值不
    * 等于冒泡（不抛给调用方、不阻塞聊天路径，TASK-010 契约不变），仅让全局
-   * 错误态如实反映最近一次重拉结果。
+   * 错误态如实反映最近一次重拉结果。并发重拉时失败按请求序号归属：仅最新
+   * 请求的失败可落值，陈旧失败丢弃（Task-11，与清单写入同规则）。
    */
   sessionsLoadError: string | null;
   /** 活动栏展开态（汉堡双态：48px 收起 / 200px 展开），风格随 relay-harbor */
@@ -46,8 +55,9 @@ interface UiState {
   selectSession: (id: number) => void;
   /**
    * 全量重拉会话清单（TASK-007 刷新策略）：挂载进聊天视图、新建/删除后调用，
-   * 排序在此收口。后端为唯一事实，前端不做增量补丁。失败落 sessionsLoadError
-   * 并保持原 rejection 契约——调用方仍须收敛 rejection（错误可见性走 store
+   * 排序在此收口。后端为唯一事实，前端不做增量补丁。并发重拉按发起序号归属
+   * （Task-11）：仅最新请求的成功响应落清单，陈旧响应整体丢弃。失败落
+   * sessionsLoadError 并保持原 rejection 契约——调用方仍须收敛 rejection（错误可见性走 store
    * 状态，异常路径仅是调用方流程控制，如 ledgerPanel 删除/分叉失败提示）。
    */
   refreshSessions: () => Promise<void>;
@@ -83,17 +93,25 @@ export const useUiStore = create<UiState>()((set, get) => ({
   setView: (view) => set({ view }),
   selectSession: (id) => set({ activeSessionId: id, view: 'chat' }),
   refreshSessions: async () => {
-    // 进入重拉即清错误（重试语义 = 错误态回加载态）；成功同句再落 null 兜住
-    // 并发重拉的「前次失败后写」竞态（最后完成的成功即事实）
+    // 发起即取序号：此后任何时刻 seq !== refreshSeq 都意味着已有更新的重拉
+    // 在途或完成，本请求降级为陈旧请求
+    const seq = ++refreshSeq;
+    // 进入重拉即清错误（重试语义 = 错误态回加载态）
     set({ sessionsLoadError: null });
     try {
       const sessions = await listSessions();
+      // 陈旧成功整体丢弃（清单与错误态都不写）：先发后至的响应不得覆盖最新
+      // 清单（删除 × 终态刷新并发实坑，Task-11）
+      if (seq !== refreshSeq) return;
       set({
         sessions: [...sessions].sort(byRecencyDesc),
         sessionsLoaded: true,
         sessionsLoadError: null,
       });
     } catch (e) {
+      // 陈旧失败同样不落错误态（旧失败不得覆盖新成功）；rejection 契约不变
+      // 仍上抛——调用方收敛职责不因陈旧而豁免（静默路径由 refreshSessionsQuietly 接住）
+      if (seq !== refreshSeq) throw e;
       set({ sessionsLoadError: e instanceof Error ? e.message : String(e) });
       throw e;
     }

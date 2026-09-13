@@ -1,8 +1,11 @@
 // 聊天交互手感测试（U1 / U2 / U3 / A1 / U5，2026-09 只读审计落地项）：
 // - U1 IME 守卫：组合期（中文确认候选词）的 Enter 不发送，草稿保留；
 // - U2 切会话竞态：快速切换时慢返的旧 listMessages 响应不覆盖新会话消息；
+//   加载失败路径：旧会话迟到的 rejection 不归属新会话（Task-10）；
 // - U3 智能吸底：上滚阅读时新消息不拽回底部，贴底时仍自动跟随；
 // - A1 错误通知 role="alert"：发送失败提示对读屏可达；
+//   加载失败路径：切入已删会话 listMessages 失败落 alert，无浮空 rejection
+//   （Task-10）；
 // - U5 空态直达钮：零会话空态含「新建会话」按钮，点击置位 store 开关
 //   （对话框 open 状态提升自 Sidebar），侧栏「+」同源消费。
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
@@ -261,6 +264,44 @@ it('U2：快速切会话时慢返的旧响应不覆盖新会话消息', async ()
     resolveOld([OLD_MESSAGE]);
   });
   expect(screen.queryByText('旧回复')).toBeNull();
+  expect(screen.getByText('新回复')).toBeTruthy();
+});
+
+// —— Task-10 加载失败路径：listMessages 对已删/软删会话抛 NotFound（对齐
+// ipc.rs list_messages_impl），切会话加载不得产生浮空 rejection ——
+
+it('A1：切入已删会话时加载失败落 role="alert" 提示（无浮空 rejection）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockRejectedValue(new Error('会话不存在或已删除'));
+  renderView();
+  // 错误可判定地落到 UI 状态：alert 含 i18n 前缀与失败原因，不静默吞掉
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('消息加载失败');
+  expect(alert.textContent).toContain('会话不存在或已删除');
+});
+
+it('U2：旧会话迟到的加载失败 rejection 不归属新会话', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  // 会话 3 的响应挂起（慢失败），会话 4 的响应立即返回（快）
+  let rejectOld!: (reason: unknown) => void;
+  mocks.listMessages.mockImplementation((sessionId: number) =>
+    sessionId === 3
+      ? new Promise<ChatMessage[]>((_, reject) => {
+          rejectOld = reject;
+        })
+      : Promise.resolve([NEW_MESSAGE]),
+  );
+  renderView();
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledWith(3));
+  act(() => {
+    useUiStore.setState({ activeSessionId: 4 });
+  });
+  expect(await screen.findByText('新回复')).toBeTruthy();
+  // 慢返的旧会话失败此刻才到：cancelled 守卫丢弃，不得让新会话背上错误提示
+  await act(async () => {
+    rejectOld(new Error('会话不存在或已删除'));
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByText('新回复')).toBeTruthy();
 });
 

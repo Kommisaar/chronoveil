@@ -118,15 +118,28 @@ export function ChatView() {
     // 切会话竞态守卫（同 ledgerPanel 的 cancelled 模式）：卸载或切换后慢返的
     // 旧响应不落 state，防止覆盖新会话消息（U2）
     let cancelled = false;
-    void listMessages(sessionId).then((fresh) => {
-      if (!cancelled && useUiStore.getState().activeSessionId === sessionId) {
-        setMessages(fresh);
-      }
-    });
+    // notice 是会话域提示（发送/生成/加载失败共用）：切会话即清，上一会话的
+    // 失败不带到新会话错误归属（同 ledgerPanel 每次拉取前 setFailed(false) 的
+    // 按会话重置语义）
+    setNotice(null);
+    void listMessages(sessionId)
+      .then((fresh) => {
+        if (!cancelled && useUiStore.getState().activeSessionId === sessionId) {
+          setMessages(fresh);
+        }
+      })
+      .catch((e: unknown) => {
+        // 已删/软删会话（NotFound，对齐 ipc.rs list_messages_impl：不存在报
+        // NotFound 而非空列表）或 IPC 失败：错误落 notice（role="alert"）可
+        // 判定呈现，禁止浮空 rejection；迟到的旧会话失败不归属当前会话，随
+        // cancelled 丢弃
+        if (cancelled) return;
+        setNotice(`${t('chat.loadFailed')}${e instanceof Error ? `：${e.message}` : ''}`);
+      });
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId]);
+  }, [activeSessionId, t]);
 
   // 终态收尾（done/error）：Rust 侧已落库（ADR-001），重拉列表替换流式行。
   // 收尾只由 StreamingMessage 的 onSettled 驱动——done 先排空队列定格（无直出跳进），

@@ -75,6 +75,8 @@ export const en = {
     stop: 'Stop',
     regenerate: 'Regenerate',
     failed: 'Generation failed',
+    // 会话消息列表加载失败（已删/软删会话 NotFound 或 IPC 异常），ChatView 切会话加载路径
+    loadFailed: 'Failed to load messages',
     you: 'You',
     reasoning: 'Reasoning',
     interrupted: 'Interrupted',

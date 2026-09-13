@@ -72,6 +72,8 @@ export const zh = {
     stop: '停止',
     regenerate: '重新生成',
     failed: '生成失败',
+    // 会话消息列表加载失败（已删/软删会话 NotFound 或 IPC 异常），ChatView 切会话加载路径
+    loadFailed: '消息加载失败',
     you: '你',
     reasoning: '思考过程',
     interrupted: '已中断',

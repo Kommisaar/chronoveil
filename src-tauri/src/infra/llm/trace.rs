@@ -17,7 +17,7 @@ use super::contract::{chat_message_wire, ChatMessage};
 /// `None` trace 参数 = 不记录（测试 / 未来可能的内部调用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CallTrace {
-    /// 所属会话；None = 无会话调用（历法起草 draft）。
+    /// 所属会话；None = 无会话调用（历史起草调用遗留形态，现行写入方恒有会话）。
     pub session_id: Option<i64>,
     pub kind: LlmCallKind,
 }

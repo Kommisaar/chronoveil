@@ -38,7 +38,8 @@ export function tickIntervalMs(backlog: number, msPerChar: number): number {
 
 /**
  * 标点微停（毫秒，demo pauseAfter）：轻微呼吸感，不是打字机式大停顿。
- * 结构单元固定深呼吸（不受开关影响）；开关关闭时文本微停放空。
+ * {para}/{hr} 固定深呼吸（不受开关影响）；{item} 自身不停顿——其后正文
+ * 按文本微停规则走；开关关闭时文本微停放空。
  */
 export function microPauseMs(unit: StreamUnit, msPerChar: number, punctPauseEnabled: boolean): number {
   if (isPara(unit) || isHr(unit)) return 260 + msPerChar;

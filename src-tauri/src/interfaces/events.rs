@@ -74,9 +74,9 @@ pub enum StreamEvent {
         detail: Option<String>,
     },
     /// LLM 调用轨迹（透明化功能）：一次 LLM HTTP 请求完成即发（含失败 / 取消
-    /// 尝试）。无顶层 session_id —— 会话定位在 `call.session_id`（draft 为 null，
-    /// 前端按其过滤；不匹配即丢弃）。事件发射与落库同点完成且**以落库为准**
-    /// （见 [`TauriCallSink`]）。
+    /// 尝试）。无顶层 session_id —— 会话定位在 `call.session_id`（null = 无会话
+    /// 调用：历史起草调用遗留形态，现行写入方恒有会话；前端按其过滤，不匹配即
+    /// 丢弃）。事件发射与落库同点完成且**以落库为准**（见 [`TauriCallSink`]）。
     Trace {
         /// 已落库的轨迹行（携带库内 id，前端可与 list_llm_calls 结果对齐）。
         call: LlmCallDto,

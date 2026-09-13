@@ -6,8 +6,8 @@
  * 动、方向键与读屏（标准自绘滑杆手法，Fluent 同款）。
  *
  * 强调色走 Fluent 品牌 token（colorBrandForeground1），白环 / 灰轨 / 气泡底
- * 全部主题 token，暗色自适应。几何口径单一事实源 THUMB_SIZE_PX：拇指行程 =
-|* 宽度 − 拇指径，圆心再内缩半径；填充止点 --cv-fill 与气泡 left 同式。
+ * 全部主题 token，暗色自适应。几何口径单一事实源 KNOB_SIZE_PX：拇指行程 =
+ * 宽度 − 拇指径，圆心再内缩半径；填充止点 --cv-fill 与气泡 left 同式。
  */
 import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { useEffect, useState } from 'react';

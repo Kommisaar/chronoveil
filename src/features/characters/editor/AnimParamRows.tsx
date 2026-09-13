@@ -27,7 +27,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: tokens.spacingHorizontalS,
   },
-  // 滑杆宽度：挂在 TooltipSlider 包裹层（内部 Fluent Slider 满宽随层）
+  // 滑杆宽度：挂在 TooltipSlider 包裹层（自绘实现的根容器，轨与透明原生 input 满宽随层）
   sliderW160: {
     width: '160px',
     minWidth: '0px',

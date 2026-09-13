@@ -53,7 +53,8 @@ impl From<llm_call::LlmCallStatus> for LlmCallStatusDto {
 #[serde(rename_all = "camelCase")]
 pub struct LlmCallDto {
     pub id: i64,
-    /// 所属会话；null = 无会话调用（历法起草），不出现在会话查询里。
+    /// 所属会话；null = 无会话调用（历史起草调用遗留形态，现行写入方恒有会话），
+    /// 不出现在会话查询里。
     pub session_id: Option<i64>,
     pub kind: LlmCallKindDto,
     pub model: String,
@@ -107,7 +108,8 @@ fn list_llm_calls_impl(
     limit: Option<u32>,
 ) -> Result<Vec<LlmCallDto>, IpcError> {
     // 先会话在世校验（不存在 / 已软删报 NotFound，与 list_messages_impl 同构），
-    // 再走存储端口；列表按 id 倒序（最新在前），无会话的 draft 轨迹天然不入。
+    // 再走存储端口；列表按 id 倒序（最新在前），无会话轨迹（session_id 为 NULL，
+    // 历史起草调用遗留形态）经 WHERE session_id = ?1 天然排除。
     app.storage.get_session(session_id)?;
     Ok(app
         .storage

@@ -56,8 +56,8 @@ fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> 
 
 /// 给解析好的客户端挂接调用轨迹 sink（透明化功能）：组合根 setup 注入的组合实现
 /// （TauriCallSink：落库 + Trace 事件）经 AppState 取用；None = 测试装配未注入，
-/// 不记录（轨迹是旁路，缺席不阻塞任何主流程）。AI 起草历法（draft_calendar 域）
-/// 的单次调用同样经此挂接，故对 ipc 子树可见。
+/// 不记录（轨迹是旁路，缺席不阻塞任何主流程）。现存调用方均在本文件——主对话
+/// （send / regenerate 经 [`resolve_llm`]）与导演结算模型（[`generation_deps`]）。
 pub(super) fn with_call_trace(app: &AppState, llm: LlmClient) -> LlmClient {
     match app.call_sink() {
         Some(sink) => llm.with_call_sink(sink),

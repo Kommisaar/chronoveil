@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 会话总结 — 多角色收官 × 前端 UI/UX 迭代批</title>
+<style>
+  :root {
+    --bg: #1a1a24; --bg2: #22222e; --bg3: #2a2a38;
+    --fg: #e8e8f0; --fg2: #a8a8bc; --fg3: #7a7a90;
+    --accent: #7aa2f7; --good: #9ece6a; --warn: #e0af68; --bad: #f7768e;
+    --line: #35354a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 80px;
+    background: var(--bg); color: var(--fg);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.7; font-size: 15px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 28px; }
+  header {
+    padding: 56px 0 32px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #20202e 0%, var(--bg) 100%);
+  }
+  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0.5px; }
+  h1 .veil { color: var(--accent); }
+  .sub { color: var(--fg2); font-size: 14px; }
+  .kpis { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 24px; }
+  .kpi {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 20px; min-width: 130px;
+  }
+  .kpi .n { font-size: 26px; font-weight: 600; color: var(--accent); }
+  .kpi .l { font-size: 12px; color: var(--fg3); margin-top: 2px; }
+  h2 {
+    margin: 48px 0 16px; font-size: 20px;
+    padding-left: 12px; border-left: 3px solid var(--accent);
+  }
+  h3 { margin: 28px 0 10px; font-size: 16px; color: var(--fg); }
+  p { margin: 8px 0; color: var(--fg2); }
+  p strong, li strong { color: var(--fg); }
+  code {
+    background: var(--bg3); border-radius: 4px; padding: 1px 6px;
+    font-family: Consolas, monospace; font-size: 13px; color: #c0caf5;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--bg2); color: var(--fg); font-weight: 600; white-space: nowrap; }
+  td { color: var(--fg2); }
+  td:first-child { white-space: nowrap; }
+  .tag {
+    display: inline-block; border-radius: 4px; padding: 0 8px; font-size: 12px;
+    margin-right: 6px; border: 1px solid var(--line);
+  }
+  .tag.ok { color: var(--good); border-color: var(--good); }
+  .tag.run { color: var(--warn); border-color: var(--warn); }
+  .tag.info { color: var(--accent); border-color: var(--accent); }
+  .card {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 20px; margin: 12px 0;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 14.5px; }
+  .card p { margin: 4px 0; font-size: 13.5px; }
+  ul { color: var(--fg2); margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--fg3); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Chrono<span class="veil">Veil</span> 会话总结</h1>
+  <div class="sub">多角色三步链收官 · 500 行卫生批 · 前端 UI/UX 迭代批（三轮审计驱动）｜2026-09-12 ~ 09-13</div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">31</div><div class="l">迭代任务全部 MERGED</div></div>
+    <div class="kpi"><div class="n">67</div><div class="l">本会话提交（master）</div></div>
+    <div class="kpi"><div class="n">480→571+</div><div class="l">前端用例（仍在增长）</div></div>
+    <div class="kpi"><div class="n">290→306+</div><div class="l">Rust 用例</div></div>
+    <div class="kpi"><div class="n">0</div><div class="l">源文件超 500 行</div></div>
+    <div class="kpi"><div class="n">0</div><div class="l">未合并产物</div></div>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>一、多角色与时间线：三步链完整落地</h2>
+<p>用户拍板的「模板/实例分离 + 会话阵容制 + 时间线分叉」方案（方案 A）全部实施：</p>
+<table>
+  <tr><th>步骤</th><th>任务</th><th>核心交付</th></tr>
+  <tr><td>① 实例层</td><td>Task-30/31</td><td>迁移 0009：character_instances 表（is_user 恰一硬校验）、建会话阵容制单事务、装配多实例分段、开局向导两步选人</td></tr>
+  <tr><td>② 状态历史化</td><td>Task-40</td><td>迁移 0010：superseded_at append-only（警惕→释然→悲伤全链保留）、<code>as_of_scene</code> 时间点还原查询</td></tr>
+  <tr><td>③ 时间线分叉</td><td>Task-43/44/45</td><td>迁移 0011：fork_session 单事务（三级 id 映射、锚前场景保原号、状态取锚点当时值、llm_calls 不拷）；forkSession IPC + 场景行「从此分叉」+ 清单⑂标识；BR-003 收窄为线内不倒流</td></tr>
+</table>
+<p>验收主线：<strong>第 7 天分叉回第 3 天——新线状态是第 3 天当时值、虚时从锚点重走、原线逐表零影响</strong>。卫生候选 C9/C10/C11 同批收尾（历法常量单一事实源、error_text 钳长 2000 字符、迁移 FK=OFF 包络——后者实锤「逐迁移重申 OFF，批前一次会被 SQL 内嵌 PRAGMA 翻回」）。</p>
+
+<h2>二、500 行硬上限卫生批</h2>
+<p>规范入 AGENTS.md 后存量 22 文件超限，Task-32..39 八任务全并行消化，终验<strong>源码本体零超限</strong>（tests 外置承载文件豁免）。代表战果：ipc.rs 2753→153 注册壳（41 pub 项集合比对 41:41）、llm.rs 1131→51、generation 1804→472+registry。</p>
+
+<h2>三、前端 UI/UX 迭代批（本批重点）</h2>
+<p>目标：一致性 / 易用性 / 美观度 / 动画一致性，用户授权破坏性改造。三轮 iter-scout 审计驱动（18+6+第三轮在飞），16 任务（15 已合并 + 1 在飞），全部后台并行 + worktree 池化执行。</p>
+
+<h3>一致性</h3>
+<div class="grid2">
+  <div class="card"><h4>确认族统一</h4><p>ConfirmDialog 收编五处对话框；补齐角色页 Esc 不可取消；破坏性键红描边弱化 + 取消键主键化；busy 防双击。</p></div>
+  <div class="card"><h4>幽灵图标钮收敛</h4><p>9 处手写「原生 button 抹平」迁入 useGhostIconButtonStyles（28/36 两档），键盘焦点环全量补齐。</p></div>
+  <div class="card"><h4>Tooltip 全量接管</h4><p>原生 title 清零（label/inaccessible 分型），悬停提示获得键盘可达与统一延迟观感。</p></div>
+  <div class="card"><h4>圆角三档规范</h4><p>页面级 16px（SURFACE_RADIUS_PAGE_CARD 常量闭环）/ 分组卡 Large(6px) / 行内 Medium(4px)——实测纠错 Fluent token 档位。</p></div>
+</div>
+
+<h3>易用性（含两个正确性修复）</h3>
+<ul>
+  <li><strong>IME 守卫</strong>：中文输入法按 Enter 确认候选词不再误发半截消息（红测试先行复现）。</li>
+  <li><strong>切会话竞态守卫</strong>：快速切换不再出现旧会话消息串台（resolve 顺序反转复现）。</li>
+  <li><strong>智能吸底</strong>：流式输出时上滚阅读不再被拽回（距底 80px 阈值）。</li>
+  <li><strong>空态直达</strong>：零会话即可点「新建会话」，不再依赖可收起的侧栏「+」；文案指引同步修正。</li>
+  <li><strong>删模型确认</strong>：唯一/全局默认模型删除先确认（次级文字对比度连带修复 0.66→0.8）。</li>
+  <li><strong>禁用钮可达</strong>：发送/停止/重新生成禁用态改 disabledFocusable——「为什么发不出去」悬停可见。</li>
+</ul>
+
+<h3>美观度</h3>
+<ul>
+  <li><strong>三态同构</strong>：StateBlock 统一承载全部视图——加载不再整页空白、错误带重试且 role="alert"、空态两级形制（页面级/段内）成文。</li>
+  <li><strong>对比度守卫</strong>：UI 层 55 用点 WCAG AA 实测（复用引擎公式）；选人卡与海报文字压暗层（0.62 下限，最坏白 accent 数学推导 6.19:1 入守卫）。</li>
+</ul>
+
+<h3>动画一致性</h3>
+<ul>
+  <li><strong>motion token 单源</strong>：曲线 3 档 + 时长 7 档，CSS 走 --cv-* 互指，全仓扫描守卫锁死字面量位置；400/480ms 漂移实证归并。</li>
+  <li><strong>stagger 统一</strong>：清单浮现 24ms + 360ms 封顶（原侧栏 16/240 vs 卡墙 60/无封顶差 3.75 倍）。</li>
+  <li><strong>reduce 门控</strong>：prefers-reduced-motion 补齐 6 处（卡片浮起、侧栏收展、色块环、chevron、思考淡入）。</li>
+  <li><strong>思考两态过渡</strong>：终态 Accordion 200ms 淡入（重挂载机制下按拍板方案落地；真交叉淡化需动 settle 竞态，留独立议题）。</li>
+</ul>
+
+<h2>四、流程演进</h2>
+<table>
+  <tr><th>改进</th><th>内容</th><th>状态</th></tr>
+  <tr><td>并发预算</td><td>用户提升至 4（skill 硬上限），后台滚动派发</td><td><span class="tag ok">生效</span></td></tr>
+  <tr><td>worktree 池化</td><td>固定 4 成员（wt-1..4），任务取用/回池，node_modules 零重装；实锤 Windows pnpm junction 绝对路径「move 即断」，修正为转池即重装一次</td><td><span class="tag ok">生效</span></td></tr>
+  <tr><td>即时补位</td><td>完成通知即派新任务不等批次（CAND-06 等 Task-11 合并后即时补位）</td><td><span class="tag ok">生效</span></td></tr>
+  <tr><td>skill 固化</td><td>即时补位硬约束 / max-task-size / 池化写进 iter-loop SKILL.md</td><td><span class="tag run">用户决定先不做</span></td></tr>
+  <tr><td>已知坑登记</td><td>fmt style-edition 漂移不作门禁、clippy 必须 --all-targets、负载型 vitest flake（20s 时距预算根修）</td><td><span class="tag ok">AGENTS.md</span></td></tr>
+</table>
+
+<h2>五、当前状态与下一步</h2>
+<div class="card"><h4><span class="tag run">在飞</span>Task-16：窄窗降级（CAND-04，用户拍板 1200 断点浮层化）</h4><p>账本面板 <1200px 转 fixed 浮层，聊天列不再被挤压；宽断点零变化。</p></div>
+<div class="card"><h4><span class="tag run">在飞</span>第三轮 iter-scout 增量审计</h4><p>六新角度：流式链路深审（settle 竞态）、错误文案可操作性、UI 偏好持久化（重启保持）、列表量级评估、壳层首次动线、动效语义终审。报告将如实判断「继续滚动 or 收敛」。</p></div>
+<div class="card"><h4><span class="tag info">已排期</span>遗留与候选池</h4><p>海报 ⋯ 菜单图标恒白（非文本 3:1 不达标，待拍板）；ui store 错误态扩展（sessionsLoadError 已落，其他调用点按需接线）；真交叉淡化（settle 时序拆分）；vitest 负载 flake 的环境复用根修；wt-3/4 池成员 node_modules 预修（后台进行中）。</p></div>
+
+<h2>六、门禁与质量证据</h2>
+<ul>
+  <li>每任务独立门禁：builder 自跑全量 + 协调者 postmerge 复跑 + 数字对账（用例增量逐任务核对，零不明增量）。</li>
+  <li>纯搬移任务附等价性证据（diff 校验 VERBATIM、集合比对、逐字断言）；行为变化全部测试先行或同提交。</li>
+  <li>破坏性授权行使处均有视觉变化声明：Tooltip 形态、StateBlock 垂直居中、确认键配色、海报文字带压暗。</li>
+  <li>三次事实纠错被 builder 实测拦截并跨任务转达：borderRadiusLarge 实为 6px、fg3 不达标前提证伪、Tasks 7eb3cf8/4136e3d 的用例增量推算精确命中 571。</li>
+</ul>
+
+<footer>
+  生成于 2026-09-13 · iter-loop run 20260913T013020Z-07835f64（feature 策略，until-stop）· 状态与台账：auto-iter/runs/<br>
+  报告为会话快照；会话结束后 agent 不再运行，续跑需显式 /iter-resume。
+</footer>
+</div>
+</body>
+</html>

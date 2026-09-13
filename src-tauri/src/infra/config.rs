@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 pub const CONFIG_FILE_NAME: &str = "config.json";
 
 /// 打字节奏允许范围（ms/字，FR-009：10–160，默认 45）。
+/// 与 TS 常量互指（同一约束两端）：`src/features/settings/preferences.ts` 的 `RHYTHM_MIN` / `RHYTHM_MAX`（经 `src/engine/index.ts` 的 `RHYTHM_MIN_MS` / `RHYTHM_MAX_MS` 单一源）。
 pub const RHYTHM_MS_MIN: u32 = 10;
 pub const RHYTHM_MS_MAX: u32 = 160;
 
@@ -29,6 +30,7 @@ pub const RHYTHM_MS_MAX: u32 = 160;
 pub const DEFAULT_RHYTHM_MS_PER_CHAR: u32 = 45;
 
 /// 近景场景数允许范围（ADR-004 近景窗口可选化：1 场省 token – 6 场更多逐字上下文）。
+/// 与 TS 常量互指（同一约束两端）：`src/features/settings/preferences.ts` 的 `NEAR_SCENES_MIN` / `NEAR_SCENES_MAX` 单一源（api/mock/config.ts 按 api 层不可反向 import 纪律以字面量+注释对齐）。
 pub const NEAR_SCENES_MIN: u32 = 1;
 pub const NEAR_SCENES_MAX: u32 = 6;
 

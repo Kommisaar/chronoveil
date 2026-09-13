@@ -1,17 +1,15 @@
 // @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // 海报渐变派生纯函数单测（强调色派生回归防线）：合法 #RRGGBB 原色直出、
-// 非法 accent 串按未设置回落 id 取模、None 跟随派生、小圆点用 id+1 邻位色对、
-// rgba 叠加色非法输入落黑。全部为纯函数，不涉及 DOM。
+// 非法 accent 串按未设置回落 id 取模、None 跟随派生、小圆点用 id+1 邻位色对。
+// 全部为纯函数，不涉及 DOM。
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_POSTER_GRADIENT,
   POSTER_GRADIENTS,
   accentColorOf,
   dotGradientOf,
   gradientOf,
   gradientPairOf,
   posterGradientOf,
-  withAlpha,
 } from './posterGradient';
 
 describe('gradientPairOf（按 id 取模的恒定色对）', () => {
@@ -75,22 +73,5 @@ describe('accentColorOf（界面着色基础色）', () => {
     expect(accentColorOf({ id: 0, accentColor: null })).toBe('#6b46b8');
     expect(accentColorOf({ id: 0, accentColor: 'nope' })).toBe('#6b46b8');
     expect(accentColorOf({ id: 1, accentColor: null })).toBe(gradientPairOf(1)[1]);
-  });
-});
-
-describe('withAlpha（#RRGGBB → rgba 叠加色）', () => {
-  it('合法 hex 拆通道，透明度原样内插', () => {
-    expect(withAlpha('#ff8000', 0.25)).toBe('rgba(255, 128, 0, 0.25)');
-    expect(withAlpha('#FF8000', 1)).toBe('rgba(255, 128, 0, 1)');
-  });
-  it('非法输入落黑（r=g=b=0），不抛异常', () => {
-    expect(withAlpha('#12345', 0.5)).toBe('rgba(0, 0, 0, 0.5)');
-    expect(withAlpha('', 0)).toBe('rgba(0, 0, 0, 0)');
-  });
-});
-
-describe('DEFAULT_POSTER_GRADIENT（新建角色尚无 id 的默认渐变）', () => {
-  it('取调色板首组靛紫（gradientOf(0)）', () => {
-    expect(DEFAULT_POSTER_GRADIENT).toBe(gradientOf(0));
   });
 });

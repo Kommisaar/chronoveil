@@ -67,12 +67,3 @@ export function dotGradientOf(character: { id: number; accentColor: string | nul
 export function accentColorOf(character: { id: number; accentColor: string | null }): string {
   return validAccent(character.accentColor) ?? gradientPairOf(character.id)[1];
 }
-
-/** #RRGGBB → rgba(r, g, b, a)：氛围渐变需要同色不同透明度的叠加。 */
-export function withAlpha(hex: string, alpha: number): string {
-  const [r, g, b] = parseHex(hex) ?? [0, 0, 0];
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/** 新建角色（尚无 id）的默认渐变：取调色板首组靛紫。 */
-export const DEFAULT_POSTER_GRADIENT = gradientOf(0);

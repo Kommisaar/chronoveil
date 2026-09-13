@@ -7,6 +7,7 @@
  */
 import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
 import type { CSSProperties } from 'react';
+import { CROSSFADE_MS, DECELERATE_CURVE } from '../../components/motion';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 
@@ -91,6 +92,18 @@ const useChatViewBaseStyles = makeStyles({
   reasoning: {
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
+  },
+  // 思考两态收尾过渡（M4）：终态 Accordion 挂载即播 200ms 淡入（keyframes
+  // 在 app.css 的 reasoning-fade-in），消「流式胶囊 → 折叠头」同位硬切感。
+  // 挂载动画无延迟，fill-mode 无需 backwards。「减弱动态」下整个 @media
+  // 分支缺席 → 直接切换无过渡（从众 useCardLiftStyles / enterPop 修法）。
+  // 档位与机制见 motion.ts 的 CROSSFADE_MS 注释与 ChatView 渲染处注释。
+  reasoningEnter: {
+    '@media (prefers-reduced-motion: no-preference)': {
+      animationName: 'reasoning-fade-in',
+      animationDuration: `${CROSSFADE_MS}ms`,
+      animationTimingFunction: DECELERATE_CURVE,
+    },
   },
   interrupted: {
     fontSize: tokens.fontSizeBase200,

@@ -177,6 +177,40 @@ it('历史行元信息零回归：说话人/时间/思考折叠/中断标记俱�
   expect(screen.getByText('已中断')).toBeTruthy();
 });
 
+it('终态思考 Accordion 携带收尾淡入动画类（M4 接线）', async () => {
+  const view = renderView();
+  const header = await screen.findByText(/思考过程 · 1\.5s/);
+  const accordion = header.closest('.fui-Accordion');
+  expect(accordion, '思考折叠应渲染为 Fluent Accordion').toBeTruthy();
+  // 视觉过渡 jsdom 不可断言（无动画播放），此处只断言接线：Accordion 的
+  // Griffel 类在样式表中注入了 reasoning-fade-in 动画（声明值与 reduce 门控
+  // 在 useChatViewStyles.test 断言）。动画规则在 Griffel 的 @media 块内，
+  // 需下钻媒体规则。
+  const classes = accordion!.className.split(/\s+/).filter(Boolean);
+  let found = false;
+  const walk = (rules: CSSRuleList): void => {
+    for (const entry of Array.from(rules)) {
+      const media = entry as CSSMediaRule;
+      if (media.conditionText !== undefined && media.cssRules !== undefined) {
+        walk(media.cssRules);
+        continue;
+      }
+      const style = entry as CSSStyleRule;
+      if (
+        style.selectorText !== undefined &&
+        classes.some((c) => style.selectorText.startsWith('.' + c)) &&
+        style.style.getPropertyValue('animation-name') === 'reasoning-fade-in'
+      ) {
+        found = true;
+      }
+    }
+  };
+  for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules);
+  expect(found, 'Accordion 的类应注入 reasoning-fade-in 动画').toBe(true);
+  // 静态冒烟：容器内恰有一个思考折叠挂载点（本测试的动画类只应落在此处）
+  expect(view.container.querySelectorAll('.fui-Accordion')).toHaveLength(1);
+});
+
 it('聊天流容器内联覆写引擎命名空间变量（审计问题 3 冒烟）', async () => {
   const view = renderView();
   await screen.findByText('织星者');

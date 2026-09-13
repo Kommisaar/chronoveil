@@ -4,9 +4,12 @@
 //   useGhostIconButtonStyles.test 的样式表扫描思路：渲染 fixture 后从元素类名
 //   反查 Griffel 注入的真实样式规则，断言具体声明值（类名是内容寻址哈希，
 //   断言注入的声明才是行为本身）；
-// - composerCard 圆角必须来自页面级卡面档常量（surfaceSpec 两档规范，A2）。
+// - composerCard 圆角必须来自页面级卡面档常量（surfaceSpec 两档规范，A2）；
+// - reasoningEnter 思考收尾淡化（M4）：声明值走 motion.ts token，
+//   动画声明只落在 no-preference 门控内（reduce 分支结构）。
 import { render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CROSSFADE_MS, DECELERATE_CURVE } from '../../components/motion';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useChatViewStyles } from './useChatViewStyles';
 
@@ -18,6 +21,7 @@ function Fixture() {
         <svg data-testid="icon" />
       </button>
       <div className={styles.composerCard} data-testid="composer" />
+      <div className={styles.reasoningEnter} data-testid="reasoning" />
     </div>
   );
 }
@@ -102,5 +106,64 @@ describe('composerCard 圆角规格（A2）', () => {
       .filter((t) => t.includes('radius'))
       .join('');
     expect(radiusText).toContain(SURFACE_RADIUS_PAGE_CARD);
+  });
+});
+
+describe('reasoningEnter 思考收尾淡化（M4）', () => {
+  /** 反查元素类名命中的全部 Griffel 规则，附所在 @media 条件（null = 无门控）。
+      集合扫描版 collectElementRules：Griffel 把 @media 内的原子类发成媒体规则，
+      需下钻才能看到；Griffel 原子化后每条规则只带一个声明，属性值统一用
+      getPropertyValue 取（不依赖驼峰访问器的属性支持面）。 */
+  function collectRulesWithMedia(el: Element): Array<{ rule: CSSStyleRule; media: string | null }> {
+    const classes = el.className.split(/\s+/).filter(Boolean);
+    const hits: Array<{ rule: CSSStyleRule; media: string | null }> = [];
+    const walk = (rules: CSSRuleList, media: string | null): void => {
+      for (const entry of Array.from(rules)) {
+        const mediaRule = entry as CSSMediaRule;
+        if (mediaRule.conditionText !== undefined && mediaRule.cssRules !== undefined) {
+          walk(mediaRule.cssRules, mediaRule.conditionText);
+          continue;
+        }
+        const style = entry as CSSStyleRule;
+        if (style.selectorText !== undefined && classes.some((c) => style.selectorText.startsWith(`.${c}`))) {
+          hits.push({ rule: style, media });
+        }
+      }
+    };
+    for (const sheet of Array.from(document.styleSheets)) walk(sheet.cssRules, null);
+    return hits;
+  }
+
+  it('动画声明走 token：reasoning-fade-in + CROSSFADE_MS + 减速进场曲线', () => {
+    const { getByTestId } = render(<Fixture />);
+    const hits = collectRulesWithMedia(getByTestId('reasoning'));
+    // Griffel 原子化：每个声明独立成类，同一属性的值取任一命中规则即真值
+    const valueOf = (prop: string): string => {
+      const value = hits
+        .map((h) => h.rule.style.getPropertyValue(prop))
+        .find((v) => v !== '');
+      expect(value, `类应携带 ${prop} 声明`).toBeTruthy();
+      return value!;
+    };
+    expect(valueOf('animation-name')).toBe('reasoning-fade-in');
+    expect(valueOf('animation-duration')).toBe(`${CROSSFADE_MS}ms`);
+    expect(valueOf('animation-timing-function').replace(/\s+/g, '')).toBe(
+      DECELERATE_CURVE.replace(/\s+/g, ''),
+    );
+  });
+
+  it('reduce 分支结构：动画声明只在 no-preference 门控内，门控外零动画声明', () => {
+    const { getByTestId } = render(<Fixture />);
+    const hits = collectRulesWithMedia(getByTestId('reasoning'));
+    // conditionText 按媒体查询原文序列化（特性查询带括号）
+    const GATED = '(prefers-reduced-motion: no-preference)';
+    for (const prop of ['animation-name', 'animation-duration', 'animation-timing-function']) {
+      const carrying = hits.filter((h) => h.rule.style.getPropertyValue(prop) !== '');
+      expect(carrying.length, `${prop} 应有声明`).toBeGreaterThan(0);
+      expect(
+        carrying.every((h) => h.media === GATED),
+        `${prop} 应只存在于 no-preference 门控内（reduce 下直接切换无过渡）`,
+      ).toBe(true);
+    }
   });
 });

@@ -198,3 +198,23 @@ body {
   }
 }
 
+
+/* 思考两态收尾过渡（M4）：思考呈现流式期由引擎渲染 think 胶囊（engine.css，
+   只读），落库终态由 React 渲染 Accordion；收尾时列表重挂载（历史行挂载与
+   流式行卸载同轮提交，两形态无共存帧），交叉淡化只有终态侧落点——本动画
+   供终态 Accordion 挂载淡入消硬切（机制详见 ChatView.tsx 渲染处注释）。
+   keyframes 落此文件（Griffel 不透出），应用侧是 useChatViewStyles 的
+   reasoningEnter Griffel 类：时长与曲线均经其消费 motion.ts 常量
+   （CROSSFADE_MS=200ms，CSS 侧无字面量故不入 :root；DECELERATE_CURVE 进场
+   语言，从众 enterPop 的常量引用式）；只改透明度不加位移——收尾是同位置
+   形态替换，位移会放大内容跳动。门控在消费侧类的 @media 内
+   （同 CharacterPosterCard.enterPop）。
+*/
+@keyframes reasoning-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

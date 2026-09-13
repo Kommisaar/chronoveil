@@ -36,6 +36,13 @@ export const EDITOR_FADE_MS = 200;
 /** 编辑器毛玻璃背板淡入：先于面板形变铺氛围，比面板淡化更慢。 */
 export const EDITOR_BACKDROP_IN_MS = 280;
 
+/** 聊天思考两态收尾过渡档（M4，用户拍板 200ms）：思考呈现流式期（引擎
+    think 胶囊，ADR-011）→ 落库终态（React Accordion）切换时刻的交叉淡化。
+    现状收尾是列表重挂载（历史行挂载与流式行卸载同轮提交，两形态无共存
+    帧），交叉淡化只有终态侧落点——当前单侧消费（Accordion 淡入，keyframes
+    见 app.css 的 reasoning-fade-in）；若日后流式行能保活淡出则升级双侧。 */
+export const CROSSFADE_MS = 200;
+
 /** 编辑器 body 内容交叉淡化：晚于形变淡入（延迟
     EDITOR_BODY_IN_DELAY_MS）遮住缩放挤压，退场先撤。 */
 export const EDITOR_BODY_IN_MS = 160;

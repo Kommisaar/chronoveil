@@ -305,8 +305,22 @@ export function ChatView() {
                   </Text>
                   <span>{formatClock(message.createdAt, i18n.language)}</span>
                 </div>
+                {/* 思考两态切换机制现状（M4 / ADR-011 分工保留）：流式期由引擎
+                    在 StreamingMessage 的容器内渲染 think 胶囊（engine.css 只读），
+                    本处 Accordion 是落库终态形态。收尾瞬间（settleSession）：refresh
+                    的 setMessages(fresh) 与紧随的 streamHub.end() 在同一轮 React
+                    提交生效——历史行（新 key）挂载与流式行卸载同帧完成，是列表
+                    重挂载替换而非同元素两态切换，两形态无共存帧，真正的交叉淡化
+                    （旧淡出叠新淡入）无落点。退而求其次：终态侧 200ms 淡入
+                    （reasoningEnter，档位 motion.ts CROSSFADE_MS）消硬切感；流式
+                    胶囊瞬时移除是已知取舍（淡出需保活流式行，超本任务范围）。
+                    淡入挂在 Accordion 挂载上不区分收尾/载入：会话载入时思考折叠
+                    随页面渐入（page-enter）同语言淡入，无收尾时刻的突兀对应物。 */}
                 {message.reasoning !== null && (
-                  <Accordion className={styles.reasoning} collapsible>
+                  <Accordion
+                    className={mergeClasses(styles.reasoning, styles.reasoningEnter)}
+                    collapsible
+                  >
                     <AccordionItem value="reasoning">
                       <AccordionHeader size="small">
                         {t('chat.reasoning')}

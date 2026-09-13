@@ -17,6 +17,7 @@ import { webLightTheme } from '@fluentui/react-components';
 import { describe, expect, it } from 'vitest';
 import {
   ACCELERATE_CURVE,
+  CROSSFADE_MS,
   DECELERATE_CURVE,
   EDITOR_BACKDROP_IN_MS,
   EDITOR_BODY_IN_DELAY_MS,
@@ -62,6 +63,7 @@ describe('动效 token 值锁存（对照表随提交走，改动必须显式过
     expect(MORPH_OUT_MS).toBe(200);
     expect(EDITOR_FADE_MS).toBe(200);
     expect(EDITOR_BACKDROP_IN_MS).toBe(280);
+    expect(CROSSFADE_MS).toBe(200); // 思考两态收尾过渡档（M4，单侧消费见 motion.ts 注释）
     expect(EDITOR_BODY_IN_MS).toBe(160);
     expect(EDITOR_BODY_IN_DELAY_MS).toBe(90);
     expect(EDITOR_BODY_OUT_MS).toBe(70);

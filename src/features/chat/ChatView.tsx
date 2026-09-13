@@ -95,7 +95,18 @@ export function ChatView() {
       setMessages([]);
       return;
     }
-    void listMessages(activeSessionId).then(setMessages);
+    const sessionId = activeSessionId;
+    // 切会话竞态守卫（同 ledgerPanel 的 cancelled 模式）：卸载或切换后慢返的
+    // 旧响应不落 state，防止覆盖新会话消息（U2）
+    let cancelled = false;
+    void listMessages(sessionId).then((fresh) => {
+      if (!cancelled && useUiStore.getState().activeSessionId === sessionId) {
+        setMessages(fresh);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activeSessionId]);
 
   // 终态收尾（done/error）：Rust 侧已落库（ADR-001），重拉列表替换流式行。

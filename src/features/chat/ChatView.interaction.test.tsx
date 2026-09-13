@@ -8,7 +8,7 @@
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { StreamEventHandler } from '../../api/events';
 import type { ChatMessage, SessionSummary } from '../../api/types';
@@ -69,6 +69,18 @@ const USER_MESSAGE: ChatMessage = {
   interrupted: false,
 };
 
+const OLD_MESSAGE: ChatMessage = {
+  ...USER_MESSAGE,
+  content: '旧回复',
+};
+
+const NEW_MESSAGE: ChatMessage = {
+  ...USER_MESSAGE,
+  sessionId: 4,
+  id: 401,
+  content: '新回复',
+};
+
 function renderView() {
   return render(
     <FluentProvider theme={webLightTheme}>
@@ -119,4 +131,30 @@ it('U1：非组合期的 Enter 仍发送（守卫不误伤）', async () => {
   fireEvent.change(textbox, { target: { value: '你好' } });
   fireEvent.keyDown(textbox, { key: 'Enter' });
   await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledWith(3, '你好'));
+});
+
+it('U2：快速切会话时慢返的旧响应不覆盖新会话消息', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  // 会话 3 的响应挂起（慢），会话 4 的响应立即返回（快）
+  let resolveOld!: (messages: ChatMessage[]) => void;
+  mocks.listMessages.mockImplementation((sessionId: number) =>
+    sessionId === 3
+      ? new Promise<ChatMessage[]>((resolve) => {
+          resolveOld = resolve;
+        })
+      : Promise.resolve([NEW_MESSAGE]),
+  );
+  renderView();
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledWith(3));
+  // 切到会话 4，新会话消息先上屏
+  act(() => {
+    useUiStore.setState({ activeSessionId: 4 });
+  });
+  expect(await screen.findByText('新回复')).toBeTruthy();
+  // 慢返的旧会话响应此刻才到：不得把界面拖回旧会话数据
+  await act(async () => {
+    resolveOld([OLD_MESSAGE]);
+  });
+  expect(screen.queryByText('旧回复')).toBeNull();
+  expect(screen.getByText('新回复')).toBeTruthy();
 });

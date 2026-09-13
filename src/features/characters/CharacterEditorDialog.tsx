@@ -43,6 +43,15 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkmark20Regular, Edit20Regular } from '@fluentui/react-icons';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
+import {
+  ACCELERATE_CURVE,
+  DECELERATE_CURVE,
+  EDITOR_BACKDROP_IN_MS,
+  EDITOR_BODY_IN_DELAY_MS,
+  EDITOR_BODY_IN_MS,
+  EDITOR_BODY_OUT_MS,
+  EDITOR_FADE_MS,
+} from '../../components/motion';
 import { CalendarDraftDialog } from './editor/CalendarDraftDialog';
 import { CalendarSection } from './editor/CalendarSection';
 import { IdentityField } from './editor/IdentityField';
@@ -88,45 +97,46 @@ const useStyles = makeStyles({
   },
   // —— 进出场。面板形变是 surface 上的 FLIP 行内变换（见文件头与
   // useSurfaceMorph）；surface 与背板纯淡化走静态 keyframes，body 内容
-  // 交叉淡化（晚于形变淡入，遮住缩放挤压）、退场期掐交互。
+  // 交叉淡化（晚于形变淡入，遮住缩放挤压）、退场期掐交互。时长与曲线
+  // 全部取 motion.ts token（编排语义见各常量注释）。
   surfaceIn: {
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-fade-in',
-      animationDuration: '200ms',
-      animationTimingFunction: 'var(--curveDecelerateMid)',
+      animationDuration: `${EDITOR_FADE_MS}ms`,
+      animationTimingFunction: DECELERATE_CURVE,
     },
   },
   surfaceOut: {
     pointerEvents: 'none',
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-fade-out',
-      animationDuration: '200ms',
-      animationTimingFunction: 'var(--curveAccelerateMid)',
+      animationDuration: `${EDITOR_FADE_MS}ms`,
+      animationTimingFunction: ACCELERATE_CURVE,
       animationFillMode: 'forwards',
     },
   },
   backdropIn: {
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-fade-in',
-      animationDuration: '280ms',
-      animationTimingFunction: 'var(--curveDecelerateMid)',
+      animationDuration: `${EDITOR_BACKDROP_IN_MS}ms`,
+      animationTimingFunction: DECELERATE_CURVE,
     },
   },
   backdropOut: {
     pointerEvents: 'none',
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-fade-out',
-      animationDuration: '200ms',
-      animationTimingFunction: 'var(--curveAccelerateMid)',
+      animationDuration: `${EDITOR_FADE_MS}ms`,
+      animationTimingFunction: ACCELERATE_CURVE,
       animationFillMode: 'forwards',
     },
   },
   bodyIn: {
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-body-in',
-      animationDuration: '160ms',
-      animationDelay: '90ms',
-      animationTimingFunction: 'var(--curveDecelerateMid)',
+      animationDuration: `${EDITOR_BODY_IN_MS}ms`,
+      animationDelay: `${EDITOR_BODY_IN_DELAY_MS}ms`,
+      animationTimingFunction: DECELERATE_CURVE,
       animationFillMode: 'backwards',
     },
   },
@@ -134,8 +144,8 @@ const useStyles = makeStyles({
     pointerEvents: 'none',
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'editor-body-out',
-      animationDuration: '70ms',
-      animationTimingFunction: 'var(--curveAccelerateMid)',
+      animationDuration: `${EDITOR_BODY_OUT_MS}ms`,
+      animationTimingFunction: ACCELERATE_CURVE,
       animationFillMode: 'forwards',
     },
   },

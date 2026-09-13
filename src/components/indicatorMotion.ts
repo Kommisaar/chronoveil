@@ -1,9 +1,9 @@
 // 选中指示条共享动效（风格移植自 relay-harbor）：单个共享指示条在切换
 // 目标时从当前视觉位置位移到新条目，中途纵向拉长再收短（WAAPI 关键帧
-// ——transition 做不了中途形变）。tokens 运行时值是 var(--…) 引用，
-// WAAPI 需要具体数值，按 @fluentui/tokens 定义取字面量（主题调整需同步）。
-export const INDICATOR_DURATION = 400; // durationSlower：位移动画行程长、带形变，慢于面板宽度动画
-export const INDICATOR_EASING = 'cubic-bezier(0, 0, 0, 1)'; // curveDecelerateMid：统一减速曲线
+// ——transition 做不了中途形变）。WAAPI 需要具体数值（不能用 var(--…)
+// 引用），时长与曲线取 motion.ts 的镜像常量，不在此处手写字面量。
+import { DECELERATE_CURVE, INDICATOR_MOVE_MS } from './motion';
+
 export const INDICATOR_STRETCH = 1.75;
 
 /** 读取指示条当前 translate 位移；未定位过（无 transform）返回 null。
@@ -33,6 +33,6 @@ export function moveIndicator(indicator: HTMLElement, target: { x: number; y: nu
       },
       { transform: `translate(${target.x}px, ${target.y}px) scaleY(1)` },
     ],
-    { duration: INDICATOR_DURATION, easing: INDICATOR_EASING },
+    { duration: INDICATOR_MOVE_MS, easing: DECELERATE_CURVE },
   );
 }

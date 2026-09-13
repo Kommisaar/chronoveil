@@ -15,13 +15,15 @@
  */
 import { useLayoutEffect, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
-import { SPRING_CURVE } from '../../../components/motion';
+import {
+  ACCELERATE_CURVE,
+  MORPH_OUT_MS,
+  POP_IN_MS,
+  SPRING_CURVE,
+} from '../../../components/motion';
 
-/** FLIP 时长：进场形变 400ms 弹簧（过冲后落定，与卡片入场同一节奏），
-    退场 200ms 减速安静；EXIT_MS 含余量，到点卸载。 */
-const ENTER_MS = 400;
-const MORPH_MS = 200;
-const EXIT_MS = 210;
+/** 卸载计时 = 退场形变（MORPH_OUT_MS）+ 冲刷余量，到点通知父级卸载。 */
+const EXIT_MS = MORPH_OUT_MS + 10;
 
 const morphable = (): boolean =>
   !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -65,7 +67,7 @@ export function useSurfaceMorph(props: {
     const dy = tr.top + tr.height / 2 - (rect.top + rect.height / 2);
     el.style.transform = `translate(${dx}px, ${dy}px) scale(${tr.width / rect.width}, ${tr.height / rect.height})`;
     void el.offsetWidth; // 冲刷②：提交钉住态作为过渡起点
-    el.style.transition = `transform ${ENTER_MS}ms ${SPRING_CURVE}`;
+    el.style.transition = `transform ${POP_IN_MS}ms ${SPRING_CURVE}`;
     el.style.transform = 'none';
   };
 
@@ -82,7 +84,7 @@ export function useSurfaceMorph(props: {
       if (tr && rect.width > 0 && rect.height > 0) {
         const dx = tr.left + tr.width / 2 - (rect.left + rect.width / 2);
         const dy = tr.top + tr.height / 2 - (rect.top + rect.height / 2);
-        el.style.transition = `transform ${MORPH_MS}ms var(--curveAccelerateMid)`;
+        el.style.transition = `transform ${MORPH_OUT_MS}ms ${ACCELERATE_CURVE}`;
         void el.offsetWidth; // 冲刷：确保新 transition 从当前态起步
         el.style.transform = `translate(${dx}px, ${dy}px) scale(${tr.width / rect.width}, ${tr.height / rect.height})`;
       }

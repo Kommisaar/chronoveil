@@ -6,12 +6,8 @@
 //   必须 stub 才能走到（不打桩时该分支在 jsdom 下会 TypeError，本测试
 //   顺带钉住「命中 reduce 只就位不播动画」的输入输出）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  INDICATOR_DURATION,
-  INDICATOR_EASING,
-  INDICATOR_STRETCH,
-  moveIndicator,
-} from './indicatorMotion';
+import { DECELERATE_CURVE, INDICATOR_MOVE_MS } from './motion';
+import { INDICATOR_STRETCH, moveIndicator } from './indicatorMotion';
 
 type Keyframes = Array<{ transform?: string }>;
 type AnimationOptions = { duration?: number; easing?: string };
@@ -76,7 +72,7 @@ describe('moveIndicator 缓动分支（读得出当前位置）', () => {
       `translate(50px, 20px) scaleY(${INDICATOR_STRETCH})`,
     );
     expect(keyframes[2]?.transform).toBe('translate(100px, 40px) scaleY(1)');
-    expect(options).toEqual({ duration: INDICATOR_DURATION, easing: INDICATOR_EASING });
+    expect(options).toEqual({ duration: INDICATOR_MOVE_MS, easing: DECELERATE_CURVE });
   });
 
   it('目标与当前一致：就位即返回，不播动画', () => {

@@ -31,7 +31,7 @@ import { ArrowDownloadRegular, MoreHorizontalRegular } from '@fluentui/react-ico
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CharacterSummary } from '../../api/types';
-import { SPRING_CURVE } from '../../components/motion';
+import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
 
@@ -143,8 +143,9 @@ const useStyles = makeStyles({
   enterPop: {
     '@media (prefers-reduced-motion: no-preference)': {
       animationName: 'card-enter-pop',
-      animationDuration: '480ms',
-      // 弹簧曲线共享常量 SPRING_CURVE（src/components/motion.ts）
+      // 弹簧入场档（POP_IN_MS，原 480 与弹层/FLIP 的 400 归并为一档），
+      // 曲线共享常量 SPRING_CURVE——均出自 src/components/motion.ts
+      animationDuration: `${POP_IN_MS}ms`,
       animationTimingFunction: SPRING_CURVE,
       animationFillMode: 'backwards',
       animationDelay: 'var(--enter-delay, 0ms)',

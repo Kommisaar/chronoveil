@@ -5,6 +5,16 @@ body,
   margin: 0;
 }
 
+/* 动效 token（CSS 侧）：CSS 引不到 TS 常量，此处 --cv-* 与
+   src/components/motion.ts 的对应导出互指同步（parity 由
+   motion.test.ts 断言）。全仓动画时长/曲线字面量只允许出现在此
+   :root 变量区与 motion.ts（motion.test.ts 全仓扫描守卫）。 */
+:root {
+  --cv-spring-curve: cubic-bezier(0.34, 1.56, 0.64, 1); /* = SPRING_CURVE */
+  --cv-pop-in-ms: 400ms; /* = POP_IN_MS */
+  --cv-page-enter-ms: 400ms; /* 页面渐入档：仅 CSS 消费，无 TS 对应常量 */
+}
+
 body {
   font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
   overflow: hidden;
@@ -60,7 +70,7 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   .page-enter {
     animation-name: page-content-enter;
-    animation-duration: 400ms;
+    animation-duration: var(--cv-page-enter-ms);
     animation-timing-function: var(--curveDecelerateMid);
     animation-fill-mode: backwards;
   }
@@ -159,11 +169,12 @@ body {
 }
 
 /* 强调色取色器弹层（2026-09-09）：从色块锚点弹性弹出（过冲再回落），
-   与卡片入场/编辑器形变同一根弹簧——曲线即 motion.ts 的 SPRING_CURVE
-   （app.css 引不到 TS 常量，此处内联，改曲线须两处同步）。无退场动画
-   （点外部/选取后瞬时消失）。keyframes 落此文件（Griffel 不透出），应用
-   侧是 pieces.tsx 里 AccentColorPicker 面板的 palette-pop-in 全局类；
-   「减弱动态」以 no-preference 反向门控，令牌取 FluentProvider 注入变量。 */
+   与卡片入场/编辑器形变同一根弹簧——曲线取 :root 的 --cv-spring-curve
+   （= motion.ts 的 SPRING_CURVE，互指同步由 motion.test.ts 断言），时长
+   取 --cv-pop-in-ms（= POP_IN_MS）。无退场动画（点外部/选取后瞬时消失）。
+   keyframes 落此文件（Griffel 不透出），应用侧是 pieces.tsx 里
+   AccentColorPicker 面板的 palette-pop-in 全局类；「减弱动态」以
+   no-preference 反向门控，其余令牌取 FluentProvider 注入变量。 */
 @keyframes palette-pop-in {
   from {
     opacity: 0;
@@ -181,8 +192,8 @@ body {
 @media (prefers-reduced-motion: no-preference) {
   .palette-pop-in {
     animation-name: palette-pop-in;
-    animation-duration: 400ms;
-    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation-duration: var(--cv-pop-in-ms);
+    animation-timing-function: var(--cv-spring-curve);
     transform-origin: top left;
   }
 }

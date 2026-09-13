@@ -54,6 +54,16 @@ const useStyles = makeStyles({
     borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
     backgroundColor: tokens.colorNeutralBackground1,
   },
+  // StateBlock 在 flex 滚动栏内的标准包装形态（与 useSidebarStyles stateWrap
+  // 是同一约束的两侧实例，注释互指）：StateBlock root 是 height:100% 的页面级
+  // 垂直居中块，直接作本面板 flex 子项会参照整面板高——加上 sticky 头部后总高
+  // 超出，loading / error 态下面板多余滚动且 StateBlock 底部被裁切。包装容器
+  // 吃掉头部以下剩余高度，minHeight:0 允许被压缩到实际剩余高（flex 子项默认
+  // min-height:auto 是溢出的直接原因）
+  stateWrap: {
+    flex: 1,
+    minHeight: '0px',
+  },
   title: {
     fontSize: tokens.fontSizeBase300,
     fontWeight: tokens.fontWeightSemibold,
@@ -188,17 +198,22 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
       </div>
       {/* 加载 / 错误态：页面级三态由 StateBlock 统一承载（审计 A1 迁入）。
           本面板即其设计基准（StateBlock 头注）：Spinner tiny + 次级文案、
-          错误文案 + 小号重试钮原样保留；差异仅承载形制——StateBlock 占满
-          面板并垂直居中（原实现顶部起排），错误态另获得 role="alert" 读屏
-          播报。段内空态（三段各自的一行小字）不升格，见各段注释 */}
+          错误文案 + 小号重试钮原样保留；差异仅承载形制——StateBlock 须经
+          stateWrap 包装（吃掉头部以下剩余高）才能在本 flex 滚动栏内垂直居中
+          且不撑出多余滚动（stateWrap 注释）。段内空态（三段各自的一行小字）
+          不升格，见各段注释 */}
       {loading ? (
-        <StateBlock state="loading" label={t('chat.ledger.loading')} />
+        <div className={styles.stateWrap}>
+          <StateBlock state="loading" label={t('chat.ledger.loading')} />
+        </div>
       ) : failed ? (
-        <StateBlock
-          state="error"
-          label={t('chat.ledger.loadFailed')}
-          onRetry={{ label: t('chat.ledger.retry'), onClick: () => setRefreshTick((tick) => tick + 1) }}
-        />
+        <div className={styles.stateWrap}>
+          <StateBlock
+            state="error"
+            label={t('chat.ledger.loadFailed')}
+            onRetry={{ label: t('chat.ledger.retry'), onClick: () => setRefreshTick((tick) => tick + 1) }}
+          />
+        </div>
       ) : (
         <>
           <LedgerStatesSection states={states} />

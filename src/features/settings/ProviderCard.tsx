@@ -3,7 +3,7 @@
 // 行内删除，底部添加行）+ 删除服务。全局默认是 (provider, model) 二元组，选中
 // 某模型行的单选即写入整对值；api_key 默认掩码、可见性切换（OQ-001：明文本机
 // 存储，掩码仅为输入防窥）。删除确认（含激活占用拦截）与默认选中回落由父级
-// SettingsView 承担，本组件只上报意图。模型行删除（U4）：唯一模型或全局默认
+// ProvidersCard 承担，本组件只上报意图。模型行删除（U4）：唯一模型或全局默认
 // 模型的行先弹确认（防抖自动落盘下误触会静默丢配置），普通行直接删保持轻快。
 import {
   Button,
@@ -273,7 +273,7 @@ export function ProviderCard({
       ) : null}
 
       {/* U4 高危模型行删除确认：取消不触碰 draft；确认才上报父级（回落逻辑
-          留在父级 SettingsView 的 removeModel）。 */}
+          留在父级 ProvidersCard 的 removeModel）。 */}
       <ConfirmDialog
         open={removeTarget !== null}
         onOpenChange={(open) => {

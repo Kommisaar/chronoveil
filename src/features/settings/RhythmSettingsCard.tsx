@@ -8,6 +8,9 @@ import { Input, Slider, Switch, Text, makeStyles, tokens } from '@fluentui/react
 import { Pause20Regular, Sparkle20Regular, Timer20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
+// 滑杆与动效基准边界常量引用引擎单一事实源（与 characters/editor/AnimParamRows.tsx 同法），
+// 不在组件内再写死数值（AGENTS.md「跨文件常量互指」已知坑）。
+import { DUR_MIN_MS, RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
 const useStyles = makeStyles({
   slider: {
@@ -50,8 +53,8 @@ export function RhythmSettingsCard(props: RhythmSettingsCardProps) {
         control={
           <Slider
             className={styles.slider}
-            min={10}
-            max={160}
+            min={RHYTHM_MIN_MS}
+            max={RHYTHM_MAX_MS}
             step={5}
             value={props.rhythmMsPerChar}
             aria-label={t('settings.rhythm', { value: String(props.rhythmMsPerChar) })}
@@ -81,7 +84,8 @@ export function RhythmSettingsCard(props: RhythmSettingsCardProps) {
           <Input
             className={styles.animInput}
             type="number"
-            min={0}
+            // 下界对齐 parseAnimBaseMs 的真实校验域（引擎 DUR_MIN_MS = 150），原 min={0} 与校验文案不符
+            min={DUR_MIN_MS}
             step={1}
             value={props.animBaseText}
             aria-label={t('settings.animBase')}

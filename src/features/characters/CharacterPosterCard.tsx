@@ -10,8 +10,8 @@
  *   Griffel 合并，字符串拼接的全局类会被静默丢弃（repo 规约）；
  * - 卡菜单（Task-04）：海报右上角 ⋯ 触发器出「导出角色卡」；点击/键盘事件
  *   不冒泡到卡片（否则会同时打开编辑器）；触发器挂 28px 圆形实底芯保证恒白
- *   图标的非文字对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，同文字区
- *   下限的后续补齐）；
+ *   图标的非文字对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，含 hover/
+ *   按下交互态同值覆写，机制见常量注释）；
  * - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑；
  * - 海报文字（首字母水印/名字/问候/元信息）一律用普通 span 而非 Text：
  *   Fluent Card 自带 `.fui-Card哈希 .fui-Text { color: currentcolor }`
@@ -76,9 +76,15 @@ const POSTER_META_TEXT_ALPHA = 0.8;
  * 残留已知项，2026-09-14 实底芯修复转正）。触发器挂 rgba(0,0,0,本档) 28px 圆形
  * 实底芯后，最坏合成与 POSTER_SCRIM_ALPHA 同构（值也同档，互指）：纯白 accent
  * × (1 − 0.62) → 灰 ceil(255×0.38)=97 → 白图标对比 ≈6.19:1 ≥ 3:1，余量充足。
- * transparent 外观各交互态底（colorTransparentBackgroundHover/Pressed/Selected）
- * 双主题均为全透明（@fluentui/tokens alias 实证），实底芯不随 hover/按下/展开
- * 漂移，静态配对即全状态配对。
+ *
+ * 交互态同值覆写（2026-09-14 reviewer 实锤，首版静息态-only 即败于此）：Fluent
+ * transparent 外观在 ':hover' 与 ':hover:active,:active:focus-visible' 上各有
+ * 底色规则（colorTransparentBackgroundHover/Pressed，本装版本 alias 实证值为
+ * 全透明），按选择器键与静息声明并存——hover/按下时组件规则胜出，把实底芯
+ * 整体替换回透明，恒白图标在纯白 accent 上重新无下界。故 cardMenuTrigger 以
+ * 逐字相同的选择器串同值覆写（键不同则 mergeClasses 不构成冲突，覆写无效）；
+ * 菜单展开态（useRootExpandedStyles 的 transparent 底）是非伪类的基础声明，
+ * 被本类后置的基础声明直接压过，无需单列。覆写串由守卫 it 文本锚定防回归。
  */
 const POSTER_ICON_SCRIM_ALPHA = 0.62;
 
@@ -179,20 +185,30 @@ const useStyles = makeStyles({
     right: '8px',
     zIndex: 1,
     // 28px 圆形实底芯（POSTER_ICON_SCRIM_ALPHA 下限）：恒白 ⋯ 图标浮在任意
-    // accent 渐变上无对比度下界，实底芯给出数学下限（见常量注释与
-    // contrastGuard 的 POSTER_CARD_ICON 断言）。组件 iconOnly-small 档
-    // maxWidth=24px 会把盒钳回 24×28 胶囊，显式锁 maxWidth 与 height 同值
-    // 成正圆；transparent 外观各交互态底全透明，实底芯不随 hover 漂移
+    // accent 渐变上无对比度下界，实底芯给出数学下限（推导见常量注释，守卫
+    // 断言见 contrastGuard.test.ts 的 POSTER_ICON_SCRIM_FLOOR 组）。组件
+    // iconOnly-small 档 maxWidth=24px 会把盒钳回 24×28 胶囊，显式锁 maxWidth
+    // 与 height 同值成正圆
     width: '28px',
     minWidth: '28px',
     maxWidth: '28px',
     height: '28px',
     borderRadius: tokens.borderRadiusCircular,
     backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,
+    // 交互态同值覆写（理由与机制见常量注释）：两个选择器串逐字取自
+    // @fluentui/react-button useButtonStyles.styles.raw.js 的 transparent 外观
+    // 规则——键一致 mergeClasses 才按同键冲突让本类胜出，hover/按下时芯不消失
+    ':hover': {
+      backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,
+    },
+    ':hover:active,:active:focus-visible': {
+      backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,
+    },
   },
   cardMenuIcon: {
     // 触发器图标恒白：可读性由触发器实底芯（POSTER_ICON_SCRIM_ALPHA）保证，
-    // 不再依赖「渐变恒深色」的旧假设；配对断言见 contrastGuard POSTER_CARD_ICON
+    // 不再依赖「渐变恒深色」的旧假设；配对断言见 contrastGuard.test.ts 的
+    // POSTER_ICON_SCRIM_FLOOR 组
     color: '#ffffff',
   },
 

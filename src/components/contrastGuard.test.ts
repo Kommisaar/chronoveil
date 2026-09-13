@@ -299,9 +299,11 @@ const POSTER_CARD_TEXT: readonly { line: number; style: string; context: string 
  * - 最坏背景 = 纯白 accent，合成灰 = ceil(255 × (1 − 0.62)) = 97（取整保守）；
  * - 白图标 #ffffff × 97 灰 ≈ 6.19:1 ≥ 3:1（WCAG 1.4.11 非文字图形线；图标
  *   非文字，不按 4.5 正文线从紧）；
- * - transparent 外观各交互态底（colorTransparentBackgroundHover/Pressed/
- *   Selected）双主题均为全透明（@fluentui/tokens alias 实证），实底芯不随
- *   hover/按下/展开漂移，静态配对即全状态配对。
+ * - 全交互态配对：Fluent transparent 外观的 ':hover' 与
+ *   ':hover:active,:active:focus-visible' 底色规则按选择器键与静息声明并存，
+ *   hover/按下时会整体替换静息实底芯（2026-09-14 reviewer 实锤，本组首版
+ *   「静态配对即全状态配对」的推断即败于此）——源文件以逐字相同的选择器串
+ *   同值覆写钉住，下方 it 对覆写串做文本锚，覆写缺失或变值即失败。
  */
 const POSTER_ICON_SCRIM_FLOOR = 0.62;
 
@@ -475,8 +477,9 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
 
   it('海报卡 ⋯ 触发器图标：源文件仍持实底芯常量，白图标 × 最坏合成背景 ≥3:1（非文字线）', () => {
     // 完整性锚（静态清单惯例，不跨模块 import 源码）：常量声明、实底挂载
-    // 模板串与恒白图标字面量仍在（改动需同步 POSTER_ICON_SCRIM_FLOOR）
-    const source = readSource(POSTER_CARD_FILE);
+    // 模板串与恒白图标字面量仍在（改动需同步 POSTER_ICON_SCRIM_FLOOR）；
+    // 行尾统一为 LF 以让下方多行交互态锚对 CRLF/LF 检出均稳定
+    const source = readSource(POSTER_CARD_FILE).replace(/\r\n/g, '\n');
     expect(
       source,
       `实底芯常量被移除或改值（需同步 POSTER_ICON_SCRIM_FLOOR）：${POSTER_CARD_FILE}`,
@@ -489,6 +492,22 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       source,
       `触发器图标改色（与断言的配对前景脱钩）：${POSTER_CARD_FILE}`,
     ).toContain("color: '#ffffff'");
+    // 交互态锚：transparent 外观的 ':hover' / ':hover:active,:active:focus-visible'
+    // 底色规则按选择器键与静息声明并存，hover/按下时会把静息实底芯整体替换
+    // 为透明（键不同不构成 mergeClasses 冲突）。源文件必须持逐字同串同值覆写
+    // （含换行缩进整段匹配，改值/拆串/删除任一即失败）
+    const hoverOverride =
+      "':hover': {\n      backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,\n    },";
+    const activeOverride =
+      "':hover:active,:active:focus-visible': {\n      backgroundColor: `rgba(0, 0, 0, ${POSTER_ICON_SCRIM_ALPHA})`,\n    },";
+    expect(
+      source,
+      `hover 同值覆写缺失或变值（交互态实底芯失效）：${POSTER_CARD_FILE}`,
+    ).toContain(hoverOverride);
+    expect(
+      source,
+      `active 同值覆写缺失或变值（按下态实底芯失效）：${POSTER_CARD_FILE}`,
+    ).toContain(activeOverride);
     // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守；
     // 图标恒白字面量不随主题变化，单次断言即双主题成立
     const channel = Math.ceil(255 * (1 - POSTER_ICON_SCRIM_FLOOR));

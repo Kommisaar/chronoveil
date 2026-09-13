@@ -22,9 +22,7 @@
 // 的 inner 里滑出而非挤压；收起过渡结束后 inner 隐藏（两段式，避免
 // 文本被压扁、焦点落入零宽区域）。
 import {
-  makeStyles,
   mergeClasses,
-  tokens,
   Tooltip,
 } from '@fluentui/react-components';
 import {
@@ -50,12 +48,14 @@ import type {
 } from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
+import { StateBlock } from '../../components/StateBlock';
 import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 import { ENTER_STAGGER_CAP_MS, ENTER_STAGGER_MS } from '../../components/motion';
 import { formatRelative } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
 import { NewSessionDialog } from './NewSessionDialog';
 import { SessionDeleteDialog } from './SessionDeleteDialog';
+import { useSidebarStyles } from './useSidebarStyles';
 
 // 入场动画：淡入 + 8px 上移，逐项错峰取清单浮现统一档（motion.ts 单源：
 // ENTER_STAGGER_MS 步进、ENTER_STAGGER_CAP_MS 封顶，过长清单只对首屏
@@ -77,138 +77,10 @@ function isGenerating(sessionId: number): boolean {
   return state !== null && (state.status === 'streaming' || state.status === 'stopping');
 }
 
-const useStyles = makeStyles({
-  // root 只承担宽度裁切：宽度经行内样式注入（0 ↔ 232 过渡）
-  root: {
-    overflow: 'hidden',
-    flexShrink: 0,
-    transitionProperty: 'width',
-    transitionDuration: tokens.durationGentle,
-    transitionTimingFunction: tokens.curveDecelerateMid,
-  },
-  inner: {
-    position: 'relative', // 共享指示条的定位包含块
-    width: '232px', // 固定宽：收起时整体滑出被 root 裁掉，而非挤压换行
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalXXS,
-    padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalS}`,
-    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-    overflowY: 'auto',
-  },
-  // 会话条目行：选择按钮（占满）+ 删除钮；原条目的 marginLeft 上移到行
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    marginLeft: tokens.spacingHorizontalXS,
-  },
-  item: {
-    flex: 1,
-    minWidth: 0, // 标题省略号生效前提（flex 子项默认 min-width:auto）
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalM,
-    minHeight: '44px',
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
-    borderRadius: tokens.borderRadiusMedium,
-    color: tokens.colorNeutralForeground1,
-    textDecoration: 'none',
-    textAlign: 'left',
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
-  },
-  itemActive: {
-    backgroundColor: tokens.colorNeutralBackground1Selected,
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Selected },
-  },
-  // 条目删除钮本地特例（small 档外观/尺寸/悬停底色由钩子承载）：右距 +
-  // 常态前景三阶（比钩子默认的次级前景再淡一阶，低调常驻的原设计）+
-  // 悬停染危险色（语义特例，钩子头注预告的覆写点）。生成中禁删的守卫在
-  // 点击路径上（requestDelete），不禁用按钮以便给出可发现的提示
-  deleteBtn: {
-    flexShrink: 0,
-    marginRight: '2px',
-    color: tokens.colorNeutralForeground3,
-    ':hover': { color: tokens.colorPaletteRedForeground1 },
-  },
-  // 共享选中指示条：与活动栏同款（3×16 品牌色圆角竖条）。位置（translate）
-  // 由 JS 写入——需 X+Y 双轴位移；默认隐藏，定位后显示。绝对定位子项不
-  // 参与 flex/gap 布局；zIndex 提层防止选中底色压住竖条
-  indicator: {
-    position: 'absolute',
-    zIndex: 1,
-    left: '0',
-    top: '0px',
-    width: '3px',
-    height: '16px',
-    borderRadius: tokens.borderRadiusCircular,
-    backgroundColor: tokens.colorBrandBackground,
-    pointerEvents: 'none',
-    visibility: 'hidden',
-  },
-  // 条目选择钮的抹平类：它是文字钮（条目 padding、正文字号），不在幽灵
-  // 图标钮钩子的收编范围——钩子的固定容器档位（28/36px 居中 + svg 规格）
-  // 与其形态冲突，硬套需覆写全部档位属性，得不偿失（审计 C2 仅迁图标钮）
-  buttonReset: {
-    border: 'none',
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`,
-    backgroundColor: 'transparent',
-    fontFamily: 'inherit',
-    fontSize: tokens.fontSizeBase300,
-    cursor: 'pointer',
-  },
-  label: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  // 头部行：标题 + 工具钮组（新建 / 收起）。行高 36 与活动栏首条目同带
-  // （内层 padding-top 8 → 行跨 y 8-44），钮组右缘对齐会话条目右端
-  section: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: '36px',
-    flexShrink: 0,
-    padding: `0 0 ${tokens.spacingVerticalXXS} ${tokens.spacingHorizontalM}`,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
-  sectionActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '2px',
-  },
-  // 头部图标钮（新建 / 收起）本地特例（medium 档外观/尺寸/悬停底色由钩子
-  // 承载，两钮共用规格）：悬停前景压回次级——原设计悬停只提底色不升前景，
-  // 按「视觉零变化」以原值为准覆写钩子的悬停前景升阶
-  iconBtn: {
-    ':hover': { color: tokens.colorNeutralForeground2 },
-  },
-  title: {
-    display: 'block',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  meta: {
-    display: 'block',
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
-  empty: {
-    padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
-  // 轻提示（生成中禁删 / 删除失败等）：就地一行，红字，自动消隐
-  hint: {
-    padding: `${tokens.spacingVerticalXXS} ${tokens.spacingHorizontalM}`,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorPaletteRedForeground1,
-  },
-});
 
 /** 会话侧栏（FR-007 多会话管理）：清单走 ui store 单一数据源，挂载即重拉。 */
 export function Sidebar() {
-  const styles = useStyles();
+  const styles = useSidebarStyles();
   // 头部工具钮（medium：36px + 20px 图标）与条目删除钮（small：28px + 16px
   // 图标）两档；禁用态不使用（禁删守卫在点击路径上给出提示）
   const ghostMedium = useGhostIconButtonStyles('medium');
@@ -231,6 +103,9 @@ export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  // 清单加载失败（本地态）：store 的 refreshSessions 失败不落任何状态
+  // （sessionsLoaded 保持 false），失败可见性由本标记补齐 → StateBlock error
+  const [listLoadFailed, setListLoadFailed] = useState(false);
   const [innerHidden, setInnerHidden] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
@@ -239,10 +114,17 @@ export function Sidebar() {
   useSyncExternalStore(streamHub.subscribe, streamHub.getVersion);
 
   // 挂载即全量重拉（验收 3）：AppShell 只在聊天视图挂载本组件——应用启动
-  // 与从角色/设置视图回到聊天都会经这里刷新，不显示陈旧清单
+  // 与从角色/设置视图回到聊天都会经这里刷新，不显示陈旧清单。失败落到
+  // StateBlock error（下方三态分支），不再是无处理的浮空 rejection
   useEffect(() => {
-    void refreshSessions();
+    refreshSessions().catch(() => setListLoadFailed(true));
   }, [refreshSessions]);
+
+  // 清单加载失败的重试（StateBlock onRetry）：先回 loading 态再重拉
+  const retryLoadSessions = (): void => {
+    setListLoadFailed(false);
+    refreshSessions().catch(() => setListLoadFailed(true));
+  };
 
   // 现役角色清单：新建会话的选择列表 + 空标题条目的回退名（FR-007：标题
   // 缺省取首条用户消息，新建会话在首条消息前无标题）
@@ -408,7 +290,26 @@ export function Sidebar() {
             </Tooltip>
           </span>
         </div>
-        {!sessionsLoaded ? null : sessions.length === 0 ? (
+        {/* 清单三态（审计 A1）：未加载完 → StateBlock loading（此前是整段
+            空白，加载慢时像坏掉了）；加载失败 → error + 重试（接 refreshSessions）。
+            空清单刻意保持下方段内级一行小字（见 empty 处注释） */}
+        {!sessionsLoaded ? (
+          listLoadFailed ? (
+            <div className={styles.stateWrap}>
+              <StateBlock
+                state="error"
+                label={t('sessions.loadFailed')}
+                onRetry={{ label: t('sessions.retry'), onClick: retryLoadSessions }}
+              />
+            </div>
+          ) : (
+            <div className={styles.stateWrap}>
+              <StateBlock state="loading" label={t('sessions.loading')} />
+            </div>
+          )
+        ) : sessions.length === 0 ? (
+          // 空清单保持轻量：段内级空态一行指引小字（审计 A4 两级形制——清单
+          // 区只是侧栏的一段、头部工具行常驻，不升页面级 EmptyState/StateBlock）
           <div className={mergeClasses(styles.empty, 'sidebar-enter')} style={nextEnter()}>
             {t('sessions.empty')}
           </div>

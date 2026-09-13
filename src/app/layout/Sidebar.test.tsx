@@ -88,3 +88,27 @@ it('C3：头部工具钮提示迁移 Fluent Tooltip——原生 title 移除，�
   expect(await screen.findByRole('tooltip')).toBeTruthy();
   expect(screen.getByRole('tooltip').textContent).toBe('新建会话');
 });
+
+it('A1：清单加载中渲染 StateBlock loading（此前整段空白）', () => {
+  // 永不 resolve 的挂起 promise：固定「加载中」时点
+  mocks.listSessions.mockImplementation(() => new Promise(() => {}));
+  renderSidebar();
+  expect(screen.getByText('正在加载会话…')).toBeTruthy();
+});
+
+it('A1：清单加载失败渲染 StateBlock error（role="alert"），重试接 refreshSessions 成功后回清单', async () => {
+  mocks.listSessions.mockRejectedValueOnce(new Error('db down'));
+  renderSidebar();
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByText('会话清单加载失败')).toBeTruthy();
+  // 重试：后端恢复 → 清单加载成功，回段内空态（store 单一数据源重拉）
+  mocks.listSessions.mockResolvedValue([]);
+  fireEvent.click(screen.getByRole('button', { name: '重试' }));
+  expect(await screen.findByText('还没有会话，选择一个角色开始吧')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('A1：加载完成后空清单保持段内级一行空态（不升页面级占位块）', async () => {
+  renderSidebar();
+  expect(await screen.findByText('还没有会话，选择一个角色开始吧')).toBeTruthy();
+});

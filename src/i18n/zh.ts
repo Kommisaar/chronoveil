@@ -10,6 +10,9 @@ export const zh = {
   sessions: {
     title: '会话',
     empty: '还没有会话，选择一个角色开始吧',
+    loading: '正在加载会话…',
+    loadFailed: '会话清单加载失败',
+    retry: '重试',
     new: '新建会话',
     expand: '展开会话栏',
     collapse: '收起会话栏',

@@ -10,6 +10,9 @@ export const en = {
   sessions: {
     title: 'Sessions',
     empty: 'No sessions yet — pick a character to start',
+    loading: 'Loading sessions…',
+    loadFailed: 'Failed to load sessions',
+    retry: 'Retry',
     new: 'New session',
     expand: 'Expand sessions pane',
     collapse: 'Collapse sessions pane',

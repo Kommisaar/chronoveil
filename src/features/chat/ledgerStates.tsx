@@ -69,6 +69,9 @@ export function LedgerStatesSection({ states }: LedgerStatesSectionProps) {
     <section className={chrome.section} aria-label={t('chat.ledger.states')}>
       <Text className={chrome.sectionTitle}>{t('chat.ledger.states')}</Text>
       {stateList.length === 0 ? (
+        // 段内空态保持一行小字（groupTitle 层级）：面板级的加载/错误占位走
+        // StateBlock（审计 A1，见 ledgerPanel），段级空态是段排版内的一行说明，
+        // 升格为居中占位块会撑破三段连排的密度
         <Text className={chrome.groupTitle}>{t('chat.ledger.statesEmpty')}</Text>
       ) : (
         <>

@@ -145,8 +145,8 @@ const USAGES: readonly UsageEntry[] = [
     context: '活动步骤本地化标签', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/StreamingMessage.tsx', line: 41, style: 'header', token: 'colorNeutralForeground3',
     context: '流式消息头部角色名占位（base200）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/chat/ledgerPanel.tsx', line: 67, style: 'stateBlock', token: 'colorNeutralForeground3',
-    context: '账本加载/错误态（base200）', backgrounds: ['colorNeutralBackground1'] },
+  // ledgerPanel 的 stateBlock 用点已随审计 A1 迁入 StateBlock 承载，本文件不再
+  // 有该用点（StateBlock.tsx / useGhostIconButtonStyles.ts 的清单登记归其落地任务）
   { file: 'src/features/chat/ledgerScenes.tsx', line: 54, style: 'sceneMeta', token: 'colorNeutralForeground3',
     context: '场景时间/地点/在场小字（base200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/ledgerScenes.tsx', line: 76, style: 'recapBody', token: 'colorNeutralForeground2',

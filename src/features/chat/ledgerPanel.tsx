@@ -21,11 +21,12 @@
  * streamHub.onTrace 到达即头部插入（不重拉全量，同 id 幂等更新原位），面板关闭
  * 随卸载摘订阅。
  */
-import { Button, Spinner, Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Text, makeStyles, tokens } from '@fluentui/react-components';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { forkSession, listCharacterStates, listLlmCalls, listScenes } from '../../api/commands';
 import type { CharacterStateDto, SceneDto } from '../../api/types';
+import { StateBlock } from '../../components/StateBlock';
 import { useUiStore } from '../../stores/ui';
 import { streamHub, type LlmCall } from './streamHub';
 import { ForkSessionDialog } from './forkSessionDialog';
@@ -56,16 +57,6 @@ const useStyles = makeStyles({
   title: {
     fontSize: tokens.fontSizeBase300,
     fontWeight: tokens.fontWeightSemibold,
-  },
-  // 加载 / 错误态：纵向居中的一块
-  stateBlock: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: tokens.spacingVerticalS,
-    padding: `${tokens.spacingVerticalL} ${tokens.spacingHorizontalM}`,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
   },
 });
 
@@ -195,18 +186,19 @@ export function LedgerPanel({ sessionId }: LedgerPanelProps) {
       <div className={styles.header}>
         <Text className={styles.title}>{t('chat.ledger.title')}</Text>
       </div>
+      {/* 加载 / 错误态：页面级三态由 StateBlock 统一承载（审计 A1 迁入）。
+          本面板即其设计基准（StateBlock 头注）：Spinner tiny + 次级文案、
+          错误文案 + 小号重试钮原样保留；差异仅承载形制——StateBlock 占满
+          面板并垂直居中（原实现顶部起排），错误态另获得 role="alert" 读屏
+          播报。段内空态（三段各自的一行小字）不升格，见各段注释 */}
       {loading ? (
-        <div className={styles.stateBlock}>
-          <Spinner size="tiny" />
-          <Text>{t('chat.ledger.loading')}</Text>
-        </div>
+        <StateBlock state="loading" label={t('chat.ledger.loading')} />
       ) : failed ? (
-        <div className={styles.stateBlock}>
-          <Text>{t('chat.ledger.loadFailed')}</Text>
-          <Button size="small" onClick={() => setRefreshTick((tick) => tick + 1)}>
-            {t('chat.ledger.retry')}
-          </Button>
-        </div>
+        <StateBlock
+          state="error"
+          label={t('chat.ledger.loadFailed')}
+          onRetry={{ label: t('chat.ledger.retry'), onClick: () => setRefreshTick((tick) => tick + 1) }}
+        />
       ) : (
         <>
           <LedgerStatesSection states={states} />

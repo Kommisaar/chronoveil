@@ -390,11 +390,14 @@ it('终态刷新：本会话 done 事件（已落库，ADR-005 done 放行前结
   expect(mocks.listScenes).toHaveBeenLastCalledWith(3);
 });
 
-it('错误重试：拉取失败显示错误与重试入口，重试成功恢复渲染', async () => {
+it('错误重试：拉取失败显示错误与重试入口（StateBlock 承载，role="alert" 即时播报），重试成功恢复渲染', async () => {
   mocks.listScenes.mockRejectedValueOnce(new Error('db down'));
   renderView();
   openLedger();
   expect(await screen.findByText('叙事账本加载失败')).toBeTruthy();
+  // StateBlock error 态的容器 role="alert"（A1 迁入后新增的读屏语义）
+  const alert = screen.getByRole('alert');
+  expect(alert.textContent).toContain('叙事账本加载失败');
   fireEvent.click(screen.getByRole('button', { name: '重试' }));
   await screen.findByText('第3场');
   expect(mocks.listScenes).toHaveBeenCalledTimes(2);

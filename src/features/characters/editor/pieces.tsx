@@ -7,6 +7,7 @@
 import { Button, Dropdown, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { ChevronRight20Regular } from '@fluentui/react-icons';
 import { useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
 import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
@@ -174,11 +175,14 @@ export const useFieldStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
-  // 人设静态预览的主题适配：引擎的加粗米白 / 场景线暗底是聊天暗色调硬编码，
-  // 预览容器内用主题 token 覆写保证亮色主题可读（动作蓝灰斜体双主题均可读，不动）
+  // 人设静态预览的主题适配：引擎的加粗米白是聊天暗色调硬编码，预览容器内用
+  // 主题 token 覆写保证亮色主题可读（动作蓝灰斜体双主题均可读，不动）。场景线
+  // ✦ 挖空底不在此静态覆写：--cv-scene-line-bg 须与所在表面背景一致（engine.css
+  // :root 注释），展示态落在 DialogSurface（bg1）而演出预览框是 bg2 表面，单一
+  // 静态类无法两用——改为两个容器各自行内按表面注入（对齐聊天侧 ChatView 的
+  // engineThemeVars 先例）
   personaMarkdown: {
     '& .tok.bold': { color: tokens.colorNeutralForeground1 },
-    '& hr.scene::after': { backgroundColor: tokens.colorNeutralBackground2 },
   },
   // 人设展示态（2026-09-10 用户定稿）：无边框无底色，markdown 直接落在
   // 面板上，与聊天叙事流同观感；高度随内容自然生长（编辑态 textarea 变高）
@@ -246,7 +250,14 @@ export function PreviewBox(props: {
   const { t } = useTranslation();
   return (
     <div className={styles.previewWrap}>
-      <div ref={props.previewRef} className={styles.preview} />
+      {/* 场景线挖空底按框表面（bg2）行内注入：演出样例含 --- 时不吃 engine.css
+          :root 的暗色 #141822（亮色主题下成错色矩形）。变量名不在 React
+          CSSProperties 类型内，as 断言对齐聊天侧 engineThemeVars 写法 */}
+      <div
+        ref={props.previewRef}
+        className={styles.preview}
+        style={{ '--cv-scene-line-bg': tokens.colorNeutralBackground2 } as CSSProperties}
+      />
       {!props.previewed ? (
         <Text className={styles.previewHint}>{t('characters.previewEmpty')}</Text>
       ) : null}
@@ -278,6 +289,10 @@ export function PersonaPreviewBox(props: { text: string; showHint?: boolean }) {
           empty && styles.personaEmpty,
           styles.personaMarkdown,
         )}
+        // 场景线挖空底按所在表面行内注入：展示态直接落在 DialogSurface（默认
+        // bg1，对比度守卫的配对依据同源），原静态类按 bg2 定值会出异色矩形；
+        // as 断言理由同 PreviewBox
+        style={{ '--cv-scene-line-bg': tokens.colorNeutralBackground1 } as CSSProperties}
       />
       {empty && showHint ? (
         <Text className={styles.personaHint}>{t('characters.personaPlaceholder')}</Text>

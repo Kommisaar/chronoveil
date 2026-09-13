@@ -177,6 +177,23 @@ describe('PersonaPreviewBox（人设展示态）', () => {
     expect(box!.textContent).toContain('冷句');
   });
 
+  it('场景线挖空底按所在表面注入：容器行内 --cv-scene-line-bg = 主题 bg1（展示态落在 DialogSurface）', () => {
+    renderUi(<PersonaPreviewBox text={'前情\n\n---\n\n后续'} />);
+    const box = document.querySelector<HTMLElement>('[data-persona-preview]')!;
+    // 注入的是 Fluent 主题变量引用（tokens.* 即 var(...)，FluentProvider 按主题
+    // 解析，同聊天侧 engineThemeVars）：指向 bg1 而非 bg2 才是与所在表面同色
+    expect(box.style.getPropertyValue('--cv-scene-line-bg')).toBe(
+      'var(--colorNeutralBackground1)',
+    );
+    // 两表面在主题里确为异色（引用指错表面即出异色矩形，此断言保证上述契约有效）
+    expect(webLightTheme.colorNeutralBackground1).not.toBe(
+      webLightTheme.colorNeutralBackground2,
+    );
+    // 含 --- 的人设渲染不回归：静态渲染与聊天同语法语义，场景线仍产出 hr.scene
+    expect(box.querySelectorAll('hr.scene')).toHaveLength(1);
+    expect(box.textContent).not.toContain('---');
+  });
+
   it('文本变化即整容器重渲染', () => {
     const { rerender } = renderUi(<PersonaPreviewBox text="第一版" />);
     expect(document.querySelector('[data-persona-preview]')!.textContent).toContain('第一版');
@@ -215,6 +232,19 @@ describe('PreviewBox（预览演出容器）', () => {
       </FluentProvider>,
     );
     expect(screen.queryByText('点击「预览演出」，在这里试播样例文本')).toBeNull();
+  });
+
+  it('场景线挖空底按框表面注入：容器行内 --cv-scene-line-bg = 主题 bg2（preview 框显式 bg2 底）', () => {
+    // 实现签名给出 mock.calls 元素类型；回调闭包赋值不参与 TS 控制流分析，
+    // 走 mock.calls 取节点避免 never 收窄
+    const previewRef = vi.fn((_node: HTMLDivElement | null) => {});
+    renderUi(<PreviewBox previewRef={previewRef} previewed={false} />);
+    const node = previewRef.mock.calls[0]![0];
+    expect(node).toBeInstanceOf(HTMLDivElement);
+    // 主题变量引用（同上），指向 preview 框显式声明的 bg2 表面
+    expect(node?.style.getPropertyValue('--cv-scene-line-bg')).toBe(
+      'var(--colorNeutralBackground2)',
+    );
   });
 });
 

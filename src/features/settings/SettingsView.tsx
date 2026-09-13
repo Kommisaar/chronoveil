@@ -12,8 +12,6 @@
 // 表单容器卡刻意不加悬停浮起（useCardLiftStyles 备注：避免填写时内容随
 // 悬停跳动）。
 import {
-  Badge,
-  Button,
   Input,
   Radio,
   RadioGroup,
@@ -23,7 +21,6 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import {
-  Add16Regular,
   Book20Regular,
   Color20Regular,
   Globe20Regular,
@@ -31,22 +28,21 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfig, saveConfig } from '../../api/commands';
-import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import type { ConfigDto, LanguageSetting, ThemeSetting } from '../../api/types';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { StateBlock } from '../../components/StateBlock';
 import { useUiStore } from '../../stores/ui';
 import {
+  NEAR_SCENES_MAX,
+  NEAR_SCENES_MIN,
   isProviderValid,
   isRhythmValid,
-  newProviderId,
   parseAnimBaseMs,
   parseNearScenes,
   toDraft,
-  withoutModel,
 } from './preferences';
 import { RhythmSettingsCard } from './RhythmSettingsCard';
-import { ProviderCard } from './ProviderCard';
+import { ProvidersCard } from './ProvidersCard';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
 
 /** 自动保存防抖：停止修改后延迟落盘（滑杆拖动/逐键输入不逐帧写盘）。 */
@@ -72,41 +68,8 @@ const useStyles = makeStyles({
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
   },
-  providerList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: tokens.spacingVerticalM,
-  },
-  // 服务卡行区与卡边的内距（ProviderCard 列表 / 空态共用）
-  providerBody: {
-    display: 'flex',
-    flexDirection: 'column',
-    padding: '16px 20px',
-  },
-  // 无 provider 空态（验收 7）：虚线框引导新建。引导型空态的合理特例——
-  // 不收编进 EmptyState/StateBlock（那是「无数据可看」的占位语义）；这里
-  // 是表单区内的「下一步行动引导」，需要虚线框 + 行内新建钮的分量感
-  empty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: tokens.spacingVerticalS,
-    padding: tokens.spacingVerticalXL,
-    border: `1px dashed ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    color: tokens.colorNeutralForeground3,
-  },
   issues: {
     color: tokens.colorPaletteRedForeground1,
-    fontSize: tokens.fontSizeBase200,
-  },
-  // 修改即保存状态（置于服务卡底部提示位）：minHeight 防状态切换跳动
-  status: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalM,
-    minHeight: tokens.spacingVerticalL,
-    color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
   hint: {
@@ -138,7 +101,6 @@ export function SettingsView() {
   const [animBaseText, setAnimBaseText] = useState('');
   // 近景场景数（近景窗口可选化）：与动效基准同款「文本态 + 解析」输入。
   const [nearScenesText, setNearScenesText] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<ProviderDto | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -200,71 +162,6 @@ export function SettingsView() {
   const patch = (partial: Partial<ConfigDto>) =>
     setDraft((d) => (d === null ? d : { ...d, ...partial }));
 
-  const addProvider = () =>
-    setDraft((d) => {
-      if (d === null) return d;
-      const provider: ProviderDto = {
-        id: newProviderId(),
-        name: '',
-        baseUrl: '',
-        apiKey: '',
-        models: [],
-      };
-      return { ...d, providers: [...d.providers, provider] };
-    });
-
-  const changeProvider = (id: string, nextProvider: ProviderDto) =>
-    setDraft((d) => {
-      if (d === null) return d;
-      // 全局默认模型跟随改名：默认指向本服务且原选中模型在改动后同位置换了名，
-      // 则默认跟随新名（删除行走 withoutModel 的回落逻辑，不在此处理）。
-      let activeModel = d.activeModel;
-      const prev = d.providers.find((p) => p.id === id);
-      if (
-        prev &&
-        d.activeProviderId === id &&
-        activeModel !== null &&
-        nextProvider.models.length === prev.models.length
-      ) {
-        const idx = prev.models.indexOf(activeModel);
-        if (idx >= 0 && nextProvider.models[idx] !== activeModel) {
-          activeModel = nextProvider.models[idx]!;
-        }
-      }
-      return {
-        ...d,
-        activeModel,
-        providers: d.providers.map((p) => (p.id === id ? nextProvider : p)),
-      };
-    });
-
-  /** 模型行「设为默认」：整对写入 (activeProviderId, activeModel)。 */
-  const activateModel = (providerId: string, model: string) =>
-    setDraft((d) => (d === null ? d : { ...d, activeProviderId: providerId, activeModel: model }));
-
-  /** 删除模型行：默认选中指向被删模型时同步回落（置 null，解析层取第一个模型）。 */
-  const removeModel = (providerId: string, index: number) =>
-    setDraft((d) => {
-      if (d === null) return d;
-      const provider = d.providers.find((p) => p.id === providerId);
-      if (!provider) return d;
-      const next = withoutModel(d, provider, index);
-      return {
-        ...d,
-        activeModel: next.activeModel,
-        providers: d.providers.map((p) => (p.id === providerId ? next.provider : p)),
-      };
-    });
-
-  const confirmDelete = () => {
-    const target = deleteTarget;
-    setDeleteTarget(null);
-    if (!target) return;
-    setDraft((d) =>
-      d === null ? d : { ...d, providers: d.providers.filter((p) => p.id !== target.id) },
-    );
-  };
-
   const save = async () => {
     if (!loaded || !draft || !next || saving || hasIssues) return;
     lastAttemptedRef.current = JSON.stringify(next);
@@ -294,8 +191,6 @@ export function SettingsView() {
     const timer = setTimeout(() => void save(), AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   });
-
-  const deleteIsActive = deleteTarget !== null && draft?.activeProviderId === deleteTarget.id;
 
   return (
     <div className={page}>
@@ -379,8 +274,10 @@ export function SettingsView() {
                   <Input
                     className={styles.animInput}
                     type="number"
-                    min={1}
-                    max={6}
+                    // 边界接单一事实源：preferences.ts NEAR_SCENES_MIN/MAX（与
+                    // infra/config.rs、api/mock/config.ts 校验域互指）
+                    min={NEAR_SCENES_MIN}
+                    max={NEAR_SCENES_MAX}
                     step={1}
                     value={nearScenesText}
                     aria-label={t('settings.nearScenes')}
@@ -399,87 +296,22 @@ export function SettingsView() {
               ) : null}
             </SettingsCard>
 
-            <SettingsCard
-              title={t('settings.provider')}
-              footer={{
-                // 修改即保存状态行（原先独占一行的状态区挪进底部提示位）
-                hint: (
-                  <div className={styles.status}>
-                    {saveError ? (
-                      <Text className={styles.issues} role="alert">
-                        {t('settings.saveFailed')}: {saveError}
-                      </Text>
-                    ) : saving ? (
-                      <Text>{t('settings.saving')}</Text>
-                    ) : dirty && hasIssues ? (
-                      <Badge appearance="tint" color="warning">
-                        {t('settings.dirty')}
-                      </Badge>
-                    ) : dirty ? (
-                      <Text>{t('settings.autosaveHint')}</Text>
-                    ) : null}
-                  </div>
-                ),
-                actions: (
-                  <Button appearance="primary" icon={<Add16Regular />} onClick={addProvider}>
-                    {t('settings.addProvider')}
-                  </Button>
-                ),
-              }}
-            >
-              <div className={styles.providerBody}>
-                {draft.providers.length === 0 ? (
-                  <div className={styles.empty}>
-                    <Text>{t('settings.providerEmpty')}</Text>
-                    <Button icon={<Add16Regular />} onClick={addProvider}>
-                      {t('settings.addProvider')}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className={styles.providerList}>
-                    {draft.providers.map((provider) => (
-                      <ProviderCard
-                        key={provider.id}
-                        provider={provider}
-                        isActiveProvider={draft.activeProviderId === provider.id}
-                        activeModel={draft.activeModel}
-                        onChange={(p) => changeProvider(provider.id, p)}
-                        onActivateModel={(model) => activateModel(provider.id, model)}
-                        onRemoveModel={(index) => removeModel(provider.id, index)}
-                        onDelete={() => setDeleteTarget(provider)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </SettingsCard>
+            {/* 服务卡（装配抽在 ProvidersCard）：provider 增删改、空态引导与
+                删除确认随卡搬家，页级草稿经 setDraft 透传，footer 修改即保存
+                状态行的入参由本层派生传入 */}
+            <ProvidersCard
+              draft={draft}
+              onDraftChange={setDraft}
+              saving={saving}
+              saveError={saveError}
+              dirty={dirty}
+              hasIssues={hasIssues}
+            />
           </div>
 
           {hasIssues && !saving ? (
             <Text className={styles.issues}>{issues.join('；')}</Text>
           ) : null}
-
-          {/* 删除确认（UI-003）：激活中的 provider 要求先转移激活，确认键禁用。
-              C1 收编：Esc/背板可取消，删除键红色弱化、取消键为主键。 */}
-          <ConfirmDialog
-            open={deleteTarget !== null}
-            onOpenChange={(open) => {
-              if (!open) setDeleteTarget(null);
-            }}
-            title={t('settings.deleteConfirmTitle')}
-            content={
-              deleteIsActive
-                ? t('settings.deleteActiveBlocked')
-                : t('settings.deleteConfirmBody', {
-                    name: deleteTarget?.name.trim() || deleteTarget?.id,
-                  })
-            }
-            confirmLabel={t('settings.deleteProvider')}
-            cancelLabel={t('settings.cancel')}
-            destructive
-            confirmDisabled={deleteIsActive}
-            onConfirm={confirmDelete}
-          />
         </>
       ) : loadError !== null ? (
         <Text className={styles.issues} role="alert">

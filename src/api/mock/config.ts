@@ -43,6 +43,9 @@ export async function saveConfig(next: ConfigDto): Promise<void> {
     });
   }
   // 近景场景数（近景窗口可选化）：对齐 infra/config.rs validate（1–6，拒绝不钳边）。
+  // 下方条件字面 1/6 与报错文案「允许 1–6」同源：前端单一事实源为
+  // features/settings/preferences.ts 的 NEAR_SCENES_MIN/MAX（api 层依赖方向
+  // 不可反向 import features，按「跨文件常量互指」纪律注释互指）。
   if (next.nearScenes < 1 || next.nearScenes > 6) {
     throw new ApiError({
       kind: 'config',

@@ -388,3 +388,55 @@ pub struct NewCharacterInstance {
     pub render_style: String,
     pub is_user: bool,
 }
+
+// ---------------------------------------------------------------------------
+// 测试：枚举 ↔ SQLite CHECK 字面量双向映射（约束耦合点的稳定性回归）
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// MessageRole ↔ messages.role（迁移 0001 建立，0009 重建表字面量不变）：
+    /// `CHECK (role IN ('user', 'assistant'))`。
+    #[test]
+    fn message_role_roundtrip_matches_check_literals() {
+        // 全变体精确字面量：与 CHECK 约束逐字一致，手滑改写即此处爆红。
+        assert_eq!(MessageRole::User.as_str(), "user");
+        assert_eq!(MessageRole::Assistant.as_str(), "assistant");
+        // 合法字面量回读恒等（as_str → from_db 往返）。
+        assert_eq!(
+            MessageRole::from_db(MessageRole::User.as_str()),
+            Ok(MessageRole::User)
+        );
+        assert_eq!(
+            MessageRole::from_db(MessageRole::Assistant.as_str()),
+            Ok(MessageRole::Assistant)
+        );
+        // 未知库值判后端数据损坏，禁止默认落变体装成功。
+        assert!(matches!(
+            MessageRole::from_db("system"),
+            Err(StorageError::Backend(_))
+        ));
+    }
+
+    /// CharacterStateScope ↔ character_states.scope（迁移 0002 建立，0009 重建表
+    /// 字面量不变）：`CHECK (scope IN ('state', 'relation'))`。
+    #[test]
+    fn character_state_scope_roundtrip_matches_check_literals() {
+        assert_eq!(CharacterStateScope::State.as_str(), "state");
+        assert_eq!(CharacterStateScope::Relation.as_str(), "relation");
+        assert_eq!(
+            CharacterStateScope::from_db(CharacterStateScope::State.as_str()),
+            Ok(CharacterStateScope::State)
+        );
+        assert_eq!(
+            CharacterStateScope::from_db(CharacterStateScope::Relation.as_str()),
+            Ok(CharacterStateScope::Relation)
+        );
+        assert!(matches!(
+            CharacterStateScope::from_db("mood"),
+            Err(StorageError::Backend(_))
+        ));
+    }
+}

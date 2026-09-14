@@ -113,3 +113,62 @@ pub struct NewLlmCall {
     pub status: LlmCallStatus,
     pub error_text: Option<String>,
 }
+
+// ---------------------------------------------------------------------------
+// 测试：枚举 ↔ SQLite CHECK 字面量双向映射（约束耦合点的稳定性回归）
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LlmCallKind ↔ llm_calls.kind（迁移 0008 建立，0009 重建表原样保留）：
+    /// `CHECK (kind IN ('dialogue', 'explorer', 'director', 'draft'))`。CHECK 含
+    /// 历史第四值 'draft'（历法起草，2026-09-13 裁撤），Rust 侧已不再识别——
+    /// 应用未发布无存量数据，读到即判损坏，属既定裁撤而非字面量漂移。
+    #[test]
+    fn llm_call_kind_roundtrip_matches_check_literals() {
+        // 全变体精确字面量：现行三值与 CHECK 约束逐字一致。
+        assert_eq!(LlmCallKind::Dialogue.as_str(), "dialogue");
+        assert_eq!(LlmCallKind::Explorer.as_str(), "explorer");
+        assert_eq!(LlmCallKind::Director.as_str(), "director");
+        // 合法字面量回读恒等（as_str → from_db 往返）。
+        assert_eq!(
+            LlmCallKind::from_db(LlmCallKind::Dialogue.as_str()),
+            Ok(LlmCallKind::Dialogue)
+        );
+        assert_eq!(
+            LlmCallKind::from_db(LlmCallKind::Explorer.as_str()),
+            Ok(LlmCallKind::Explorer)
+        );
+        assert_eq!(
+            LlmCallKind::from_db(LlmCallKind::Director.as_str()),
+            Ok(LlmCallKind::Director)
+        );
+        // 'draft' 仍在 CHECK 白名单内，但 from_db 判后端数据损坏（见函数注释）。
+        assert!(matches!(
+            LlmCallKind::from_db("draft"),
+            Err(StorageError::Backend(_))
+        ));
+    }
+
+    /// LlmCallStatus ↔ llm_calls.status（迁移 0008 建立，0009 重建表原样保留）：
+    /// `CHECK (status IN ('ok', 'error'))`。取消按 error 落库（见枚举文档）。
+    #[test]
+    fn llm_call_status_roundtrip_matches_check_literals() {
+        assert_eq!(LlmCallStatus::Ok.as_str(), "ok");
+        assert_eq!(LlmCallStatus::Error.as_str(), "error");
+        assert_eq!(
+            LlmCallStatus::from_db(LlmCallStatus::Ok.as_str()),
+            Ok(LlmCallStatus::Ok)
+        );
+        assert_eq!(
+            LlmCallStatus::from_db(LlmCallStatus::Error.as_str()),
+            Ok(LlmCallStatus::Error)
+        );
+        assert!(matches!(
+            LlmCallStatus::from_db("cancelled"),
+            Err(StorageError::Backend(_))
+        ));
+    }
+}

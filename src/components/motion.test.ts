@@ -118,7 +118,7 @@ const KNOWN_OUT_OF_SCOPE: Record<string, number> = {
   // reduce 急停值（0.01ms kill-switch，带 reduce 门控，收敛归布局侧议题）
   'app/layout/ActivityBar.tsx': 1,
   // 「正在回忆…」脉动 1.4s（带 reduce 门控的独立节奏，非共享语言）
-  'features/chat/ActivityBar.tsx': 1,
+  'features/chat/ActivityNotice.tsx': 1,
 };
 
 interface Hit {

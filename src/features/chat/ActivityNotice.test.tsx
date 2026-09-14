@@ -1,5 +1,5 @@
 /**
- * ActivityBar 单测（Task-07）：幕后活动条的四条行为规则——
+ * ActivityNotice 单测（Task-07）：幕后活动条的四条行为规则——
  * 1. 折叠态文案随 phase：researchStart / toolCall / toolResult →「正在回忆…」，
  *    dossierReady →「翻到了。」（短暂完成态）；
  * 2. researchSkipped（快车道）零打扰：不渲染任何内容；
@@ -15,7 +15,7 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import '../../i18n';
-import { ActivityBar } from './ActivityBar';
+import { ActivityNotice } from './ActivityNotice';
 import type { ActivityStep } from './streamHub';
 
 /** 轨迹构造：ActivityStep 只含 phase + detail（呈现层无时间维度） */
@@ -26,7 +26,7 @@ function step(phase: ActivityStep['phase'], detail: string | null): ActivityStep
 function bar(activity: readonly ActivityStep[], yielded = false) {
   return (
     <FluentProvider theme={webLightTheme}>
-      <ActivityBar activity={activity} yielded={yielded} />
+      <ActivityNotice activity={activity} yielded={yielded} />
     </FluentProvider>
   );
 }

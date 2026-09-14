@@ -24,7 +24,7 @@ import {
   type RendererOptions,
 } from '../../engine';
 import { streamHub, type StreamState } from './streamHub';
-import { ActivityBar } from './ActivityBar';
+import { ActivityNotice } from './ActivityNotice';
 
 const useStyles = makeStyles({
   row: {
@@ -252,7 +252,7 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
         <Text className={styles.speaker}>{speaker}</Text>
       </div>
       {/* 幕后活动条（Task-07）：探索期间「正在回忆…」，正文开始让位；空轨迹不渲染 */}
-      <ActivityBar activity={state.activity} yielded={state.activityYielded} />
+      <ActivityNotice activity={state.activity} yielded={state.activityYielded} />
       <div ref={containerRef} className={styles.body} />
     </div>
   );

@@ -81,14 +81,14 @@ const useStyles = makeStyles({
   },
 });
 
-interface ActivityBarProps {
+interface ActivityNoticeProps {
   /** 幕后活动轨迹（hub 终态清空后为空数组 → 不渲染） */
   activity: readonly ActivityStep[];
   /** 正文已开始的让位标记（首个 token / reasoning 后折叠条换成小标记） */
   yielded: boolean;
 }
 
-export function ActivityBar({ activity, yielded }: ActivityBarProps) {
+export function ActivityNotice({ activity, yielded }: ActivityNoticeProps) {
   const styles = useStyles();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);

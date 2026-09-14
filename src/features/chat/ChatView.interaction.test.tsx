@@ -9,6 +9,10 @@
 //   且流先摘除（Task-21）；
 // - U5 空态直达钮：零会话空态含「新建会话」按钮，点击置位 store 开关
 //   （对话框 open 状态提升自 Sidebar），侧栏「+」同源消费。
+// - 生成闭环（Task-11）：停止瞬态（stopping 禁用形态 + cancelGeneration 接线）、
+//   终态竞态收尾（cancelGeneration=false → settleSession 重拉摘流且不误报）、
+//   终态错误提示 role="alert"（reason 非 cancelled）与取消静默（reason=cancelled
+//   不报错）、重新生成旧条摘除与末条 user 时的负向门控。
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
@@ -19,7 +23,7 @@ import type { ChatMessage, SessionSummary } from '../../api/types';
 import '../../i18n';
 import { useUiStore } from '../../stores/ui';
 import { ChatView } from './ChatView';
-import { streamHub } from './streamHub';
+import { CANCEL_REASON, streamHub } from './streamHub';
 
 const mocks = vi.hoisted(() => ({
   listSessions: vi.fn(),
@@ -379,4 +383,165 @@ it('CAND-05：空草稿禁用态的发送钮可聚焦出气泡（aria-disabled �
   // 点击不发送：Fluent 拦截 disabledFocusable 激活，onSend 空草稿守卫双保险
   fireEvent.click(send);
   expect(mocks.sendMessage).not.toHaveBeenCalled();
+});
+
+// —— Task-11 生成闭环：停止 / 终态竞态 / 终态错误与取消静默 / 重新生成 ——
+// 流式行的存在性以「停止钮 ↔ 发送钮互斥渲染」为用户可观察探针：流状态非空时
+// 发送钮被停止钮替换，收尾（streamHub.end）后回落；流式行正文经引擎节奏吐字，
+// jsdom 下到达时机不确定，不作断言探针。
+
+// 终态 assistant 行：characterId 指向说话实例 11（织星者），与 SESSION.instances
+// 对齐；与 OLD_MESSAGE 同文案不同 id——重新生成的旧条摘除按 id 过滤，不受同
+// 文案的 user 行干扰
+const ASSISTANT_MESSAGE: ChatMessage = {
+  id: 100,
+  sessionId: 3,
+  characterId: 11,
+  role: 'assistant',
+  content: '旧回复',
+  reasoning: null,
+  thinkMs: null,
+  createdAt: 900,
+  interrupted: false,
+};
+
+it('生成闭环：流式期间点停止，停止钮立即表达 stopping 禁用形态且 cancelGeneration 以会话 id 调用', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  // 取消成功：收尾由 Rust 补发的取消终态事件驱动（本用例不投，验证瞬态保持）
+  mocks.cancelGeneration.mockResolvedValue(true);
+  renderView();
+  await screen.findByText('你好');
+  act(() => {
+    streamHub.begin(3);
+  });
+  // 流式期间停止/发送互斥渲染：发送钮退场，停止钮接棒（可访问名由 Tooltip 注入）
+  const stop = await screen.findByRole('button', { name: '停止' });
+  expect(screen.queryByRole('button', { name: '发送' })).toBeNull();
+  act(() => {
+    handlers.get(3)?.({ type: 'token', sessionId: 3, messageId: -1, text: '星河', reset: false });
+  });
+  fireEvent.click(stop);
+  // stopping 瞬态立即表达（disabledFocusable → aria-disabled 置位、原生 disabled
+  // 不出现，同 CAND-05 的禁用形态断言）
+  const stopAfterClick = screen.getByRole('button', { name: '停止' });
+  expect(stopAfterClick.getAttribute('aria-disabled')).toBe('true');
+  expect(stopAfterClick.hasAttribute('disabled')).toBe(false);
+  await waitFor(() => expect(mocks.cancelGeneration).toHaveBeenCalledWith(3));
+  // 取消成功路径不自行收尾：等终态事件，重拉不提前发生
+  expect(mocks.listMessages).toHaveBeenCalledTimes(1);
+});
+
+it('生成闭环：cancelGeneration 返回 false（点停前已到终态）→ 收尾重拉替换流式行，不误报失败', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  // 初次挂载加载；收尾重拉返回已落库的终态列表（原 user 条 + assistant 条）
+  mocks.listMessages
+    .mockResolvedValueOnce([USER_MESSAGE])
+    .mockResolvedValue([USER_MESSAGE, ASSISTANT_MESSAGE]);
+  mocks.cancelGeneration.mockResolvedValue(false); // 竞态：恰在点停前已终态落库
+  renderView();
+  await screen.findByText('你好');
+  act(() => {
+    streamHub.begin(3);
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '停止' }));
+  // 竞态路径直接走 settleSession：初次挂载 + 收尾共 2 次，均以会话 id 调用
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2));
+  expect(mocks.listMessages).toHaveBeenNthCalledWith(2, 3);
+  // 重拉结果上屏：流式行摘除、历史行回归；停止钮退场、发送钮回落
+  expect(await screen.findByText('旧回复')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '停止' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '发送' })).not.toBeNull();
+  // 竞态收尾不误报失败：markStopping 后非 error 终态，无 alert
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(streamHub.stateOf(3)).toBeNull();
+});
+
+it('生成闭环：error 终态（reason 非 cancelled）+ 重拉成功 → role="alert" 含「生成失败」与 reason', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  renderView();
+  await screen.findByText('你好');
+  act(() => {
+    streamHub.begin(3);
+  });
+  await screen.findByRole('button', { name: '停止' });
+  await act(async () => {
+    handlers.get(3)?.({
+      type: 'error',
+      sessionId: 3,
+      messageId: -1,
+      reason: '模型返回 500',
+      interrupted: false,
+    });
+  });
+  // 终态错误提示对读屏可达：i18n 前缀「生成失败」+ 失败原因
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('生成失败');
+  expect(alert.textContent).toContain('模型返回 500');
+  // 收尾重拉发生（初次挂载 + 终态收尾），流式行摘除（停止钮退场、发送钮回落）
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2));
+  expect(mocks.listMessages).toHaveBeenNthCalledWith(2, 3);
+  expect(screen.queryByRole('button', { name: '停止' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '发送' })).not.toBeNull();
+});
+
+it('生成闭环：error 终态 reason=cancelled（用户取消）→ 收尾重拉但无 alert（取消不报错）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  mocks.cancelGeneration.mockResolvedValue(true); // 取消成功：Rust 补发 error(cancelled) 触发收尾
+  renderView();
+  await screen.findByText('你好');
+  act(() => {
+    streamHub.begin(3);
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '停止' }));
+  await waitFor(() => expect(mocks.cancelGeneration).toHaveBeenCalledWith(3));
+  // 取消成功时 onStop 不自行收尾（等 Rust 补发终态事件）：重拉未提前发生
+  expect(mocks.listMessages).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    handlers.get(3)?.({
+      type: 'error',
+      sessionId: 3,
+      messageId: -1,
+      reason: CANCEL_REASON,
+      interrupted: true,
+    });
+  });
+  // 收尾照常发生：流式行摘除、发送钮回落、重拉以会话 id 调用
+  expect(await screen.findByRole('button', { name: '发送' })).toBeTruthy();
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2));
+  expect(mocks.listMessages).toHaveBeenNthCalledWith(2, 3);
+  // 取消被排除在终态错误提示之外：无 alert
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(streamHub.stateOf(3)).toBeNull();
+});
+
+it('生成闭环：重新生成点击后旧 assistant 行从 DOM 消失（替换式重演）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages
+    .mockResolvedValueOnce([USER_MESSAGE, ASSISTANT_MESSAGE]) // 初次挂载：末条为 assistant
+    .mockResolvedValue([USER_MESSAGE]); // 替换后重拉：旧条已软删，只剩用户条
+  mocks.regenerateLast.mockResolvedValue(ASSISTANT_MESSAGE); // FR-008：返回被替换的旧条
+  renderView();
+  expect(await screen.findByText('旧回复')).toBeTruthy();
+  // 末条为 assistant → 重新生成钮在场
+  fireEvent.click(screen.getByRole('button', { name: '重新生成' }));
+  await waitFor(() => expect(mocks.regenerateLast).toHaveBeenCalledWith(3));
+  // 旧条按 id 摘除 → 从 DOM 消失，等待重新演出
+  await waitFor(() => expect(screen.queryByText('旧回复')).toBeNull());
+  // 替换落库后的收尾重拉发生；末条不再为 assistant → 重新生成钮退场，用户条保留
+  await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole('button', { name: '重新生成' })).toBeNull();
+  expect(screen.getByText('你好')).toBeTruthy();
+});
+
+it('生成闭环：末条为 user 时重新生成钮不渲染（负向门控）', async () => {
+  useUiStore.setState({ activeSessionId: 3, sessions: [SESSION] });
+  mocks.listMessages.mockResolvedValue([USER_MESSAGE]);
+  renderView();
+  await screen.findByText('你好');
+  expect(screen.queryByRole('button', { name: '重新生成' })).toBeNull();
+  // composer 正常在场：发送钮可达，门控不是 composer 整体缺席
+  expect(screen.getByRole('button', { name: '发送' })).toBeTruthy();
 });

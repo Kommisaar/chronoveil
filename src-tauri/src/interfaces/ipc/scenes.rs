@@ -261,7 +261,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         let state = app
             .storage
@@ -307,7 +309,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
 
         // 开场锚行无条件存在（FR-014 §7-6）：场景列表按 idx 升序返回在世行；

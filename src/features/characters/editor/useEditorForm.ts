@@ -28,6 +28,7 @@ import type { CharacterInput, CharacterSummary } from '../../../api/types';
 import {
   ANIM_STYLES,
   createRenderer,
+  DEFAULT_RENDER_STYLE,
   DUR_DEFAULT_MS,
   RHYTHM_DEFAULT_MS,
   type AnimStyleId,
@@ -48,6 +49,8 @@ export interface AnimDefaults {
   durationMs: number;
   msPerChar: number;
   punctPause: boolean;
+  /** 全局出场动画风格（2026-09-14）：卡 renderStyle 为 null 时预览/展示回落值。 */
+  renderStyle: string;
 }
 
 /** 模板默认值（docs/streaming-animations.html 控件默认；引擎常量同源）。 */
@@ -55,6 +58,7 @@ const TEMPLATE_DEFAULTS: AnimDefaults = {
   durationMs: DUR_DEFAULT_MS,
   msPerChar: RHYTHM_DEFAULT_MS,
   punctPause: true,
+  renderStyle: DEFAULT_RENDER_STYLE,
 };
 
 /** model_config JSON 的表单形态（空串 = 该字段跟随全局）。 */
@@ -119,8 +123,8 @@ export interface EditorForm {
   setAge: (value: string) => void;
   persona: string;
   setPersona: (value: string) => void;
-  renderStyle: string;
-  setRenderStyle: (value: string) => void;
+  renderStyle: string | null;
+  setRenderStyle: (value: string | null) => void;
   /** 演出参数覆写（2026-09-13）：null = 跟随全局。 */
   animDurationMs: number | null;
   setAnimDurationMs: (value: number | null) => void;
@@ -174,9 +178,8 @@ export function useEditorForm(props: {
       gender: character?.gender ?? '',
       age: character?.age ?? '',
       persona: character?.persona ?? '',
-      // 新建默认 render_style 与 Rust NewCharacter::default 一致（'type' 打字机，
-      // 迁移 0006 起存量遗留串已在库侧订正）。
-      renderStyle: character?.renderStyle ?? 'type',
+      // 新建默认与 Rust NewCharacter::default 一致：null = 跟随全局（0014）。
+      renderStyle: character?.renderStyle ?? null,
       // null = 跟随海报派生（accent_color 列语义，迁移 0003）。
       accentColor: character?.accentColor ?? null,
       // 演出参数覆写（迁移 0013）：null = 跟随全局。
@@ -366,8 +369,10 @@ export function useEditorForm(props: {
     const effRhythm = animRhythmMs ?? animDefaults.msPerChar;
     const effPunct = animPunctPause ?? animDefaults.punctPause;
     rendererRef.current ??= createRenderer(container);
-    // 遗留数据可能带 18 表之外的风格串：先自校验回落 fade（引擎 setStyle 不校验）。
-    const found = ANIM_STYLES.find((s) => s.id === renderStyle);
+    // 风格跟随全局（0014）：null 取全局基准；遗留数据可能带 18 表之外的风格串，
+    // 先自校验回落 fade（引擎 setStyle 不校验）。
+    const effectiveStyle = renderStyle ?? animDefaults.renderStyle;
+    const found = ANIM_STYLES.find((s) => s.id === effectiveStyle);
     const style: AnimStyleId = found ? found.id : 'fade';
     rendererRef.current.setStyle(style);
     rendererRef.current.setDuration(effDuration);
@@ -390,9 +395,12 @@ export function useEditorForm(props: {
       // 取色器色块显示的是它（显式强调色，或跟随海报时按 id 派生的亮端）。
       baseColor: accentColorOf(accentInput),
       dotGradient: dotGradientOf(accentInput),
-      styleLabel: selectedStyle ? selectedStyle.label : renderStyle,
+      styleLabel:
+        selectedStyle?.label ??
+        (renderStyle !== null ? renderStyle : animDefaults.renderStyle),
     };
-  }, [character, accentColor, renderStyle, name, t]);
+    // animDefaults.renderStyle 参与 styleLabel 回落，一并入 deps
+  }, [character, accentColor, renderStyle, name, t, animDefaults]);
 
   return {
     name,

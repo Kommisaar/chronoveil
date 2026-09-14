@@ -46,6 +46,10 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // 角色卡演出参数（2026-09-13 用户定稿）：动效时长 / 打字节奏 / 标点微停
     // 三列可空（NULL = 跟随全局设置），取值范围在命令层校验
     (13, include_str!("../../../migrations/0013_add_character_anim_params.sql")),
+    // 角色动画风格跟随全局（2026-09-14 用户定稿）：characters.render_style
+    // 可空（NULL = 跟随全局 config.json render_style），整表重建去 NOT NULL；
+    // 实例快照在建会话时解析为具体值，instances.render_style 保持 NOT NULL
+    (14, include_str!("../../../migrations/0014_character_render_style_follow.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

@@ -28,8 +28,8 @@ pub struct CharacterSummary {
     pub gender: Option<String>,
     /// 年龄（可选展示元数据，自由文本）。
     pub age: Option<String>,
-    /// 出场动画风格（18 种之一，FR-005）。
-    pub render_style: String,
+    /// 出场动画风格（18 种之一，FR-005）；null = 跟随全局设置（2026-09-14）。
+    pub render_style: Option<String>,
     /// 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
     /// None = 跟随全局默认。
     pub model_config: Option<String>,
@@ -202,7 +202,7 @@ mod tests {
             persona: "雨夜电话亭的守夜人".into(),
             gender: None,
             age: None,
-            render_style: "typewriter".into(),
+            render_style: Some("typewriter".into()),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),
@@ -234,7 +234,7 @@ mod tests {
             persona: "雨夜电话亭的守夜人".into(),
             gender: Some("女".into()),
             age: Some("24".into()),
-            render_style: "typewriter".into(),
+            render_style: Some("typewriter".into()),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: None,
             anim_duration_ms: Some(600),
@@ -268,14 +268,18 @@ mod tests {
                 roster: roster(created.id),
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         app.storage
             .create_session(&NewSession {
                 roster: roster(created.id),
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         let other = create_character_impl(
             &app,
@@ -364,7 +368,7 @@ mod tests {
             persona: "雨夜电话亭的守夜人".into(),
             gender: None,
             age: None,
-            render_style: "typewriter".into(),
+            render_style: Some("typewriter".into()),
             model_config: None,
             accent_color: None,
             anim_duration_ms: None,

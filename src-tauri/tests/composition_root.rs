@@ -44,6 +44,7 @@ fn composition_root_end_to_end() {
     let session = app
         .storage
         .create_session(&NewSession {
+            default_render_style: "type".to_string(),
             roster: vec![
                 RosterPick { character_id: user_card.id, is_user: true },
                 RosterPick { character_id: llm_card.id, is_user: false },

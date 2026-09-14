@@ -38,6 +38,8 @@ pub struct ConfigDto {
     pub punct_pause_enabled: bool,
     /// 动效时长基准 ms。
     pub anim_duration_base: u32,
+    /// 全局出场动画风格（2026-09-14）：角色卡 renderStyle 为 null 时的演出回落值。
+    pub render_style: String,
     pub ui_language: String,
     /// system / light / dark。
     pub ui_theme: String,
@@ -66,6 +68,7 @@ impl From<&FileConfig> for ConfigDto {
             rhythm_ms_per_char: c.rhythm_ms_per_char,
             punct_pause_enabled: c.punct_pause_enabled,
             anim_duration_base: c.anim_duration_base,
+            render_style: c.render_style.clone(),
             ui_language: c.ui_language.clone(),
             ui_theme: c.ui_theme.clone(),
             director_model: c.director_model.clone(),
@@ -94,6 +97,7 @@ impl From<ConfigDto> for FileConfig {
             rhythm_ms_per_char: d.rhythm_ms_per_char,
             punct_pause_enabled: d.punct_pause_enabled,
             anim_duration_base: d.anim_duration_base,
+            render_style: d.render_style,
             ui_language: d.ui_language,
             ui_theme: d.ui_theme,
             director_model: d.director_model,
@@ -135,6 +139,7 @@ mod tests {
     #[test]
     fn config_dto_roundtrip_through_file_config() {
         let dto = ConfigDto {
+            render_style: "type".into(),
             providers: vec![ProviderDto {
                 id: "p1".into(),
                 name: "本地中转".into(),

@@ -7,14 +7,19 @@
 import { Input, Slider, Switch, Text, makeStyles, tokens } from '@fluentui/react-components';
 import { Pause20Regular, Sparkle20Regular, Timer20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
+import { DropdownPushButton } from '../../components/DropdownPushButton';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
 // 滑杆与动效基准边界常量引用引擎单一事实源（与 characters/editor/AnimParamRows.tsx 同法），
 // 不在组件内再写死数值（AGENTS.md「跨文件常量互指」已知坑）。
-import { DUR_MIN_MS, RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
+import { ANIM_STYLES, DUR_MIN_MS, RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
 const useStyles = makeStyles({
   slider: {
     width: '240px',
+  },
+  // 全局风格下拉（复刻件）：三段档宽度口径，18 风格直显 8 行内滚
+  styleSelect: {
+    width: '200px',
   },
   animInput: {
     width: '140px',
@@ -29,6 +34,9 @@ const useStyles = makeStyles({
 
 export interface RhythmSettingsCardProps {
   rhythmMsPerChar: number;
+  /** 全局出场动画风格（2026-09-14）：新角色与「跟随全局」卡的演出回落值。 */
+  renderStyle: string;
+  onRenderStyleChange: (value: string) => void;
   onRhythmChange: (value: number) => void;
   punctPauseEnabled: boolean;
   onPunctPauseChange: (checked: boolean) => void;
@@ -59,6 +67,22 @@ export function RhythmSettingsCard(props: RhythmSettingsCardProps) {
             value={props.rhythmMsPerChar}
             aria-label={t('settings.rhythm', { value: String(props.rhythmMsPerChar) })}
             onChange={(_, d) => props.onRhythmChange(d.value)}
+          />
+        }
+      />
+      <SettingsDivider />
+      <SettingsRow
+        icon={<Sparkle20Regular />}
+        title={t('settings.renderStyle')}
+        description={t('settings.renderStyleDesc')}
+        control={
+          <DropdownPushButton
+            className={styles.styleSelect}
+            ariaLabel={t('settings.renderStyle')}
+            value={props.renderStyle}
+            onChange={props.onRenderStyleChange}
+            maxVisibleItems={8}
+            options={ANIM_STYLES.map((s) => ({ value: s.id, label: s.label, detail: s.id }))}
           />
         }
       />

@@ -17,6 +17,9 @@ export const DEFAULT_CONFIG: ConfigDto = {
   rhythmMsPerChar: 45,
   punctPauseEnabled: true,
   animDurationBase: 450,
+  // 全局出场动画风格（2026-09-14）：与 Rust Config::new_with_defaults 同源
+  // （DEFAULT_RENDER_STYLE，engine/anims 单一事实源）。
+  renderStyle: 'type',
   uiLanguage: 'zh',
   uiTheme: 'system',
   directorModel: null,

@@ -41,7 +41,8 @@ pub struct CharacterCardPayload {
     pub persona: String,
     pub gender: Option<String>,
     pub age: Option<String>,
-    pub render_style: String,
+    /// None = 跟随全局设置（2026-09-14，与卡 wire 同形）。
+    pub render_style: Option<String>,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13，可选项随卡携带；旧卡文件缺省 = None = 跟随
@@ -197,7 +198,7 @@ mod tests {
             persona: "雨夜电话亭的守夜人".into(),
             gender: Some("女".into()),
             age: Some("24".into()),
-            render_style: "typewriter".into(),
+            render_style: Some("typewriter".into()),
             model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),

@@ -75,6 +75,8 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
     let session_id = tx.last_insert_rowid();
 
     // 逐卡实例化（D1）：快照拷贝 + 溯源；卡不存在 / 已软删 → NotFound，整体回滚。
+    // render_style 为 NULL（跟随全局，0014）的卡按 default_render_style 回落——
+    // 实例快照落具体值，改全局不回写旧会话（D1 冻结语义）。
     let mut instance_ids = Vec::with_capacity(new.roster.len());
     for pick in &new.roster {
         let card = characters::get(&tx, pick.character_id)?;
@@ -85,7 +87,10 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
                 character_id: Some(card.id),
                 name: card.name,
                 persona: card.persona,
-                render_style: card.render_style,
+                render_style: card
+                    .render_style
+                    .clone()
+                    .unwrap_or_else(|| new.default_render_style.clone()),
                 is_user: pick.is_user,
             },
         )?;

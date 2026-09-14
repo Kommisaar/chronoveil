@@ -236,7 +236,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
 
         // Provider 未配置 → 类型化 Config 错误；用户条与注册表零副作用。

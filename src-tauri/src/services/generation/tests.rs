@@ -56,7 +56,7 @@ fn character_with(model_config: Option<String>) -> Character {
         persona: String::new(),
         gender: None,
         age: None,
-        render_style: "fade".into(),
+        render_style: Some("fade".into()),
         model_config,
         accent_color: None,
         anim_duration_ms: None,
@@ -315,6 +315,8 @@ fn setup(storage: &Storage) -> i64 {
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id

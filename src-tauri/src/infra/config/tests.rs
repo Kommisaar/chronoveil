@@ -92,6 +92,7 @@ fn save_load_roundtrip_and_no_tmp_leftover() {
     let dir = temp_dir("roundtrip");
     let store = store_in(&dir);
     let config = Config {
+        render_style: crate::infra::config::DEFAULT_RENDER_STYLE.into(),
         providers: vec![ProviderConfig {
             id: "p1".into(),
             name: "本地中转".into(),

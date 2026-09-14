@@ -120,6 +120,8 @@ fn storage_with_session(tag: &str) -> (Arc<Storage>, i64, Vec<CharacterInstance>
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id;

@@ -46,7 +46,8 @@ function newCharacterInput(name: string): CharacterInput {
     persona: '',
     gender: null,
     age: null,
-    renderStyle: 'type',
+    // 新建卡默认跟随全局（0014 列语义，与 Rust NewCharacter::default 一致）。
+    renderStyle: null,
     modelConfig: null,
     accentColor: null,
     animDurationMs: null,
@@ -170,6 +171,7 @@ export function CharactersView() {
           durationMs: config.animDurationBase,
           msPerChar: config.rhythmMsPerChar,
           punctPause: config.punctPauseEnabled,
+          renderStyle: config.renderStyle,
         });
       })
       .catch((e) => {

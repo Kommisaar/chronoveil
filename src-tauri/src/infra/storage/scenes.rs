@@ -163,7 +163,9 @@ mod tests {
             .unwrap()
             .id;
         let session_id = storage
-            .create_session(&NewSession { roster: test_roster(&storage, user_card, char_id), title: String::new(), opening: None })
+            .create_session(&NewSession { roster: test_roster(&storage, user_card, char_id), title: String::new(), opening: None,
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
             .id;
         (storage, dir, session_id)
@@ -211,7 +213,9 @@ mod tests {
                 roster: test_roster(&storage, cards[0].id, cards[1].id),
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         let _ = storage.insert_message(&NewMessage::new(other.id, MessageRole::User, "hi"));
         let anchor = storage.latest_scene(other.id).unwrap().unwrap();
@@ -263,7 +267,9 @@ mod tests {
                 roster: test_roster(&storage, cards[0].id, cards[1].id),
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
             .id;
         storage.insert_scene(&scene(sid_a, 1, "A 场")).unwrap();

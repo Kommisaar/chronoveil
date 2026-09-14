@@ -30,6 +30,8 @@ fn setup(tag: &str) -> (Storage, PathBuf, i64, i64, i64) {
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id;
@@ -212,6 +214,8 @@ fn list_by_session_filters_and_covers_scopes() {
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id;

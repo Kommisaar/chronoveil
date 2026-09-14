@@ -254,13 +254,16 @@ describe('PerformanceField（出场演出字段）', () => {
     renderUi(
       <PerformanceField
         renderStyle="ink"
+        globalStyle="type"
         onStyleChange={vi.fn()}
         onPlay={onPlay}
         previewRef={vi.fn()}
         previewed={false}
       />,
     );
-    expect(screen.getByRole('combobox', { name: '动画样式' }).textContent).toContain('墨晕沉淀');
+    // 2026-09-14 风格下拉换自绘复刻件 DropdownPushButton：触发钮是普通
+    // button（aria-label 动画样式），不再是 Fluent combobox
+    expect(screen.getByRole('button', { name: '动画样式' }).textContent).toContain('墨晕沉淀');
     fireEvent.click(screen.getByRole('button', { name: '预览动画' }));
     expect(onPlay).toHaveBeenCalledTimes(1);
     // 内嵌预览框空态提示在位
@@ -271,12 +274,13 @@ describe('PerformanceField（出场演出字段）', () => {
     renderUi(
       <PerformanceField
         renderStyle="typewriter"
+        globalStyle="type"
         onStyleChange={vi.fn()}
         onPlay={vi.fn()}
         previewRef={vi.fn()}
         previewed={false}
       />,
     );
-    expect(screen.getByRole('combobox', { name: '动画样式' }).textContent).toContain('typewriter');
+    expect(screen.getByRole('button', { name: '动画样式' }).textContent).toContain('typewriter');
   });
 });

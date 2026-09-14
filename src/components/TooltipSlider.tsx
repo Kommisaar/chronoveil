@@ -41,6 +41,30 @@ const useStyles = makeStyles({
       opacity: '1',
     },
   },
+  // 禁用态（跟随全局）：对齐原生 Fluent Slider 禁用配色——不整体压透明，
+  // 而是换色：填充/拇指点切 ForegroundDisabled（#bdbdbd）、余段轨切
+  // BackgroundDisabled（#f0f0f0）、白环描边同步灰化（token 从注入主题实测）；
+  // :hover 气泡显隐规则反压（mergeClasses 后挂的类胜出）
+  disabled: {
+    '&:hover > span': {
+      opacity: '0',
+    },
+  },
+  trackDisabled: {
+    backgroundImage:
+      `linear-gradient(to right, ${tokens.colorNeutralForegroundDisabled} 0px, ` +
+      `${tokens.colorNeutralForegroundDisabled} var(--cv-fill), ` +
+      `${tokens.colorNeutralBackgroundDisabled} var(--cv-fill))`,
+  },
+  thumbDisabled: {
+    boxShadow: `0 0 0 1px ${tokens.colorNeutralForegroundDisabled}, 0 2px 4px rgba(0, 0, 0, 0.15)`,
+  },
+  dotDisabled: {
+    backgroundColor: tokens.colorNeutralForegroundDisabled,
+  },
+  inputDisabled: {
+    cursor: 'default',
+  },
   track: {
     position: 'absolute',
     left: '0px',
@@ -124,6 +148,9 @@ export interface TooltipSliderProps {
   className?: string;
   /** 气泡文案格式化；缺省直接显数值。 */
   formatValue?: (value: number) => string;
+  /** 禁用（跟随全局态由调用方传入）：原生 input 断交互，整体压暗并
+      抑制值气泡（2026-09-14 分段「跟随|自定义」模式配套）。 */
+  disabled?: boolean;
 }
 
 export function TooltipSlider(props: TooltipSliderProps) {
@@ -137,6 +164,7 @@ export function TooltipSlider(props: TooltipSliderProps) {
     ariaLabel,
     className,
     formatValue,
+    disabled,
   } = props;
   // 拖动中标记：pointerdown 起挂 window pointerup（mouseup 可能落在条外，
   // 事件不冒泡回 input），到点即收拖动态
@@ -160,20 +188,32 @@ export function TooltipSlider(props: TooltipSliderProps) {
   const center = `calc(${pct} * (100% - ${KNOB_SIZE_PX}px) + ${KNOB_SIZE_PX / 2}px)`;
   return (
     <div
-      className={mergeClasses(styles.root, dragging && styles.dragging, className)}
+      className={mergeClasses(
+        styles.root,
+        dragging && styles.dragging,
+        disabled && styles.disabled,
+        className,
+      )}
       style={{ '--cv-fill': center } as CSSProperties}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className={styles.track} />
-      <div className={styles.thumb} style={{ left: center }}>
+      <div className={mergeClasses(styles.track, disabled && styles.trackDisabled)} />
+      <div
+        className={mergeClasses(styles.thumb, disabled && styles.thumbDisabled)}
+        style={{ left: center }}
+      >
         <div
-          className={mergeClasses(styles.dot, hovered && !dragging && styles.dotLg)}
+          className={mergeClasses(
+            styles.dot,
+            hovered && !dragging && !disabled && styles.dotLg,
+            disabled && styles.dotDisabled,
+          )}
         />
       </div>
       {/* 透明原生 input：拖动 / 方向键 / 读屏的全部交互由它承担 */}
       <input
-        className={styles.input}
+        className={mergeClasses(styles.input, disabled && styles.inputDisabled)}
         type="range"
         min={min}
         max={max}
@@ -182,6 +222,7 @@ export function TooltipSlider(props: TooltipSliderProps) {
         onChange={(e) => onChange(Number(e.target.value))}
         onPointerDown={() => setDragging(true)}
         aria-label={ariaLabel}
+        disabled={disabled}
       />
       {/* 对读屏隐藏：值已由 input 的 aria-valuenow 表达，气泡纯属视觉冗余 */}
       <span data-tip aria-hidden className={styles.tip} style={{ left: center }}>

@@ -46,8 +46,9 @@ pub struct Character {
     pub gender: Option<String>,
     /// 年龄（可选展示元数据，自由文本，允许「数百岁」类表述；None = 未设置）。
     pub age: Option<String>,
-    /// 出场动画风格（18 种之一，按角色存而非全局）。
-    pub render_style: String,
+    /// 出场动画风格（18 种之一，按角色存；2026-09-14 起可空——None = 跟随
+    /// 全局设置 config.json 的 render_style）。
+    pub render_style: Option<String>,
     /// 角色专属模型覆写 JSON，可空。
     pub model_config: Option<String>,
     /// 强调色（编辑器右栏渐变背景等界面着色），#RRGGBB；None = 跟随海报派生色。
@@ -120,40 +121,22 @@ pub struct Message {
     pub deleted_at: Option<i64>,
 }
 
-/// 新建角色卡入参（FR-006）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// 新建角色卡入参（FR-006）。Default 派生：全字段缺省即「跟随全局」语义。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NewCharacter {
     pub name: String,
     pub avatar: Option<String>,
     pub persona: String,
     pub gender: Option<String>,
     pub age: Option<String>,
-    pub render_style: String,
+    /// None = 跟随全局设置（2026-09-14；新建卡默认跟随，与演出参数三列同族）。
+    pub render_style: Option<String>,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
     pub voice_config: Option<String>,
-}
-
-impl Default for NewCharacter {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            avatar: None,
-            persona: String::new(),
-            gender: None,
-            age: None,
-            render_style: "type".to_string(),
-            model_config: None,
-            accent_color: None,
-            anim_duration_ms: None,
-            anim_rhythm_ms: None,
-            anim_punct_pause: None,
-            voice_config: None,
-        }
-    }
 }
 
 /// 更新角色卡入参：整卡覆盖（编辑表单全量提交）；avatar 传 None 即清除头像。
@@ -164,7 +147,8 @@ pub struct UpdateCharacter {
     pub persona: String,
     pub gender: Option<String>,
     pub age: Option<String>,
-    pub render_style: String,
+    /// None = 跟随全局设置（2026-09-14）。
+    pub render_style: Option<String>,
     pub model_config: Option<String>,
     pub accent_color: Option<String>,
     /// 传 None 即清除覆写（跟随全局）。
@@ -208,6 +192,10 @@ pub struct NewSession {
     pub roster: Vec<RosterPick>,
     /// 标题，可空串（缺省由调用方取首条用户消息截断后经 update_session_title 回填）。
     pub title: String,
+    /// 全局出场动画风格（2026-09-14）：卡 render_style 为 NULL 的成员实例化时
+    /// 以此回落，快照仍落具体值（D1 冻结，改全局不回写旧会话）。命令层从
+    /// config.json 读当次值传入。
+    pub default_render_style: String,
     /// 开局包（FR-014）；None = 降级路径——同样无条件 seed 默认锚开场行
     /// （day=1 / part=夜 / date_label 走内置默认历），保证 latest_scene 存在。
     pub opening: Option<OpeningSeed>,

@@ -45,6 +45,7 @@ const CONFIG: ConfigDto = {
   activeProviderId: null,
   activeModel: null,
   rhythmMsPerChar: 60,
+  renderStyle: 'type',
   punctPauseEnabled: true,
   animDurationBase: 300,
   uiLanguage: 'system',

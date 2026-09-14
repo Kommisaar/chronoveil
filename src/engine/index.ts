@@ -27,7 +27,14 @@ import { Granularity, takeUnit } from './take-unit';
 import { DEFAULT_THINK_TIPS, ThinkChannel } from './think';
 import { applySyntaxTheme } from './theme';
 
-export { ANIM_STYLES, DUR_DEFAULT_MS, DUR_MAX_MS, DUR_MIN_MS, clampDuration } from './anims/index';
+export {
+  ANIM_STYLES,
+  DEFAULT_RENDER_STYLE,
+  DUR_DEFAULT_MS,
+  DUR_MAX_MS,
+  DUR_MIN_MS,
+  clampDuration,
+} from './anims/index';
 export type { AnimStyleId, AnimStyleMeta } from './anims/index';
 export { CreditClock, TICK_MS, microPauseMs, speedFactor, tickIntervalMs } from './clock';
 export { StreamParser } from './parser';

@@ -102,7 +102,7 @@ mod tests {
                 persona: "雨夜电话亭的守夜人".into(),
                 gender: Some("女".into()),
                 age: None,
-                render_style: "typewriter".into(),
+                render_style: Some("typewriter".into()),
                 model_config: None,
                 accent_color: None,
                 anim_duration_ms: None,
@@ -144,7 +144,7 @@ mod tests {
         let imported = import_character_data(&app, text).unwrap();
         assert_eq!(imported.name, "苏鸢");
         assert_eq!(imported.persona, "雨夜电话亭的守夜人");
-        assert_eq!(imported.render_style, "typewriter");
+        assert_eq!(imported.render_style.as_deref(), Some("typewriter"));
         assert_eq!(imported.session_count, 0);
 
         // 走 create 既有路径：新 id、允许重名（不与既有卡合并）。
@@ -181,7 +181,7 @@ mod tests {
                 persona: "旧书店老板".into(),
                 gender: None,
                 age: Some("31".into()),
-                render_style: "ink".into(),
+                render_style: Some("ink".into()),
                 model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
                 accent_color: Some("#123456".into()),
                 anim_duration_ms: Some(600),
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(imported.avatar.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(imported.persona, "旧书店老板");
         assert_eq!(imported.age.as_deref(), Some("31"));
-        assert_eq!(imported.render_style, "ink");
+        assert_eq!(imported.render_style.as_deref(), Some("ink"));
         assert_eq!(imported.model_config.as_deref(), Some(r#"{"providerId":"p1","model":"m1"}"#));
         assert_eq!(imported.accent_color.as_deref(), Some("#123456"));
         // 演出参数（0013）随卡保真

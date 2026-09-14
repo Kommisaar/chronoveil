@@ -29,6 +29,10 @@ export const ANIM_STYLES = [
 
 export type AnimStyleId = (typeof ANIM_STYLES)[number]['id'];
 
+/** 默认风格（跟随全局语义的全局端默认值，2026-09-14）：与 Rust
+ *  infra/config.rs 的 DEFAULT_RENDER_STYLE 互指（同一约束两端）。 */
+export const DEFAULT_RENDER_STYLE: AnimStyleId = 'type';
+
 export interface AnimStyleMeta {
   id: AnimStyleId;
   /** 中文展示名（与 demo 芯片文案一致） */

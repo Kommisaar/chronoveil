@@ -29,6 +29,10 @@ pub const RHYTHM_MS_MAX: u32 = 160;
 /// 打字节奏默认值（FR-009）。
 pub const DEFAULT_RHYTHM_MS_PER_CHAR: u32 = 45;
 
+/// 出场动画风格默认值（2026-09-14 角色卡风格「跟随全局」语义的全局端）。
+/// 与 TS 引擎单一事实源同源：`src/engine/anims/index.ts` 的 ANIM_STYLES（'type' 打字机）。
+pub const DEFAULT_RENDER_STYLE: &str = "type";
+
 /// 近景场景数允许范围（ADR-004 近景窗口可选化：1 场省 token – 6 场更多逐字上下文）。
 /// 与 TS 常量互指（同一约束两端）：`src/features/settings/preferences.ts` 的 `NEAR_SCENES_MIN` / `NEAR_SCENES_MAX` 单一源（api/mock/config.ts 按 api 层不可反向 import 纪律以字面量+注释对齐）。
 pub const NEAR_SCENES_MIN: u32 = 1;
@@ -105,6 +109,10 @@ pub struct Config {
     pub punct_pause_enabled: bool,
     /// 动效时长基准 ms（默认 450，FR-009）。
     pub anim_duration_base: u32,
+    /// 全局出场动画风格（2026-09-14）：角色卡 render_style 为 NULL 时聊天演出
+    /// 回落到此值。18 风格之一由设置页下拉约束（与卡同语义：自由串，引擎对
+    /// 表外串回落 fade）。
+    pub render_style: String,
     /// 界面语言（默认 zh，ADR-011）。
     pub ui_language: String,
     /// 界面主题 system / light / dark（默认 system，FR-009 rev10；ADR-012 键清单未列，以 FR-009 为准）。
@@ -135,6 +143,7 @@ impl Config {
             rhythm_ms_per_char: DEFAULT_RHYTHM_MS_PER_CHAR,
             punct_pause_enabled: true,
             anim_duration_base: DEFAULT_ANIM_DURATION_BASE_MS,
+            render_style: DEFAULT_RENDER_STYLE.into(),
             ui_language: "zh".into(),
             ui_theme: "system".into(),
             director_model: None,

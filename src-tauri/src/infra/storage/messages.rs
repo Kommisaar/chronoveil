@@ -201,7 +201,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
             .id
     }

@@ -481,6 +481,8 @@ fn settlement_setup(tag: &str) -> (Arc<Storage>, PathBuf, i64, i64, i64) {
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id;

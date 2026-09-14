@@ -43,7 +43,11 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
-import { DUR_DEFAULT_MS, RHYTHM_DEFAULT_MS } from '../../engine';
+import {
+  DEFAULT_RENDER_STYLE,
+  DUR_DEFAULT_MS,
+  RHYTHM_DEFAULT_MS,
+} from '../../engine';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { SettingsCard, SettingsDivider } from '../../components/SettingsCard';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
@@ -344,6 +348,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                   <PerformanceField
                     renderStyle={form.renderStyle}
                     onStyleChange={form.setRenderStyle}
+                    globalStyle={animDefaults?.renderStyle ?? DEFAULT_RENDER_STYLE}
                     onPlay={form.playPreview}
                     previewRef={form.previewRef}
                     previewed={form.previewed}
@@ -358,6 +363,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                         durationMs: DUR_DEFAULT_MS,
                         msPerChar: RHYTHM_DEFAULT_MS,
                         punctPause: true,
+                        renderStyle: DEFAULT_RENDER_STYLE,
                       }
                     }
                     onDurationChange={form.setAnimDurationMs}

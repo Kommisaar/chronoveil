@@ -252,7 +252,11 @@ avatar: string | null; persona: string;
 /**
  * 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
  */
-gender: string | null; age: string | null; renderStyle: string; modelConfig: string | null; 
+gender: string | null; age: string | null; 
+/**
+ * 出场动画风格；None = 跟随全局设置（2026-09-14，config.json render_style）。
+ */
+renderStyle: string | null; modelConfig: string | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
  */
@@ -323,9 +327,9 @@ gender: string | null;
  */
 age: string | null; 
 /**
- * 出场动画风格（18 种之一，FR-005）。
+ * 出场动画风格（18 种之一，FR-005）；null = 跟随全局设置（2026-09-14）。
  */
-renderStyle: string; 
+renderStyle: string | null; 
 /**
  * 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
  * None = 跟随全局默认。
@@ -388,7 +392,11 @@ rhythmMsPerChar: number; punctPauseEnabled: boolean;
 /**
  * 动效时长基准 ms。
  */
-animDurationBase: number; uiLanguage: string; 
+animDurationBase: number; 
+/**
+ * 全局出场动画风格（2026-09-14）：角色卡 renderStyle 为 null 时的演出回落值。
+ */
+renderStyle: string; uiLanguage: string; 
 /**
  * system / light / dark。
  */

@@ -185,7 +185,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         // 空会话：在世但无轨迹 → 空数组（非 NotFound）。
         assert!(list_llm_calls_impl(&app, session.id, None).unwrap().is_empty());

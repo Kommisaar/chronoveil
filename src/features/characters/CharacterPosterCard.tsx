@@ -264,7 +264,8 @@ export function CharacterPosterCard({
     revealDelay === undefined
       ? undefined
       : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties);
-  const styleMeta = `${t('characters.renderStyle')} · ${character.renderStyle}`;
+  // null = 跟随全局（0014）：卡片元数据行显示跟随语义而非空值。
+  const styleMeta = `${t('characters.renderStyle')} · ${character.renderStyle ?? t('characters.followGlobal')}`;
 
   return (
     <Card

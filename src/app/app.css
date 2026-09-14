@@ -12,6 +12,7 @@ body,
 :root {
   --cv-spring-curve: cubic-bezier(0.34, 1.56, 0.64, 1); /* = SPRING_CURVE */
   --cv-pop-in-ms: 400ms; /* = POP_IN_MS */
+  --cv-dropdown-pop-ms: 150ms; /* = DROPDOWN_POP_MS */
   --cv-page-enter-ms: 400ms; /* 页面渐入档：仅 CSS 消费，无 TS 对应常量 */
 }
 
@@ -195,6 +196,53 @@ body {
     animation-duration: var(--cv-pop-in-ms);
     animation-timing-function: var(--cv-spring-curve);
     transform-origin: top left;
+  }
+}
+
+/* 下拉推钮（DropdownPushButton，2026-09-14 复刻 qfluentwidgets RoundMenu）：
+   进场 = 锚点上方 6px 下滑归位 + 淡化（弹层家族同一根弹簧 --cv-spring-curve），
+   退场 = 纯淡化安静离场（motion.ts 退场语言，曲线取 ease-out 关键字——150ms
+   纯淡化的曲线不可感，不为此新增全局镜像）；时长取 --cv-dropdown-pop-ms
+   （= motion.ts 的 DROPDOWN_POP_MS，互指同步由 motion.test.ts 断言）。
+   keyframes 落此文件（Griffel 不透出），应用侧是 components/DropdownPushButton.tsx
+   挂的 dropdown-pop-in / dropdown-pop-out 全局类；「减弱动态」以
+   no-preference 反向门控（同 palette-pop-in），瞬时开合。 */
+@keyframes dropdown-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0px);
+  }
+}
+
+@keyframes dropdown-pop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dropdown-pop-in {
+    animation-name: dropdown-pop-in;
+    animation-duration: var(--cv-dropdown-pop-ms);
+    animation-timing-function: var(--cv-spring-curve);
+    transform-origin: top center;
+  }
+
+  .dropdown-pop-out {
+    animation-name: dropdown-pop-out;
+    animation-duration: var(--cv-dropdown-pop-ms);
+    animation-timing-function: ease-out;
+    /* 停在末帧（opacity 0）：动画结束到 React 定时卸载之间有 1–2 帧时差，
+       fill-mode 默认 none 会让菜单在卸载前弹回全不透明（收起闪烁，逐帧
+       采样实锤 2026-09-14） */
+    animation-fill-mode: forwards;
   }
 }
 

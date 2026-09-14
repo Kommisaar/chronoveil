@@ -30,7 +30,8 @@ pub struct CharacterInput {
     /// 性别 / 年龄（可选展示元数据，自由文本；None = 未设置）。
     pub gender: Option<String>,
     pub age: Option<String>,
-    pub render_style: String,
+    /// 出场动画风格；None = 跟随全局设置（2026-09-14，config.json render_style）。
+    pub render_style: Option<String>,
     pub model_config: Option<String>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
     pub accent_color: Option<String>,

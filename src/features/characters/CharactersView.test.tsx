@@ -83,9 +83,10 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
   expect(textareaOf('人设').value).toContain('旧书店老板');
   expect(document.querySelector('[data-persona-syntax]')).toBeNull();
 
-  // render_style 下拉消费 engine 的 ANIM_STYLES（18 选 1）——会话仍开着，
-  // 不影响其他区块的交互
-  fireEvent.click(screen.getByRole('combobox', { name: '动画样式' }));
+  // render_style 下拉消费 engine 的 ANIM_STYLES（18 选 1）——2026-09-14 换
+  // 自绘复刻件 DropdownPushButton，触发钮为普通 button，点开出 18 个 option。
+  // 会话仍开着，不影响其他区块的交互
+  fireEvent.click(screen.getByRole('button', { name: '动画样式' }));
   expect(screen.getAllByRole('option')).toHaveLength(18);
 
   // 「预览动画」：预览容器的 data-anim 切到该角色的风格（引擎公开 API）

@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next';
 import type { ProviderDto } from '../../../api/types';
 import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
 import { SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
+import { DropdownPushButton } from '../../../components/DropdownPushButton';
+import { SegmentedControl } from '../../../components/SegmentedControl';
 import type { ModelOverrideFields } from './useEditorForm';
 
 /** 三壳共用的字段级样式（makeStyles 可跨组件调用）。 */
@@ -38,9 +40,23 @@ export const useFieldStyles = makeStyles({
     width: '160px',
     minWidth: '0px',
   },
-  // 输出动画卡行 1：预览容器满宽贴卡面内距（无标题，空态提示自解释）
+  // 风格「跟随全局|自定义」模式段（与 AnimParamRows 的 modeSegment 同语言，
+  // 两文件各持样式，宽度口径一致）
+  styleModeSegment: {
+    width: '136px',
+    minWidth: '0px',
+  },
+  // 输出动画卡行 1：预览容器满宽贴卡面内距（无标题，空态提示自解释）；
+  // 预览按钮挂框下右侧（2026-09-14 用户定稿），S 档留出框与按钮的呼吸空隙
   previewRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalS,
     padding: '12px 20px',
+  },
+  previewActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
   },
   // 分组卡内行下的全宽内容区（演出预览框 / 覆写下拉）：随卡面 20px 内距，
   // 底部留白到分隔线
@@ -289,42 +305,67 @@ export function PersonaPreviewBox(props: { text: string; showHint?: boolean }) {
   );
 }
 
+/** 风格 id → 展示标签；表外遗留串原样回显（不猜别名，与旧下拉一致）。 */
+function styleLabelOf(id: string): string {
+  return ANIM_STYLES.find((s) => s.id === id)?.label ?? id;
+}
+
 /** 输出动画卡内容（2026-09-13 用户定稿独立成卡）：行 1 = 预览（渲染容器
- *  满宽），行 2 = 动画样式（风格下拉 + 播一次预览，点播上行 1）。 */
+ *  满宽，播一次按钮挂框下右侧），行 2 = 动画样式（模式分段 + 风格下拉）。
+ *  风格下拉 2026-09-14 换自绘复刻件 DropdownPushButton（qfluentwidgets
+ *  DropDownPushButton/RoundMenu：最大直显行数 + 下拉开合动效），18 风格直显
+ *  8 行内滚；同日起风格可跟随全局（null）——模式段切换，跟随时下拉禁用并
+ *  展示全局基准（行描述同步「跟随全局 / 自定义」前缀，结构不跳动）。 */
 export function PerformanceField(props: {
-  renderStyle: string;
-  onStyleChange: (value: string) => void;
+  renderStyle: string | null;
+  onStyleChange: (value: string | null) => void;
+  globalStyle: string;
   onPlay: () => void;
   previewRef: (node: HTMLDivElement | null) => void;
   previewed: boolean;
 }) {
   const styles = useFieldStyles();
   const { t } = useTranslation();
-  const selectedStyle = ANIM_STYLES.find((s) => s.id === props.renderStyle);
+  // 解构出局部量：跟随态判断的窄化对 props 属性访问不生效，对 const 局部量生效
+  const { renderStyle, globalStyle } = props;
+  const following = renderStyle === null;
   return (
     <>
       <div className={styles.previewRow}>
         <PreviewBox previewRef={props.previewRef} previewed={props.previewed} />
+        <div className={styles.previewActions}>
+          <Button onClick={props.onPlay}>{t('characters.preview')}</Button>
+        </div>
       </div>
       <SettingsDivider />
       <SettingsRow
         title={t('characters.renderStyle')}
+        description={
+          following
+            ? t('characters.animFollowingGlobal', { value: styleLabelOf(globalStyle) })
+            : t('characters.animCustomized', { value: styleLabelOf(renderStyle) })
+        }
         control={
           <div className={styles.row}>
-            <Dropdown
+            <DropdownPushButton
               className={styles.stageSelect}
-              value={selectedStyle ? selectedStyle.label : props.renderStyle}
-              selectedOptions={selectedStyle ? [selectedStyle.id] : []}
-              onOptionSelect={(_, d) => props.onStyleChange(d.optionValue ?? '')}
-              aria-label={t('characters.renderStyle')}
-            >
-              {ANIM_STYLES.map((s) => (
-                <Option key={s.id} value={s.id} text={s.label}>
-                  {s.label} · {s.id}
-                </Option>
-              ))}
-            </Dropdown>
-            <Button onClick={props.onPlay}>{t('characters.preview')}</Button>
+              ariaLabel={t('characters.renderStyle')}
+              value={renderStyle ?? globalStyle}
+              onChange={props.onStyleChange}
+              disabled={following}
+              maxVisibleItems={8}
+              options={ANIM_STYLES.map((s) => ({ value: s.id, label: s.label, detail: s.id }))}
+            />
+            <SegmentedControl
+              className={styles.styleModeSegment}
+              ariaLabel={t('characters.renderStyle')}
+              value={following ? 'follow' : 'custom'}
+              onChange={(v) => props.onStyleChange(v === 'custom' ? (renderStyle ?? globalStyle) : null)}
+              options={[
+                { value: 'follow', label: t('characters.followGlobal') },
+                { value: 'custom', label: t('characters.animModeCustom') },
+              ]}
+            />
           </div>
         }
       />

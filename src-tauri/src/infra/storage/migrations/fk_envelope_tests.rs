@@ -36,7 +36,7 @@ fn envelope_runs_full_chain_with_foreign_keys_on() {
 
     run(&conn).unwrap();
 
-    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     assert!(
         fk_violating_tables(&conn).is_empty(),
         "FK=ON 连接跑完迁移链不得有外键违例"
@@ -100,7 +100,7 @@ fn envelope_reports_fk_violation_and_restores_pragma() {
         "违例报错应带兜底校验与违例/父表上下文：{msg}"
     );
     // 迁移本身全部落地（悬空行是数据错误而非 schema 错误），报错来自兜底校验。
-    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    assert_eq!(ledger(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     // 失败路径不留脏连接状态：FK 恢复为原值（开）。
     assert!(foreign_keys_on(&conn));
     assert_eq!(

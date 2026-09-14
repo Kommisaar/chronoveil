@@ -215,12 +215,16 @@ fn create_session_impl(
 ) -> Result<SessionSummary, IpcError> {
     // 阵容逐卡 NotFound 由存储层实例化路径上报（比外键冲突更精确，ADR-009 语义）。
     let opening = opening.map(opening_seed_from).transpose()?;
+    // 风格跟随全局（0014）：读当次 config 的 render_style 作为 NULL 卡的
+    // 实例化回落值（快照仍冻结具体值，D1）。
+    let default_render_style = app.config.load()?.render_style;
     let session = app.storage.create_session(&models::NewSession {
         roster: roster
             .into_iter()
             .map(|pick| models::RosterPick { character_id: pick.character_id, is_user: pick.is_user })
             .collect(),
         title: title.unwrap_or_default(),
+        default_render_style,
         opening,
     })?;
     session_summary_with_roster(app, session)

@@ -122,7 +122,7 @@ fn session_summary_echoes_roster_instances() {
             persona: llm_card.persona.clone(),
             gender: llm_card.gender.clone(),
             age: llm_card.age.clone(),
-            render_style: "ink".into(),
+            render_style: Some("ink".into()),
             model_config: llm_card.model_config.clone(),
             accent_color: llm_card.accent_color.clone(),
             anim_duration_ms: llm_card.anim_duration_ms,
@@ -158,6 +158,8 @@ fn session_summary_carries_fork_fields_from_row() {
             ],
             title: "雨夜来电".into(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap();
     let forked = app.storage.fork_session(source.id, 0, "雨夜来电（分叉）").unwrap();

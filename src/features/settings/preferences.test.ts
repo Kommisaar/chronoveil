@@ -30,6 +30,7 @@ const config = (partial: Partial<ConfigDto>): ConfigDto => ({
   activeProviderId: null,
   activeModel: null,
   rhythmMsPerChar: 45,
+  renderStyle: 'type',
   punctPauseEnabled: true,
   animDurationBase: 450,
   uiLanguage: 'zh',

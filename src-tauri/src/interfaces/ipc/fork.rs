@@ -71,7 +71,9 @@ mod tests {
                 ],
                 title: title.into(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
     }
 

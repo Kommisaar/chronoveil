@@ -20,6 +20,7 @@ import {
   ACCELERATE_CURVE,
   CROSSFADE_MS,
   DECELERATE_CURVE,
+  DROPDOWN_POP_MS,
   EDITOR_BACKDROP_IN_MS,
   EDITOR_BODY_IN_DELAY_MS,
   EDITOR_BODY_IN_MS,
@@ -69,6 +70,7 @@ describe('动效 token 值锁存（对照表随提交走，改动必须显式过
     expect(EDITOR_BODY_IN_DELAY_MS).toBe(90);
     expect(EDITOR_BODY_OUT_MS).toBe(70);
     expect(INDICATOR_MOVE_MS).toBe(400);
+    expect(DROPDOWN_POP_MS).toBe(150); // 下拉推钮开合档（小浮层跟手档）
     expect(ENTER_STAGGER_MS).toBe(24); // 原 sidebar 16 / 海报墙 60 统一
     expect(ENTER_STAGGER_CAP_MS).toBe(360); // 原 sidebar 240 / 海报墙无封顶 统一
   });
@@ -189,6 +191,7 @@ describe('全仓动效字面量守卫', () => {
 
     expect(normalize(readVar('spring-curve'))).toBe(normalize(SPRING_CURVE));
     expect(readVar('pop-in-ms')).toBe(`${POP_IN_MS}ms`);
+    expect(readVar('dropdown-pop-ms')).toBe(`${DROPDOWN_POP_MS}ms`);
     // 页面渐入档仅 CSS 消费，无 TS 对应常量，只锁存在与取值
     expect(readVar('page-enter-ms')).toBe('400ms');
   });

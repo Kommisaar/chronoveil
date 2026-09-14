@@ -167,7 +167,9 @@ mod tests {
                 ],
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap();
         // roster 首位 = LLM 位 → 其实例 id = 1（说话人真值换挂）。
         let llm_instance = app

@@ -26,6 +26,11 @@ export const ACCELERATE_CURVE = 'cubic-bezier(1, 0, 1, 1)';
     与小弹层都不值得多等 80ms）。 */
 export const POP_IN_MS = 400;
 
+/** 下拉推钮（DropdownPushButton，qfluentwidgets DropDownPushButton/RoundMenu
+    复刻件）开合档：小浮层要跟手，独立于 400ms 弹簧入场档（那是面板/卡片级
+    语言）。进/退同档——退场是纯淡化无位移，曲线可感度趋零。 */
+export const DROPDOWN_POP_MS = 150;
+
 /** 编辑器共享元素 FLIP 退场缩回（与 EDITOR_FADE_MS 同值但语义不同：
     形变档与淡化档各自独立，日后可单独调）。 */
 export const MORPH_OUT_MS = 200;

@@ -32,6 +32,8 @@ fn make_session(storage: &crate::infra::storage::Storage, title: &str) -> i64 {
             roster: roster(user_card, llm_card),
             title: title.into(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id
@@ -70,6 +72,8 @@ fn opening_seeds_explicit_calendar_and_anchor_scene() {
                 location: Some("旧都 · 灯市".into()),
                 time_note: Some("灯节点亮的那一刻".into()),
             }),
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap();
 
@@ -115,6 +119,8 @@ fn degraded_path_still_seeds_default_anchor() {
             roster: roster(user_card, llm_card),
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap();
     assert_eq!(
@@ -152,6 +158,8 @@ fn opening_rolls_back_session_and_scene_together() {
                 location: None,
                 time_note: None,
             }),
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap_err();
     assert!(matches!(err, StorageError::NotFound { .. }), "实际：{err:?}");
@@ -200,7 +208,9 @@ fn create_session_rejects_invalid_rosters() {
         .collect();
     for (name, picks) in cases {
         let err = storage
-            .create_session(&NewSession { roster: picks, title: String::new(), opening: None })
+            .create_session(&NewSession { roster: picks, title: String::new(), opening: None,
+            default_render_style: "type".to_string(),
+        })
             .unwrap_err();
         assert!(matches!(err, StorageError::Conflict(_)), "{name} 应被拒绝：{err:?}");
     }
@@ -231,6 +241,8 @@ fn create_session_instantiates_full_roster() {
             ],
             title: String::new(),
             opening: None,
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap();
 

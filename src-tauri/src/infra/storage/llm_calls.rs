@@ -132,7 +132,9 @@ mod tests {
                 roster: fixture_roster(&storage, user_card, char_id),
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
             .id;
         (storage, dir, session_id)
@@ -203,7 +205,9 @@ mod tests {
                 roster,
                 title: String::new(),
                 opening: None,
-            })
+            
+            default_render_style: "type".to_string(),
+        })
             .unwrap()
             .id;
         for i in 0..5 {

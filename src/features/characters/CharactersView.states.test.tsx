@@ -130,6 +130,7 @@ describe('配置加载降级（Task-14）', () => {
       activeProviderId: 'p1',
       activeModel: 'gpt',
       rhythmMsPerChar: 60,
+      renderStyle: 'type',
       punctPauseEnabled: true,
       animDurationBase: 300,
       uiLanguage: 'system',

@@ -76,6 +76,8 @@ fn setup(tag: &str) -> (Storage, PathBuf, i64, [i64; 3]) {
                 location: None,
                 time_note: None,
             }),
+        
+            default_render_style: "type".to_string(),
         })
         .unwrap()
         .id;

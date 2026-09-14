@@ -415,7 +415,7 @@ describe('useEditorForm 开合与预览动画', () => {
       useEditorForm({
         character: { ...EDIT_CHARACTER, animDurationMs: 700, animRhythmMs: 120, animPunctPause: false },
         onAutosave,
-        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true },
+        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type' },
       }),
     );
     const container = document.createElement('div');

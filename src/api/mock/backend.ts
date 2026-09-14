@@ -27,6 +27,8 @@ import { characters, messagesBySession, sessions } from './data';
 
 // 配置域 mock 分驻 ./config（backend.ts 500 行纪律拆分）；原路径再导出保持
 // `import * as mock from './mock/backend'` 命令面完整，调用方零改动。
+import { getConfig } from './config';
+
 export { DEFAULT_CONFIG, getConfig, saveConfig } from './config';
 
 let nextSessionId = Math.max(...sessions.map((s) => s.id)) + 1;
@@ -130,6 +132,9 @@ export async function createSession(
   }
   // 逐卡实例化快照（D1）：name / renderStyle 值拷贝自卡、改卡不回写；character_id
   // 记模板溯源（动态造人 D6 为 null，本切片阵容只来自选卡）。instances 按入参顺序回显。
+  // 风格跟随全局（2026-09-14，对齐 Rust sessions::insert）：卡 renderStyle 为
+  // null 的成员按当次全局配置回落，快照落具体值（D1 冻结）。
+  const globalRenderStyle = (await getConfig()).renderStyle;
   const instances: SessionInstanceDto[] = members.map((member) => {
     const card = characters.find((c) => c.id === member.characterId);
     if (!card) throw notFound('character', member.characterId);
@@ -138,7 +143,7 @@ export async function createSession(
       name: card.name,
       isUser: member.isUser,
       characterId: card.id,
-      renderStyle: card.renderStyle,
+      renderStyle: card.renderStyle ?? globalRenderStyle,
     };
   });
   // opening 本身不入存储（mock 无 scenes 表），校验通过即视为建会话成功，保演示不破。

@@ -140,6 +140,7 @@ export function SettingsView() {
       rhythmMsPerChar: draft.rhythmMsPerChar,
       punctPauseEnabled: draft.punctPauseEnabled,
       animDurationBase: animBase ?? loaded.animDurationBase,
+      renderStyle: draft.renderStyle,
       uiLanguage: draft.uiLanguage,
       uiTheme: draft.uiTheme,
       directorModel: loaded.directorModel,
@@ -253,6 +254,8 @@ export function SettingsView() {
             <RhythmSettingsCard
               rhythmMsPerChar={draft.rhythmMsPerChar}
               onRhythmChange={(value) => patch({ rhythmMsPerChar: value })}
+              renderStyle={draft.renderStyle}
+              onRenderStyleChange={(value) => patch({ renderStyle: value })}
               punctPauseEnabled={draft.punctPauseEnabled}
               onPunctPauseChange={(checked) => patch({ punctPauseEnabled: checked })}
               animBaseText={animBaseText}

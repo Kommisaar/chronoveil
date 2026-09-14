@@ -178,7 +178,7 @@ mod tests {
             persona: String::new(),
             gender: None,
             age: None,
-            render_style: "type".into(),
+            render_style: Some("type".into()),
             model_config: None,
             accent_color: None,
             anim_duration_ms: None,
@@ -195,7 +195,8 @@ mod tests {
 
         let got = storage.get_character(id).unwrap();
         assert_eq!(got.name, "艾莉");
-        assert_eq!(got.render_style, "type");
+        // 新建默认 NULL = 跟随全局（0014 语义，NewCharacter::default）。
+        assert_eq!(got.render_style, None);
         assert_eq!(got.deleted_at, None);
 
         // 更新：全字段覆盖 + 头像写入再清除
@@ -205,7 +206,7 @@ mod tests {
             persona: " 你是时间旅人。".to_string(),
             gender: Some("女".to_string()),
             age: Some("24".to_string()),
-            render_style: "fade".to_string(),
+            render_style: Some("fade".to_string()),
             model_config: Some(r#"{"temperature":0.8}"#.to_string()),
             accent_color: Some("#6b46b8".to_string()),
             anim_duration_ms: Some(600),
@@ -220,7 +221,7 @@ mod tests {
         assert_eq!(got.persona, " 你是时间旅人。");
         assert_eq!(got.gender.as_deref(), Some("女"));
         assert_eq!(got.age.as_deref(), Some("24"));
-        assert_eq!(got.render_style, "fade");
+        assert_eq!(got.render_style.as_deref(), Some("fade"));
         assert_eq!(got.model_config.as_deref(), Some(r#"{"temperature":0.8}"#));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));
         // 演出参数覆写（0013）：上面 upd 已带 Some 值，直接断言全字段覆盖结果

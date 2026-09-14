@@ -209,14 +209,13 @@ const USAGES: readonly UsageEntry[] = [
   { file: 'src/components/SettingsCard.tsx', line: 69, style: 'footerHint', token: 'colorNeutralForeground3',
     context: '卡片底部提示位（base200）', backgrounds: ['colorNeutralBackground1'] },
   // 服务卡 empty/status 两用点随 Task-13（1d94b3e）自 SettingsView 随卡搬入
-  // ProvidersCard（SettingsView 现存 fg3 用点仅剩尾注 hint）；ProvidersCard 的
-  // issues 红字走 colorPaletteRedForeground1，不属本守卫的中性前景口径
+  // ProvidersCard；ProvidersCard 的 issues 红字走 colorPaletteRedForeground1，
+  // 不属本守卫的中性前景口径。（SettingsView 尾注 hint 用点随 2026-09-14
+  // 「移除页尾 config.json 提示」删除，清单条目同步摘除。）
   { file: 'src/features/settings/ProvidersCard.tsx', line: 42, style: 'empty', token: 'colorNeutralForeground3',
     context: '无 provider 空态（ProvidersCard 服务卡内）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/settings/ProvidersCard.tsx', line: 56, style: 'status', token: 'colorNeutralForeground3',
     context: '修改即保存状态行（base200，ProvidersCard footer 提示位）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/settings/SettingsView.tsx', line: 116, style: 'hint', token: 'colorNeutralForeground3',
-    context: '设置页尾注（base200，页面 bg1）', backgrounds: ['colorNeutralBackground1'] },
 ];
 
 /** 配对不确定清单（当前为空）：海报渐变底等无法静态定值配对的用点先进此处

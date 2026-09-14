@@ -1,17 +1,21 @@
 /**
- * 节奏卡（FR-009 设置页）：朗读节奏滑杆、标点停顿开关、动效基准数字输入
- * （「文本态 + 解析」输入，非法时卡内行内提示 + 页面底部汇总合计两处，验收 5）。
- * 从 SettingsView 抽出的纯展示卡（行为零变化）：数值草稿与解析结果由父层持有，
- * 本件只回传原始改动（滑杆数值 / 开关态 / 文本态），不自行落盘。
+ * 节奏卡（FR-009 设置页）：出场动画风格下拉、动效基准滑杆、朗读节奏滑杆、
+ * 标点停顿开关。从 SettingsView 抽出的纯展示卡（行为零变化）：草稿由父层
+ * 持有，本件只回传改动，不自行落盘。
+ * 行序 2026-09-14 对齐角色编辑器「输出动画」卡（风格 → 基准 → 节奏 → 标点）；
+ * 滑杆 2026-09-14 换自绘复刻件 TooltipSlider（与编辑器弃用 Fluent Slider 同
+ * 一口径，见 TooltipSlider 头注）——动效基准随之从「文本态 + 解析」输入简化
+ * 为滑杆（值域内拖动，不再有非法中间态与 issueAnimBase 错误路径）。
  */
-import { Input, Slider, Switch, Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Switch, makeStyles } from '@fluentui/react-components';
 import { Pause20Regular, Sparkle20Regular, Timer20Regular } from '@fluentui/react-icons';
 import { useTranslation } from 'react-i18next';
 import { DropdownPushButton } from '../../components/DropdownPushButton';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
+import { TooltipSlider } from '../../components/TooltipSlider';
 // 滑杆与动效基准边界常量引用引擎单一事实源（与 characters/editor/AnimParamRows.tsx 同法），
 // 不在组件内再写死数值（AGENTS.md「跨文件常量互指」已知坑）。
-import { ANIM_STYLES, DUR_MIN_MS, RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
+import { ANIM_STYLES, DUR_MAX_MS, DUR_MIN_MS, RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
 const useStyles = makeStyles({
   slider: {
@@ -21,64 +25,41 @@ const useStyles = makeStyles({
   styleSelect: {
     width: '200px',
   },
-  animInput: {
-    width: '140px',
-  },
-  // 动效基准非法时的卡片级行内提示（与底部汇总合计两处，验收 5）
-  rowIssue: {
-    padding: '0 20px 12px',
-    color: tokens.colorPaletteRedForeground1,
-    fontSize: tokens.fontSizeBase200,
-  },
 });
 
 export interface RhythmSettingsCardProps {
   rhythmMsPerChar: number;
-  /** 全局出场动画风格（2026-09-14）：新角色与「跟随全局」卡的演出回落值。 */
+  onRhythmChange: (value: number) => void;
+  /** 全局出场动画风格（2026-09-14）：新角色与「跟随全局」角色的演出回落值。 */
   renderStyle: string;
   onRenderStyleChange: (value: string) => void;
-  onRhythmChange: (value: number) => void;
   punctPauseEnabled: boolean;
   onPunctPauseChange: (checked: boolean) => void;
-  /** 动效基准的文本态（输入框展示值，允许非法中间态）。 */
-  animBaseText: string;
-  /** 文本态改动回传（解析与草稿写入由父层处理）。 */
-  onAnimBaseTextChange: (text: string) => void;
-  /** 动效基准解析是否非法（null）——非法时行内提示。 */
-  animBaseInvalid: boolean;
+  /** 动效基准 ms（引擎渲染值域内，滑杆限位）。 */
+  animDurationBase: number;
+  onAnimDurationBaseChange: (value: number) => void;
 }
 
-/** 节奏卡：节奏滑杆 + 标点停顿 + 动效基准（FR-009）。 */
+/** 风格 id → 展示标签；表外遗留串原样回显（与 pieces.tsx 的 styleLabelOf 同法）。 */
+function styleLabelOf(id: string): string {
+  return ANIM_STYLES.find((s) => s.id === id)?.label ?? id;
+}
+
+/** 节奏卡：风格下拉 + 动效基准/节奏滑杆 + 标点停顿（FR-009）。 */
 export function RhythmSettingsCard(props: RhythmSettingsCardProps) {
   const styles = useStyles();
   const { t } = useTranslation();
   return (
-    <SettingsCard title={t('settings.rhythmCard')}>
-      <SettingsRow
-        icon={<Timer20Regular />}
-        title={t('settings.rhythm', { value: String(props.rhythmMsPerChar) })}
-        description={t('settings.rhythmDesc')}
-        control={
-          <Slider
-            className={styles.slider}
-            min={RHYTHM_MIN_MS}
-            max={RHYTHM_MAX_MS}
-            step={5}
-            value={props.rhythmMsPerChar}
-            aria-label={t('settings.rhythm', { value: String(props.rhythmMsPerChar) })}
-            onChange={(_, d) => props.onRhythmChange(d.value)}
-          />
-        }
-      />
-      <SettingsDivider />
+    // 卡标题与角色编辑器「输出动画」卡同源（characters.sectionAnim）。
+    <SettingsCard title={t('characters.sectionAnim')}>
       <SettingsRow
         icon={<Sparkle20Regular />}
-        title={t('settings.renderStyle')}
-        description={t('settings.renderStyleDesc')}
+        title={t('characters.renderStyle')}
+        description={t('characters.animFollowingGlobal', { value: styleLabelOf(props.renderStyle) })}
         control={
           <DropdownPushButton
             className={styles.styleSelect}
-            ariaLabel={t('settings.renderStyle')}
+            ariaLabel={t('characters.renderStyle')}
             value={props.renderStyle}
             onChange={props.onRenderStyleChange}
             maxVisibleItems={8}
@@ -88,40 +69,57 @@ export function RhythmSettingsCard(props: RhythmSettingsCardProps) {
       />
       <SettingsDivider />
       <SettingsRow
-        icon={<Pause20Regular />}
-        title={t('settings.punctPause')}
-        description={t('settings.punctPauseDesc')}
+        icon={<Timer20Regular />}
+        title={t('characters.animDuration')}
+        description={t('characters.animFollowingGlobal', {
+          value: `${props.animDurationBase}${t('characters.animDurationUnit')}`,
+        })}
         control={
-          <Switch
-            checked={props.punctPauseEnabled}
-            aria-label={t('settings.punctPause')}
-            onChange={(_, d) => props.onPunctPauseChange(d.checked)}
+          <TooltipSlider
+            className={styles.slider}
+            min={DUR_MIN_MS}
+            max={DUR_MAX_MS}
+            step={10}
+            value={props.animDurationBase}
+            onChange={props.onAnimDurationBaseChange}
+            ariaLabel={t('characters.animDuration')}
           />
         }
       />
       <SettingsDivider />
       <SettingsRow
-        icon={<Sparkle20Regular />}
-        title={t('settings.animBaseRow')}
-        description={t('settings.animBaseDesc')}
+        icon={<Timer20Regular />}
+        title={t('characters.animRhythm')}
+        description={t('characters.animFollowingGlobal', {
+          value: `${props.rhythmMsPerChar}${t('characters.animRhythmUnit')}`,
+        })}
         control={
-          <Input
-            className={styles.animInput}
-            type="number"
-            // 下界对齐 parseAnimBaseMs 的真实校验域（引擎 DUR_MIN_MS = 150），原 min={0} 与校验文案不符
-            min={DUR_MIN_MS}
-            step={1}
-            value={props.animBaseText}
-            aria-label={t('settings.animBase')}
-            onChange={(_, d) => props.onAnimBaseTextChange(d.value)}
+          <TooltipSlider
+            className={styles.slider}
+            min={RHYTHM_MIN_MS}
+            max={RHYTHM_MAX_MS}
+            step={5}
+            value={props.rhythmMsPerChar}
+            onChange={props.onRhythmChange}
+            ariaLabel={t('characters.animRhythm')}
           />
         }
       />
-      {props.animBaseInvalid ? (
-        <Text className={styles.rowIssue} role="alert">
-          {t('settings.issueAnimBase')}
-        </Text>
-      ) : null}
+      <SettingsDivider />
+      <SettingsRow
+        icon={<Pause20Regular />}
+        title={t('characters.animPunctPause')}
+        description={t('characters.animFollowingGlobal', {
+          value: props.punctPauseEnabled ? t('characters.animPunctOn') : t('characters.animPunctOff'),
+        })}
+        control={
+          <Switch
+            checked={props.punctPauseEnabled}
+            aria-label={t('characters.animPunctPause')}
+            onChange={(_, d) => props.onPunctPauseChange(d.checked)}
+          />
+        }
+      />
     </SettingsCard>
   );
 }

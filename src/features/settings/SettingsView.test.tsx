@@ -192,23 +192,15 @@ describe('SettingsView（TASK-009）', () => {
     }, AUTOSAVE_WAIT);
   });
 
-  it('验收 3：动效基准数字输入非法时不落盘并提示，改合法后问题消失', async () => {
+  it('动效基准滑杆：改动自动落盘（2026-09-14 换自绘滑杆，限位内无非法中间态）', async () => {
     const baseline = await getConfig();
     renderSettings();
-    const anim = await screen.findByLabelText('动效基准（ms）');
-    fireEvent.change(anim, { target: { value: '12.5' } });
-    // 字段级提示与底部汇总行各出现一次（文案：引擎渲染值域 150–1200）
-    expect(await screen.findAllByText(/动效基准需为 150–1200/)).toHaveLength(2);
-    // 非法草稿不落盘：越过防抖窗口后磁盘仍为基线值
-    await settle(700);
-    expect((await getConfig()).animDurationBase).toBe(baseline.animDurationBase);
-    // 越出引擎渲染值域（此前会被引擎静默钳边）同样拒绝
-    fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '5000' } });
-    expect(await screen.findAllByText(/动效基准需为 150–1200/)).toHaveLength(2);
-    await settle(700);
-    expect((await getConfig()).animDurationBase).toBe(baseline.animDurationBase);
-    fireEvent.change(screen.getByLabelText('动效基准（ms）'), { target: { value: '300' } });
-    await waitFor(() => expect(screen.queryByText(/动效基准需为 150–1200/)).toBeNull());
+    const anim = await screen.findByLabelText('动效时长');
+    expect((anim as HTMLInputElement).value).toBe(String(baseline.animDurationBase));
+    fireEvent.change(anim, { target: { value: '300' } });
+    await waitFor(async () => {
+      expect((await getConfig()).animDurationBase).toBe(300);
+    }, AUTOSAVE_WAIT);
   });
 
   it('近景场景数：非法输入不落盘并提示，改合法后自动落盘（窗口可选化 1–6）', async () => {

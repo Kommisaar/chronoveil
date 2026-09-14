@@ -4,9 +4,9 @@
 // 对话框（含激活占用拦截）。草稿是页级单一状态（SettingsView 持有）：本件经
 // onDraftChange（透传父层 setDraft）做函数式更新，provider 增删改的草稿迁移
 // 逻辑（改名跟随、默认模型二元组写入、删默认模型回落 withoutModel）自
-// SettingsView 逐字搬入；saveError/saving/dirty/hasIssues 等页级派生态由父层
+// SettingsView 逐字搬入；saveError/saving/dirty 等页级派生态由父层
 // 计算后传入，本件不做派生。
-import { Badge, Button, Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Button, Text, makeStyles, tokens } from '@fluentui/react-components';
 import { Add16Regular } from '@fluentui/react-icons';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -69,8 +69,6 @@ export interface ProvidersCardProps {
   saveError: string | null;
   /** 修改即保存状态行：草稿与载入基线不一致。 */
   dirty: boolean;
-  /** 修改即保存状态行：整份草稿存在校验问题。 */
-  hasIssues: boolean;
 }
 
 /** 服务卡：provider 新建/列表/空态 + 修改即保存状态行 + 删除确认（UI-003）。 */
@@ -80,7 +78,6 @@ export function ProvidersCard({
   saving,
   saveError,
   dirty,
-  hasIssues,
 }: ProvidersCardProps) {
   const styles = useStyles();
   const { t } = useTranslation();
@@ -168,10 +165,6 @@ export function ProvidersCard({
                 </Text>
               ) : saving ? (
                 <Text>{t('settings.saving')}</Text>
-              ) : dirty && hasIssues ? (
-                <Badge appearance="tint" color="warning">
-                  {t('settings.dirty')}
-                </Badge>
               ) : dirty ? (
                 <Text>{t('settings.autosaveHint')}</Text>
               ) : null}

@@ -37,7 +37,6 @@ import {
   NEAR_SCENES_MIN,
   isProviderValid,
   isRhythmValid,
-  parseAnimBaseMs,
   parseNearScenes,
   toDraft,
 } from './preferences';
@@ -72,11 +71,6 @@ const useStyles = makeStyles({
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
   },
-  hint: {
-    marginTop: tokens.spacingVerticalL,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
-  },
   // 配置加载中的占位容器（A1 三态收编，此前整页空白）：给 StateBlock 一个
   // 视觉上有分量的留白高度
   loading: {
@@ -98,8 +92,7 @@ export function SettingsView() {
 
   const [loaded, setLoaded] = useState<ConfigDto | null>(null);
   const [draft, setDraft] = useState<ConfigDto | null>(null);
-  const [animBaseText, setAnimBaseText] = useState('');
-  // 近景场景数（近景窗口可选化）：与动效基准同款「文本态 + 解析」输入。
+  // 近景场景数（近景窗口可选化）：「文本态 + 解析」输入。
   const [nearScenesText, setNearScenesText] = useState('');
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -116,7 +109,6 @@ export function SettingsView() {
         if (cancelled) return;
         setLoaded(config);
         setDraft(toDraft(config));
-        setAnimBaseText(String(config.animDurationBase));
         setNearScenesText(String(config.nearScenes));
       })
       .catch((e: unknown) => {
@@ -127,7 +119,6 @@ export function SettingsView() {
     };
   }, []);
 
-  const animBase = draft ? parseAnimBaseMs(animBaseText) : null;
   const nearScenes = draft ? parseNearScenes(nearScenesText) : null;
 
   /** 保存将写入的整份 config：草稿为基，directorModel 原样保留（验收 6）。 */
@@ -139,14 +130,14 @@ export function SettingsView() {
       activeModel: draft.activeModel,
       rhythmMsPerChar: draft.rhythmMsPerChar,
       punctPauseEnabled: draft.punctPauseEnabled,
-      animDurationBase: animBase ?? loaded.animDurationBase,
+      animDurationBase: draft.animDurationBase,
       renderStyle: draft.renderStyle,
       uiLanguage: draft.uiLanguage,
       uiTheme: draft.uiTheme,
       directorModel: loaded.directorModel,
       nearScenes: nearScenes ?? loaded.nearScenes,
     };
-  }, [loaded, draft, animBase, nearScenes]);
+  }, [loaded, draft, nearScenes]);
 
   // 脏状态：保存将写入的内容与载入基线逐字段比对
   const dirty = next !== null && loaded !== null && JSON.stringify(next) !== JSON.stringify(loaded);
@@ -155,7 +146,6 @@ export function SettingsView() {
   if (draft) {
     if (draft.providers.some((p) => !isProviderValid(p))) issues.push(t('settings.issueProvider'));
     if (!isRhythmValid(draft.rhythmMsPerChar)) issues.push(t('settings.issueRhythm'));
-    if (animBase === null) issues.push(t('settings.issueAnimBase'));
     if (nearScenes === null) issues.push(t('settings.issueNearScenes'));
   }
   const hasIssues = issues.length > 0;
@@ -172,7 +162,6 @@ export function SettingsView() {
       await saveConfig(next);
       setLoaded(next);
       setDraft(toDraft(next));
-      setAnimBaseText(String(next.animDurationBase));
       setNearScenesText(String(next.nearScenes));
     } catch (e: unknown) {
       // 后端校验失败（如 rhythm 越界）经 ApiError 展示可读错误（验收 5）；
@@ -258,13 +247,8 @@ export function SettingsView() {
               onRenderStyleChange={(value) => patch({ renderStyle: value })}
               punctPauseEnabled={draft.punctPauseEnabled}
               onPunctPauseChange={(checked) => patch({ punctPauseEnabled: checked })}
-              animBaseText={animBaseText}
-              onAnimBaseTextChange={(text) => {
-                setAnimBaseText(text);
-                const parsed = parseAnimBaseMs(text);
-                if (parsed !== null) patch({ animDurationBase: parsed });
-              }}
-              animBaseInvalid={animBase === null}
+              animDurationBase={draft.animDurationBase}
+              onAnimDurationBaseChange={(value) => patch({ animDurationBase: value })}
             />
 
             {/* 近景窗口可选化（ADR-004 参数化）：近景携带的已结算场景数，数字输入 */}
@@ -308,7 +292,6 @@ export function SettingsView() {
               saving={saving}
               saveError={saveError}
               dirty={dirty}
-              hasIssues={hasIssues}
             />
           </div>
 
@@ -326,7 +309,6 @@ export function SettingsView() {
         </div>
       )}
 
-      <Text className={styles.hint}>{t('settings.hint')}</Text>
     </div>
   );
 }

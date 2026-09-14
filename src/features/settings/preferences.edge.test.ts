@@ -1,16 +1,15 @@
 // @vitest-environment node —— 纯逻辑测试无 DOM 依赖，跳过 jsdom 环境创建（测试提速）
 // preferences.test.ts 的补充边界单测（独立成文件，不改动既有用例）：
 // validateProvider 结构化输出、isValidHttpUrl 直测、withoutModel 越界下标、
-// parseAnimBaseMs 余量输入、RHYTHM 常量、newProviderId 无 randomUUID 回退。
+// RHYTHM 常量、newProviderId 无 randomUUID 回退。（parseAnimBaseMs 边界组
+// 随 2026-09-14 动效基准改滑杆移除：滑杆限位后不存在非法文本中间态。）
 import { describe, expect, it } from 'vitest';
 import type { ProviderDto } from '../../api/types';
-import { DUR_MAX_MS, DUR_MIN_MS } from '../../engine';
 import {
   RHYTHM_MAX,
   RHYTHM_MIN,
   isValidHttpUrl,
   newProviderId,
-  parseAnimBaseMs,
   validateProvider,
   withoutModel,
 } from './preferences';
@@ -69,22 +68,6 @@ describe('withoutModel 越界下标（防御：列表与选中都不动）', () 
     const r = withoutModel({ activeProviderId: 'p1', activeModel: 'm1' }, p, 5);
     expect(r.provider.models).toEqual(['m1']);
     expect(r.activeModel).toBe('m1');
-  });
-});
-
-describe('parseAnimBaseMs 余量输入', () => {
-  it('前导零（0 越出引擎值域）与带符号/杂质的输入', () => {
-    expect(parseAnimBaseMs('00')).toBeNull();
-    expect(parseAnimBaseMs('+5')).toBeNull();
-    expect(parseAnimBaseMs('5件')).toBeNull();
-    expect(parseAnimBaseMs('5.0')).toBeNull();
-  });
-});
-
-describe('parseAnimBaseMs 值域与引擎钳制一致（发现 4 顺手对齐）', () => {
-  it('引擎 DUR_MIN_MS/DUR_MAX_MS 边界值放行', () => {
-    expect(parseAnimBaseMs(String(DUR_MIN_MS))).toBe(DUR_MIN_MS);
-    expect(parseAnimBaseMs(String(DUR_MAX_MS))).toBe(DUR_MAX_MS);
   });
 });
 

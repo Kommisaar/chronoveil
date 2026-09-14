@@ -213,8 +213,8 @@ const useStyles = makeStyles({
   actionsRow: {
     padding: '12px 24px 16px 24px',
   },
-  // 删除按钮钉到动作行左端（marginRight:auto 把取消/保存推去右侧）；
-  // 原为行内静态 style，收编进 griffel（审计低：静态值不入行内）
+  // 删除按钮钉动作行左端（marginRight:auto；行内仅此一钮，右端留空）；
+  // 静态样式走 griffel 不入行内
   deleteAction: {
     marginRight: 'auto',
   },

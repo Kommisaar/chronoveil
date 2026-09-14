@@ -82,11 +82,9 @@ describe('ProvidersCard 列表-详情', () => {
     });
     // 详情 = 第一个服务（其模型行在面板内可见）
     expect(screen.getByRole('textbox', { name: 'p-a-name' }).closest('div')).toBeTruthy();
-    // 左列 meta：协议小字；全局默认指向 p-a → 带「默认」徽标，p-b 无
-    expect(navItem(/本地中转/).textContent).toContain('OpenAI 兼容');
-    expect(navItem(/本地中转/).textContent).toContain('默认');
-    expect(navItem(/Claude 官方/).textContent).toContain('Anthropic');
-    expect(navItem(/Claude 官方/).textContent).not.toContain('默认');
+    // 左列清单项只显示名称；全局默认指向 p-a → 名称尾内联「默认」徽标，p-b 无
+    expect(navItem(/本地中转/).textContent).toBe('本地中转默认');
+    expect(navItem(/Claude 官方/).textContent).toBe('Claude 官方');
   });
 
   it('点击左列项切换详情面板', () => {
@@ -105,7 +103,7 @@ describe('ProvidersCard 列表-详情', () => {
     // 新服务 id 随机：以左列新增第二项 + 详情存在非 p-a 的 name 输入为凭
     const detailName = screen.getByRole('textbox', { name: /-name$/ });
     expect(detailName.getAttribute('aria-label')).not.toBe('p-a-name');
-    expect(navItem(/例如：本地中转/).textContent).toContain('OpenAI 兼容');
+    expect(navItem(/例如：本地中转/)).toBeTruthy();
   });
 
   it('删除选中的服务：详情回落到剩余服务', async () => {

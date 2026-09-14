@@ -19,7 +19,6 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SettingsCard } from '../../components/SettingsCard';
 import {
   newProviderId,
-  PROTOCOL_LABEL_KEYS,
   withoutModel,
 } from './preferences';
 import { ProviderCard } from './ProviderCard';
@@ -73,11 +72,9 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground1,
     fontSize: tokens.fontSizeBase300,
   },
-  navMeta: {
-    display: 'block',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
+  // 全局默认徽标（内联名称行尾）：低调三阶前景，与名称同基线
+  navBadge: {
+    marginLeft: tokens.spacingHorizontalS,
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
@@ -257,15 +254,12 @@ export function ProvidersCard({
           </div>
         ) : (
           <div className={styles.panes}>
-            {/* 左列：服务清单（选中态按钮 + 协议/默认 meta 行）+ 新建入口。
-                清单项可访问名 = 名称 + meta 文本自然拼接（单文本内容）。 */}
+            {/* 左列：服务清单（单行名称；全局默认项名称尾内联「默认」徽标）+
+                新建入口。清单项可访问名 = 名称 + 徽标文本自然拼接。 */}
             <div className={styles.nav} role="group" aria-label={t('settings.provider')}>
               {draft.providers.map((provider) => {
                 const isSelected = selected !== null && provider.id === selected.id;
-                const metaParts = [t(PROTOCOL_LABEL_KEYS[provider.api])];
-                if (draft.activeProviderId === provider.id) {
-                  metaParts.push(t('settings.defaultBadge'));
-                }
+                const isDefault = draft.activeProviderId === provider.id;
                 return (
                   <button
                     key={provider.id}
@@ -276,8 +270,10 @@ export function ProvidersCard({
                   >
                     <span className={styles.navLabel}>
                       {provider.name.trim() || t('settings.providerNamePlaceholder')}
+                      {isDefault ? (
+                        <span className={styles.navBadge}>{t('settings.defaultBadge')}</span>
+                      ) : null}
                     </span>
-                    <span className={styles.navMeta}>{metaParts.join(' · ')}</span>
                   </button>
                 );
               })}

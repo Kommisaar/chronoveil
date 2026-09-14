@@ -29,8 +29,8 @@ impl LlmCallKind {
         }
     }
 
-    /// 从库值解析；未知值视为后端数据损坏。历史「draft」值（历法起草 2026-09-13
-    /// 裁撤）不再识别——应用未发布、无存量数据要保护。
+    /// 从库值解析；未知值视为后端数据损坏。'draft' 仍在 CHECK 白名单，from_db
+    /// 判损坏（2026-09-13 随历法起草裁撤，应用未发布无存量数据）。
     pub fn from_db(value: &str) -> Result<Self, StorageError> {
         match value {
             "dialogue" => Ok(LlmCallKind::Dialogue),
@@ -124,8 +124,8 @@ mod tests {
 
     /// LlmCallKind ↔ llm_calls.kind（迁移 0008 建立，0009 重建表原样保留）：
     /// `CHECK (kind IN ('dialogue', 'explorer', 'director', 'draft'))`。CHECK 含
-    /// 历史第四值 'draft'（历法起草，2026-09-13 裁撤），Rust 侧已不再识别——
-    /// 应用未发布无存量数据，读到即判损坏，属既定裁撤而非字面量漂移。
+    /// 历史第四值 'draft'（2026-09-13 裁撤，无存量数据），Rust 枚举三值，
+    /// from_db 读到 'draft' 判损坏。
     #[test]
     fn llm_call_kind_roundtrip_matches_check_literals() {
         // 全变体精确字面量：现行三值与 CHECK 约束逐字一致。

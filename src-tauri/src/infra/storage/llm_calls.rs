@@ -76,8 +76,9 @@ pub(crate) fn insert(conn: &Connection, new: &NewLlmCall) -> Result<LlmCall, Sto
     })
 }
 
-/// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。无会话轨迹（session_id
-/// = NULL，历史起草调用遗留形态）经 WHERE session_id = ?1 天然排除。
+/// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。schema 允许 session_id
+/// 为 NULL（现行写入方恒 Some，防御性保留），NULL 行经 WHERE session_id = ?1
+/// 的等值比较不为真天然排除。
 pub(crate) fn list_by_session(
     conn: &Connection,
     session_id: i64,

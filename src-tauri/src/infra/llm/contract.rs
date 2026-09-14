@@ -6,6 +6,8 @@
 use serde::Serialize;
 use tokio::sync::watch;
 
+use super::provider_api::ProviderApi;
+
 // ---------------------------------------------------------------------------
 // 配置（INT-002：base_url + api_key + model；Character 级覆写由上层合成）
 // ---------------------------------------------------------------------------
@@ -27,14 +29,17 @@ impl Default for RetryPolicy {
     }
 }
 
-/// Provider 连接配置（INT-002）。
+/// Provider 连接配置（INT-002；2026-09-14 起 API 兼容协议随 Provider 走）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmConfig {
-    /// OpenAI 兼容服务根地址（如 `https://api.deepseek.com`），结尾 `/` 会被容忍。
+    /// 服务根地址（如 `https://api.deepseek.com`），结尾 `/` 会被容忍。
     pub base_url: String,
-    /// Bearer 密钥；为空时不附加 Authorization 头（本地免鉴权推理服务兼容）。
+    /// 认证密钥；为空时不附加认证头（本地免鉴权推理服务兼容）。
     pub api_key: String,
     pub model: String,
+    /// API 兼容协议（三选一）：请求构造与响应解析按此分派（见 protocol.rs）。
+    /// 缺省 OpenAi（现状默认路径，行为零变化）。
+    pub api: ProviderApi,
     /// 建连超时（毫秒）。
     pub connect_timeout_ms: u64,
     /// 单次读取空闲超时（毫秒）：超时未到任何字节视为超时（可重试）。
@@ -48,6 +53,7 @@ impl Default for LlmConfig {
             base_url: String::new(),
             api_key: String::new(),
             model: String::new(),
+            api: ProviderApi::OpenAi,
             connect_timeout_ms: 10_000,
             read_timeout_ms: 30_000,
             retry: RetryPolicy::default(),

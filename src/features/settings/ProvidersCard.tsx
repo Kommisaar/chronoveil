@@ -93,6 +93,8 @@ export function ProvidersCard({
         baseUrl: '',
         apiKey: '',
         models: [],
+        // 新建服务缺省 OpenAI 兼容协议（协议选择行属 Task-02 UI 范围）。
+        api: 'openai',
       };
       return { ...d, providers: [...d.providers, provider] };
     });

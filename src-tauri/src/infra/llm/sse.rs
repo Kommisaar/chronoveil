@@ -1,12 +1,14 @@
-//! SSE 行解析（CMP-002 / INT-002）：字节流 → 完整行 → OpenAI 兼容 chat delta。
+//! SSE 行解析（CMP-002 / INT-002）：字节流 → 完整行 → `data:` 负载 → 协议帧。
 //!
 //! 设计约定：
 //! - 字节缓冲只在凑齐完整行（`\n` 结尾）后才解码——UTF-8 多字节字符跨包被切断时
 //!   不会因 `from_utf8_lossy` 损坏（UTF-8 续字节不会是 `\n`，整行解码必安全）；
 //! - 只认 `data:` 行；`event:` / `id:` / 注释（`:`）与空行全部忽略（验收 2：未知事件优雅忽略）；
-//! - `data: [DONE]` 为终止哨兵；
-//! - delta 的 `content` 走正文、`reasoning_content`（兼容别名 `reasoning`）走思考，
-//!   未知字段（finish_reason、role 等）一律忽略；
+//!   行级切分与 `data:` 负载提取是协议无关的（[`SseParser::feed_data`] /
+//!   [`SseParser::finish_data`]，Anthropic / Responses 帧解析各自按 `type` 分派时取负载）；
+//! - `data: [DONE]` 为 OpenAI 路径的终止哨兵；
+//! - OpenAI 帧：delta 的 `content` 走正文、`reasoning_content`（兼容别名 `reasoning`）
+//!   走思考，未知字段（finish_reason、role 等）一律忽略；
 //! - 顶层 `usage` 对象（透明化功能，调用轨迹用）单独产出 [`SseItem::Usage`]：
 //!   OpenAI 兼容网关在流末尾直发 usage 终帧（choices 空数组）时捕获；请求侧
 //!   **不追加** `stream_options: {"include_usage": true}`（部分中转不认识该参数，
@@ -50,45 +52,68 @@ impl SseParser {
 
     /// 喂入一段原始字节，返回其中凑齐的所有行解析出的条目。
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<SseItem> {
+        items_from_payloads(self.feed_data(bytes))
+    }
+
+    /// 协议无关形态：喂入一段原始字节，返回凑齐行的 `data:` 负载（非 data 行忽略，
+    /// `[DONE]` 哨兵不在此解释——由调用方按协议语义处理）。Anthropic / Responses
+    /// 帧解析经此取负载；OpenAI 路径沿用 [`SseParser::feed`]（等价于本方法 +
+    /// `[DONE]` 哨兵判定 + OpenAI 帧解析）。
+    pub fn feed_data(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buf.extend_from_slice(bytes);
-        let mut items = Vec::new();
+        let mut payloads = Vec::new();
         while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
             // 整行（不含换行）——完整行内的多字节字符解码必安全。
             let line: Vec<u8> = self.buf.drain(..=pos).collect();
             let line = &line[..line.len() - 1]; // 去掉 \n
             let line = String::from_utf8_lossy(line);
             let line = line.strip_suffix('\r').unwrap_or(&line);
-            items.extend(parse_line(line));
+            if let Some(payload) = data_payload(line) {
+                payloads.push(payload.to_owned());
+            }
         }
-        items
+        payloads
     }
 
     /// 流结束：冲刷残行（未换行的尾巴）。正常 SSE 以 `\n` 结尾，此处通常为空。
     pub fn finish(&mut self) -> Vec<SseItem> {
+        items_from_payloads(self.finish_data())
+    }
+
+    /// [`SseParser::finish`] 的负载形态（协议无关，语义同 [`SseParser::feed_data`]）。
+    pub fn finish_data(&mut self) -> Vec<String> {
         if self.buf.is_empty() {
             return Vec::new();
         }
         let line = String::from_utf8_lossy(&self.buf).into_owned();
         self.buf.clear();
-        parse_line(&line)
+        data_payload(&line).map(str::to_owned).into_iter().collect()
     }
 }
 
-/// 单行解析：非 `data:` 行一律忽略；`data: [DONE]` 为哨兵；其余按帧解析
-/// （usage 终帧与 delta 可在同帧并存，各自产出）。
-fn parse_line(line: &str) -> Vec<SseItem> {
-    let Some(payload) = line.strip_prefix("data:").map(str::trim_start) else {
-        return Vec::new();
-    };
-    if payload == "[DONE]" {
-        return vec![SseItem::Done];
+/// `data:` 负载条目 → 统一条目（OpenAI 路径）：`[DONE]` 哨兵 → Done，其余按帧解析。
+fn items_from_payloads(payloads: Vec<String>) -> Vec<SseItem> {
+    let mut items = Vec::new();
+    for payload in payloads {
+        if payload == "[DONE]" {
+            items.push(SseItem::Done);
+        } else {
+            items.extend(parse_frame(&payload));
+        }
     }
-    parse_frame(payload)
+    items
+}
+
+/// 单行中的 `data:` 负载提取（协议无关）：非 `data:` 行 → None；冒号后空格可省略、
+/// 多个空格被 trim_start 吞掉（既有测试锁定）。
+fn data_payload(line: &str) -> Option<&str> {
+    line.strip_prefix("data:").map(str::trim_start)
 }
 
 /// 单帧解析：顶层 usage 对象 → [`SseItem::Usage`]；choices[0].delta 有效增量 →
 /// [`SseItem::Delta`]。非 JSON、两者皆缺 → 空（本帧忽略）。
-fn parse_frame(payload: &str) -> Vec<SseItem> {
+// pub(super)：wire_openai.rs 的 OpenAI 流帧解析复用（`[DONE]` 判定在协议层完成）。
+pub(super) fn parse_frame(payload: &str) -> Vec<SseItem> {
     let Ok(value) = serde_json::from_str::<Value>(payload) else {
         return Vec::new();
     };

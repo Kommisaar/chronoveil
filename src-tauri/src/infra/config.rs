@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::infra::llm::ProviderApi;
+
 /// 配置文件名（与 chronoveil.db 同住应用主目录，ADR-012）。
 pub const CONFIG_FILE_NAME: &str = "config.json";
 
@@ -48,7 +50,7 @@ fn default_near_scenes() -> u32 {
 /// 动效时长基准默认值（FR-009）。
 pub const DEFAULT_ANIM_DURATION_BASE_MS: u32 = 450;
 
-/// 单套 LLM Provider（OpenAI 兼容，FR-009；密钥明文本机，OQ-001 已决）。
+/// 单套 LLM Provider（FR-009；密钥明文本机，OQ-001 已决）。
 /// 双层级（2026-09-09）：一个 provider 提供多个 model（`models`，模型名字符串
 /// 即身份）；`model` 是旧单模型格式的兼容落点——load 时迁移进 `models` 后清空，
 /// 保存不再写出（skip_serializing_if）。
@@ -65,6 +67,12 @@ pub struct ProviderConfig {
     /// 该服务可用的模型名列表（至少一个才能用于生成，解析层兜底校验）。
     #[serde(default)]
     pub models: Vec<String>,
+    /// API 兼容协议（2026-09-14 三选一）：缺省 openai——旧 config.json 无此键
+    /// 零迁移兼容；未知值 serde 反序列化失败 → load 报 [`ConfigError::Parse`]
+    /// 快速失败（ADR-012 坏文件语义，不静默回落默认协议）。协议是 provider 级
+    /// 属性（同一服务根地址下所有模型共用一种 API 形态），不随角色覆写走。
+    #[serde(default)]
+    pub api: ProviderApi,
     /// 旧单模型格式遗留键：仅用于反序列化接住旧 config.json，迁移后恒为 None。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,

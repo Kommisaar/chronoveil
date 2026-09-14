@@ -281,6 +281,7 @@ fn config_with_provider(models: &[&str], director: Option<&str>) -> FileConfig {
             base_url: "https://main.example/v1".into(),
             api_key: "k1".into(),
             models: models.iter().map(|m| m.to_string()).collect(),
+            api: crate::infra::llm::ProviderApi::OpenAi,
             model: None,
         }],
         active_provider_id: Some("p1".into()),
@@ -300,6 +301,17 @@ fn resolve_director_llm_follows_main_model_without_character_override() {
     let explicit =
         resolve_director_llm(&config_with_provider(&["m1"], Some("director-only"))).unwrap();
     assert_eq!(explicit.config().model, "director-only");
+}
+
+/// 协议透传（2026-09-14 三协议）：resolve_director_llm 沿用 active provider 的 api。
+#[test]
+fn resolve_director_llm_passes_through_provider_api() {
+    use crate::infra::llm::ProviderApi;
+
+    let mut config = config_with_provider(&["m1"], None);
+    config.providers[0].api = ProviderApi::Anthropic;
+    let client = resolve_director_llm(&config).unwrap();
+    assert_eq!(client.config().api, ProviderApi::Anthropic, "导演调用协议随 active provider");
 }
 
 #[test]
@@ -447,6 +459,7 @@ fn director_client(url: &str) -> LlmClient {
         base_url: url.to_owned(),
         api_key: "test".into(),
         model: "director-model".into(),
+        api: crate::infra::llm::ProviderApi::OpenAi,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {

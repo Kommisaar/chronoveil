@@ -125,7 +125,7 @@ describe('配置加载降级（Task-14）', () => {
   it('getConfig 成功（有 provider）：覆写下拉选项齐全且无失败文案（成功路径不回归）', async () => {
     const config: ConfigDto = {
       providers: [
-        { id: 'p1', name: 'OpenAI', baseUrl: 'https://example.test', apiKey: 'k', models: ['gpt'] },
+        { id: 'p1', name: 'OpenAI', baseUrl: 'https://example.test', apiKey: 'k', models: ['gpt'], api: 'openai' },
       ],
       activeProviderId: 'p1',
       activeModel: 'gpt',

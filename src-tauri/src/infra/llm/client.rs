@@ -1,15 +1,16 @@
-//! LlmClient 客户端本体：构造与请求组装（endpoint / chat payload / HTTP 头）、
-//! 流式生成路径（chat_stream + 断流整条重发 + 立即取消 + 事件路由 reset 标）。
-//! 非流式两路（complete_json / complete_with_tools）见 gateway.rs，记录逻辑见 trace.rs。
-//! 纯搬移自原 llm.rs 单文件；模块级职责与事件语义见 llm.rs 壳文档。
+//! LlmClient 客户端本体：流式生成路径（chat_stream + 断流整条重发 + 立即取消 +
+//! 事件路由 reset 标）与请求组装的分派入口（endpoint / payload / 认证头随
+//! LlmConfig.api 分派到三协议 wire 模块，见 protocol.rs）。非流式两路
+//! （complete_json / complete_with_tools）见 gateway.rs，记录逻辑见 trace.rs。
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::contract::{
-    chat_message_wire, map_reqwest_error, tool_spec_wire, CancelHandle, ChatMessage, EventSink,
-    LlmConfig, LlmError, LlmEvent, MessageIds, ToolSpec,
+    map_reqwest_error, CancelHandle, ChatMessage, EventSink, LlmConfig, LlmError, LlmEvent,
+    MessageIds, ToolSpec,
 };
+use super::protocol;
 use super::sse;
 use super::think;
 use super::trace::{epoch_ms, CallObservation, CallTrace, LlmCallSink};
@@ -98,54 +99,39 @@ impl LlmClient {
         &self.config
     }
 
-    fn endpoint(&self) -> String {
-        format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'))
-    }
-
-    fn chat_payload(&self, messages: &[ChatMessage], stream: bool) -> serde_json::Value {
-        serde_json::json!({
-            "model": self.config.model,
-            "messages": messages
-                .iter()
-                .map(chat_message_wire)
-                .collect::<Vec<_>>(),
-            "stream": stream,
-        })
-    }
-
+    /// chat 请求构造（分派入口）：endpoint / 认证头 / payload 随 `config.api` 分派
+    /// 到三协议 wire 模块。`tools`（与可选 `tool_choice`）仅在提供时进入请求体，
+    /// 未提供时 wire 形态与无工具请求完全一致（可选字段缺省不发）。空工具切片
+    /// 视同未提供（Task-05 探索器收尾轮「不再带 tools」的干净下线路径）。
+    /// payload 构造失败（协议映射违约，如回路历史的 arguments 非法 JSON）以
+    /// `LlmError::Protocol` 提前报错。
     // pub(super)：gateway.rs 的非流式两路复用请求构造。
-    pub(super) fn chat_request(&self, messages: &[ChatMessage], stream: bool) -> reqwest::RequestBuilder {
-        self.chat_request_with_options(messages, stream, None, None)
-    }
-
-    /// 请求构造的完整形态：`tools`（与可选 `tool_choice`）仅在提供时进入请求体，
-    /// 未提供时 wire 形态与 `chat_request` 完全一致（OpenAI 兼容可选字段缺省不发）。
-    /// 空工具切片视同未提供（Task-05 探索器收尾轮「不再带 tools」的干净下线路径）。
-    // pub(super)：gateway.rs 的工具回路请求构造复用。
     pub(super) fn chat_request_with_options(
         &self,
         messages: &[ChatMessage],
         stream: bool,
         tools: Option<&[ToolSpec]>,
         tool_choice: Option<&str>,
-    ) -> reqwest::RequestBuilder {
-        let mut payload = self.chat_payload(messages, stream);
-        if let Some(specs) = tools.filter(|specs| !specs.is_empty()) {
-            payload["tools"] =
-                serde_json::Value::Array(specs.iter().map(tool_spec_wire).collect());
-            if let Some(choice) = tool_choice {
-                payload["tool_choice"] = serde_json::Value::String(choice.to_owned());
-            }
-        }
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
+        let proto = protocol::of(self.config.api);
+        let payload = proto.payload(&self.config, messages, stream, tools, tool_choice)?;
         let mut rb = self
             .http
-            .post(self.endpoint())
+            .post(proto.endpoint(self.config.base_url.trim_end_matches('/')))
             .header(reqwest::header::ACCEPT, if stream { "text/event-stream" } else { "application/json" })
             .json(&payload);
-        if !self.config.api_key.is_empty() {
-            rb = rb.bearer_auth(&self.config.api_key);
-        }
-        rb
+        rb = proto.apply_auth(rb, &self.config.api_key);
+        Ok(rb)
+    }
+
+    /// 无工具变体（OpenAI 兼容可选字段缺省不发，两形态 wire 一致）。
+    // pub(super)：gateway.rs 的 complete_json 与本文件流式路径共用。
+    pub(super) fn chat_request(
+        &self,
+        messages: &[ChatMessage],
+        stream: bool,
+    ) -> Result<reqwest::RequestBuilder, LlmError> {
+        self.chat_request_with_options(messages, stream, None, None)
     }
 
     /// 聊天流式生成（验收 2–6）。事件经 `sink` 发射；取消立即返回，不再产生事件。
@@ -261,7 +247,7 @@ impl LlmClient {
     }
 
     /// 单次尝试（内层）：连接 → 状态映射 → 逐块解析 → 事件发射。断流以可重试错误
-    /// 返回；同时返回流内捕获的 usage（OpenAI 兼容 usage 终帧，有则记无则 None）。
+    /// 返回；同时返回流内捕获的 usage（终帧语义随协议分派，有则记无则 None）。
     async fn attempt_stream_once(
         &self,
         messages: &[ChatMessage],
@@ -276,10 +262,17 @@ impl LlmClient {
         let mut first_reasoning_at: Option<Instant> = None;
         let mut usage: Option<sse::SseUsage> = None;
         let mut router = EventRouter { sink, ids, attempt, first_event: true };
+        // 协议分派：请求构造与 SSE 帧解析随 config.api 走（protocol.rs）。
+        let proto = protocol::of(self.config.api);
+        let mut frames = proto.new_stream_parser();
 
         // ---- 连接（可被取消打断）----
+        let request = match self.chat_request(messages, true) {
+            Ok(rb) => rb,
+            Err(error) => return (Err((error, partial)), None),
+        };
         let response = tokio::select! {
-            resp = self.chat_request(messages, true).send() => match resp {
+            resp = request.send() => match resp {
                 Ok(r) => r,
                 Err(e) => return (Err((map_reqwest_error(e), partial)), None),
             },
@@ -314,7 +307,16 @@ impl LlmClient {
             };
             match chunk {
                 Ok(Some(bytes)) => {
-                    for item in parser.feed(&bytes) {
+                    // 行级切分协议无关（data 负载），帧解析随协议分派；协议错误
+                    //（流内 error 帧）立即终止，不再消费后续块。
+                    let mut items = Vec::new();
+                    for data in parser.feed_data(&bytes) {
+                        match frames.parse(&data) {
+                            Ok(frame_items) => items.extend(frame_items),
+                            Err(error) => return (Err((error, partial)), usage),
+                        }
+                    }
+                    for item in items {
                         match item {
                             sse::SseItem::Done => {
                                 let think_ms = first_reasoning_at
@@ -359,12 +361,9 @@ impl LlmClient {
                         }
                     }
                 }
-                // 流在 [DONE] 前正常 EOF：断流，按整条重发（验收 5）。
+                // 流在终态帧前正常 EOF：断流，按整条重发（验收 5）；哨兵名随协议。
                 Ok(None) => {
-                    return (
-                        Err((LlmError::Network("SSE 流在 [DONE] 前中断".into()), partial)),
-                        usage,
-                    );
+                    return (Err((proto.interrupted_error(), partial)), usage);
                 }
                 Err(e) => return (Err((map_reqwest_error(e), partial)), usage),
             }

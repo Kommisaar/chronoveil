@@ -14,6 +14,7 @@ const baseProvider: ProviderDto = {
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
   models: ['keep', 'gone'],
+  api: 'openai',
 };
 
 type Setup = Partial<Parameters<typeof ProviderCard>[0]>;

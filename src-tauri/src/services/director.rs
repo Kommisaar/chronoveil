@@ -66,6 +66,8 @@ pub fn resolve_director_llm(config: &FileConfig) -> Result<LlmClient, String> {
         base_url: provider.base_url.clone(),
         api_key: provider.api_key.clone(),
         model: model.to_string(),
+        // 协议随 active provider 走（2026-09-14 三协议）。
+        api: provider.api,
         ..LlmConfig::default()
     })
     .map_err(|error| error.to_string())

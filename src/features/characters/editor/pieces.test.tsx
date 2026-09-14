@@ -22,8 +22,8 @@ function renderUi(node: ReactNode) {
 }
 
 const PROVIDERS: ProviderDto[] = [
-  { id: 'p1', name: '主服务', baseUrl: 'https://api.test/v1', apiKey: '', models: ['m1', 'm2'] },
-  { id: 'p2', name: '备用', baseUrl: 'https://api.test/v2', apiKey: '', models: ['m3'] },
+  { id: 'p1', name: '主服务', baseUrl: 'https://api.test/v1', apiKey: '', models: ['m1', 'm2'], api: 'openai' },
+  { id: 'p2', name: '备用', baseUrl: 'https://api.test/v2', apiKey: '', models: ['m3'], api: 'openai' },
 ];
 
 const EMPTY_OVERRIDE: ModelOverrideFields = {

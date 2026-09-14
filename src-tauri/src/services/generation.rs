@@ -89,6 +89,9 @@ pub fn resolve_effective_llm(
     let mut base_url = provider.base_url.clone();
     let mut api_key = provider.api_key.clone();
     let mut model = active_model.to_string();
+    // 协议随 provider 走（2026-09-14 三协议）：provider 级属性，请求分派与响应
+    // 解析都依赖它，切 provider 时整体跟随。
+    let mut api = provider.api;
 
     if let Some(raw) = character.and_then(|c| c.model_config.as_deref()) {
         let trimmed = raw.trim();
@@ -103,6 +106,8 @@ pub fn resolve_effective_llm(
                     .ok_or_else(|| format!("角色 model_config 指向不存在的 provider：{id}"))?;
                 base_url = switched.base_url.clone();
                 api_key = switched.api_key.clone();
+                // 协议跟随所选 provider（切服务即切 API 形态）。
+                api = switched.api;
                 // 切服务但未指名模型 → 取该服务第一个模型（active_model 是全局
                 // 默认指向，不跟角色切服务走）。
                 model = switched
@@ -111,6 +116,9 @@ pub fn resolve_effective_llm(
                     .cloned()
                     .ok_or_else(|| format!("服务「{id}」没有任何模型：请在设置页添加"))?;
             }
+            // 旧键 baseUrl/apiKey 覆写不携带协议：协议是 provider 级属性，不在
+            // 角色覆写键清单里（沿用所选 provider 的 api），否则会出现「别家的
+            // base_url + 本家协议」的畸形组合。
             if let Some(v) = over.base_url {
                 base_url = v;
             }
@@ -129,7 +137,7 @@ pub fn resolve_effective_llm(
     if model.trim().is_empty() {
         return Err("LLM model 不能为空：请检查 Provider 配置".into());
     }
-    Ok(LlmConfig { base_url, api_key, model, ..LlmConfig::default() })
+    Ok(LlmConfig { base_url, api_key, model, api, ..LlmConfig::default() })
 }
 
 // ---------------------------------------------------------------------------

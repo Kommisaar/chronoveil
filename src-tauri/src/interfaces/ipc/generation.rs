@@ -255,6 +255,7 @@ mod tests {
             base_url: "http://127.0.0.1:9/v1".into(),
             api_key: "k".into(),
             models: vec!["m".into()],
+            api: crate::infra::llm::ProviderApi::OpenAi,
             model: None,
         }];
         config.active_provider_id = Some("p1".into());

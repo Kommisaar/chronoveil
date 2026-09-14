@@ -3,8 +3,10 @@
 //! 结构化 JSON helper 与分层/序列化形态。
 //!
 //! 500 行规范拆分：stream（流式与错误映射）/ gateway（结构化 JSON 与工具回路）/
-//! contract（事件序列化与配置校验）/ trace（调用轨迹）；本文件只留共享装配
-//! （IDS、事件收集器、客户端与重试策略构造），子模块经 `use super::*` 取用。
+//! contract（事件序列化与配置校验）/ trace（调用轨迹）/ anthropic + responses
+//! （2026-09-14 三协议分派的 Anthropic Messages 与 OpenAI Responses 两组）；
+//! 本文件只留共享装配（IDS、事件收集器、客户端与重试策略构造），子模块经
+//! `use super::*` 取用。
 
 use std::sync::Arc;
 
@@ -12,8 +14,10 @@ use tokio::sync::mpsc;
 
 use super::*;
 
+mod anthropic;
 mod contract;
 mod gateway;
+mod responses;
 mod stream;
 mod trace;
 
@@ -51,8 +55,23 @@ fn client_with_read_timeout(url: &str, retry: RetryPolicy, read_timeout_ms: u64)
         base_url: url.to_owned(),
         api_key: "test-key".into(),
         model: "test-model".into(),
+        api: ProviderApi::OpenAi,
         connect_timeout_ms: 2_000,
         read_timeout_ms,
+        retry,
+    })
+    .unwrap()
+}
+
+/// 指定 API 兼容协议的客户端（2026-09-14 三协议分派测试用；其余字段与 client 同款）。
+fn client_with_api(url: &str, retry: RetryPolicy, api: ProviderApi) -> LlmClient {
+    LlmClient::new(LlmConfig {
+        base_url: url.to_owned(),
+        api_key: "test-key".into(),
+        model: "test-model".into(),
+        api,
+        connect_timeout_ms: 2_000,
+        read_timeout_ms: 2_000,
         retry,
     })
     .unwrap()

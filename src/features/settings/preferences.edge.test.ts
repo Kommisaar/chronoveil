@@ -20,6 +20,7 @@ const provider = (partial: Partial<ProviderDto>): ProviderDto => ({
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
   models: ['test-model'],
+  api: 'openai',
   ...partial,
 });
 

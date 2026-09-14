@@ -6,11 +6,12 @@ use tauri::State;
 
 use crate::infra::config::Config as FileConfig;
 use crate::infra::config::ProviderConfig as FileProvider;
+use crate::infra::llm::ProviderApi;
 use crate::state::AppState;
 
 use super::error::IpcError;
 
-/// 单套 LLM Provider（FR-009；OpenAI 兼容）。双层级（2026-09-09）：一个服务
+/// 单套 LLM Provider（FR-009）。双层级（2026-09-09）：一个服务
 /// 提供多个模型（`models`，模型名字符串即身份）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +22,9 @@ pub struct ProviderDto {
     pub api_key: String,
     /// 该服务可用的模型名列表；至少一个才能用于生成。
     pub models: Vec<String>,
+    /// API 兼容协议（2026-09-14 三选一，wire 值 snake_case）；
+    /// 缺省 openai（存储侧 serde default，DTO 侧为必填键）。
+    pub api: ProviderApi,
 }
 
 /// 应用配置（FR-009 / ADR-012；wire 形态 camelCase，落盘文件仍为 infra 的 snake_case 键）。
@@ -61,6 +65,7 @@ impl From<&FileConfig> for ConfigDto {
                     base_url: p.base_url.clone(),
                     api_key: p.api_key.clone(),
                     models: p.models.clone(),
+                    api: p.api,
                 })
                 .collect(),
             active_provider_id: c.active_provider_id.clone(),
@@ -89,6 +94,7 @@ impl From<ConfigDto> for FileConfig {
                     base_url: p.base_url,
                     api_key: p.api_key,
                     models: p.models,
+                    api: p.api,
                     model: None,
                 })
                 .collect(),
@@ -146,6 +152,7 @@ mod tests {
                 base_url: "https://example.invalid/v1".into(),
                 api_key: "sk-test".into(),
                 models: vec!["m1".into(), "m2".into()],
+                api: ProviderApi::OpenAi,
             }],
             active_provider_id: Some("p1".into()),
             active_model: Some("m2".into()),

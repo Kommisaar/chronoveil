@@ -26,12 +26,20 @@
 
 // 域拆分（500 行规范，纯搬移）：contract 对外契约类型（配置 / 错误 / 事件 / 取消 /
 // 消息与工具入参及其 wire 形态）、client 客户端本体与流式路径、gateway 非流式两路
-// （结构化 JSON + 工具回路 + 提取逻辑）、trace 调用轨迹记录。以下 pub use 再导出
+// （结构化 JSON + 工具回路 + 提取逻辑）、trace 调用轨迹记录。2026-09-14 三协议分派：
+// provider_api 协议标识、protocol 分派面（ApiProtocol / StreamFrameParser）、
+// wire_openai / wire_anthropic / wire_responses 三种 API 兼容形态各自的请求构造
+// 与响应解析（wire_openai 为既有 OpenAI 逻辑的归拢搬移，行为零变化）。以下 pub use 再导出
 // 保持对外路径 `crate::infra::llm::*` 不变（services / interfaces 调用侧零改动）。
 mod client;
 mod contract;
 mod gateway;
+mod protocol;
+mod provider_api;
 mod trace;
+mod wire_anthropic;
+mod wire_openai;
+mod wire_responses;
 
 pub mod sse;
 pub mod think;
@@ -48,4 +56,5 @@ pub use contract::{
     LlmConfig, LlmError, LlmEvent, MessageIds, RetryPolicy, ToolCall, ToolLoopTurn, ToolSpec,
 };
 pub use gateway::extract_json;
+pub use provider_api::ProviderApi;
 pub use trace::{CallTrace, LlmCallSink};

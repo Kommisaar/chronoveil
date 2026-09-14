@@ -31,6 +31,7 @@ fn test_config() -> FileConfig {
                 base_url: "https://main.example/v1".into(),
                 api_key: "k1".into(),
                 models: vec!["m1a".into(), "m1b".into()],
+                api: crate::infra::llm::ProviderApi::OpenAi,
                 model: None,
             },
             ProviderConfig {
@@ -39,6 +40,7 @@ fn test_config() -> FileConfig {
                 base_url: "https://backup.example/v1".into(),
                 api_key: "k2".into(),
                 models: vec!["m2a".into()],
+                api: crate::infra::llm::ProviderApi::OpenAi,
                 model: None,
             },
         ],
@@ -107,6 +109,32 @@ fn resolve_llm_applies_character_override_two_levels() {
     // 未知键忽略；空串不覆写
     let lenient = character_with(Some(r#"{"temperature":0.7,"providerId":""}"#.into()));
     assert!(resolve_effective_llm(&test_config(), Some(&lenient)).is_ok());
+}
+
+/// 协议随 provider 走（2026-09-14 三协议）：角色 model_config 切 provider 后
+/// LlmConfig.api 跟随所选 provider；legacy baseUrl/apiKey 覆写不携带协议
+/// （沿用所选 provider 的 api，协议不在角色覆写键清单里）。
+#[test]
+fn resolve_llm_api_follows_selected_provider() {
+    use crate::infra::llm::ProviderApi;
+
+    let mut config = test_config();
+    config.providers[1].api = ProviderApi::Anthropic;
+
+    // 切到 p2 → api 跟随 p2。
+    let switched = character_with(Some(r#"{"providerId":"p2"}"#.into()));
+    let cfg = resolve_effective_llm(&config, Some(&switched)).unwrap();
+    assert_eq!(cfg.api, ProviderApi::Anthropic, "切 provider 后协议跟随所选 provider");
+
+    // 全局默认 p1 → openai。
+    let cfg = resolve_effective_llm(&config, Some(&character_with(None))).unwrap();
+    assert_eq!(cfg.api, ProviderApi::OpenAi);
+
+    // 切 p2 后 legacy 覆写 baseUrl/apiKey：协议仍跟随 p2，不因覆写改变。
+    let overridden = character_with(Some(r#"{"providerId":"p2","baseUrl":"https://relay.example/v1"}"#.into()));
+    let cfg = resolve_effective_llm(&config, Some(&overridden)).unwrap();
+    assert_eq!(cfg.base_url, "https://relay.example/v1");
+    assert_eq!(cfg.api, ProviderApi::Anthropic, "legacy 覆写不携带协议");
 }
 
 #[test]
@@ -262,6 +290,7 @@ fn client(url: &str) -> LlmClient {
         base_url: url.to_owned(),
         api_key: "test".into(),
         model: "test-model".into(),
+        api: crate::infra::llm::ProviderApi::OpenAi,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: crate::infra::llm::RetryPolicy {

@@ -99,6 +99,7 @@ fn save_load_roundtrip_and_no_tmp_leftover() {
             base_url: "https://example.invalid/v1".into(),
             api_key: "sk-test".into(),
             models: vec!["test-model".into(), "test-model-2".into()],
+            api: ProviderApi::OpenAi,
             model: None,
         }],
         active_provider_id: Some("p1".into()),
@@ -161,6 +162,7 @@ fn director_model_defaults_to_main_model() {
         base_url: "https://example.invalid/v1".into(),
         api_key: "sk".into(),
         models: vec!["main-model".into(), "second-model".into()],
+        api: ProviderApi::OpenAi,
         model: None,
     };
     let base = Config {
@@ -248,6 +250,7 @@ fn active_selection_resolution_and_fallback() {
         base_url: "https://example.invalid/v1".into(),
         api_key: "sk".into(),
         models: vec!["m1".into(), "m2".into()],
+        api: ProviderApi::OpenAi,
         model: None,
     };
     let base = Config {
@@ -338,5 +341,81 @@ fn near_scenes_defaults_and_range_rejected() {
     let err = store.save(&bad).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
     assert!(matches!(store.load().unwrap_err(), ConfigError::Invalid(_)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Provider.api（2026-09-14 三协议）：缺键回落 openai（旧 config.json 零迁移兼容）、
+/// 三值 JSON 往返无损、未知值 load 报 ConfigError::Parse 快速失败（ADR-012 坏文件
+/// 语义，不静默回落默认协议）。
+#[test]
+fn provider_api_defaults_roundtrips_and_rejects_unknown() {
+    // wire 值形态：snake_case 三值往返。
+    for (api, wire) in [
+        (ProviderApi::OpenAi, "openai"),
+        (ProviderApi::Anthropic, "anthropic"),
+        (ProviderApi::OpenAiResponses, "openai_responses"),
+    ] {
+        let json = serde_json::to_string(&api).unwrap();
+        assert_eq!(json, format!(r#""{wire}""#), "wire 值 {wire}");
+        assert_eq!(serde_json::from_str::<ProviderApi>(&json).unwrap(), api);
+    }
+
+    // 缺键 → 缺省 openai（serde default，无文件/旧文件兼容）。
+    let dir = temp_dir("api_default");
+    let store = store_in(&dir);
+    std::fs::write(
+        store.path(),
+        r#"{"providers": [{"id": "p1", "base_url": "https://example.invalid/v1"}]}"#,
+    )
+    .unwrap();
+    let config = store.load().unwrap();
+    assert_eq!(config.providers.len(), 1);
+    assert_eq!(config.providers[0].api, ProviderApi::OpenAi, "缺 api 键回落 openai");
+
+    // 三值落盘往返：load 读回的 api 与写入一致。
+    let mut config = Config::new_with_defaults();
+    config.providers = vec![
+        ProviderConfig {
+            id: "p1".into(),
+            name: "OpenAI 兼容".into(),
+            base_url: "https://a.example.invalid/v1".into(),
+            api_key: "k".into(),
+            models: vec!["m".into()],
+            api: ProviderApi::OpenAi,
+            model: None,
+        },
+        ProviderConfig {
+            id: "p2".into(),
+            name: "Claude".into(),
+            base_url: "https://b.example.invalid".into(),
+            api_key: "k".into(),
+            models: vec!["m".into()],
+            api: ProviderApi::Anthropic,
+            model: None,
+        },
+        ProviderConfig {
+            id: "p3".into(),
+            name: "Responses".into(),
+            base_url: "https://c.example.invalid/v1".into(),
+            api_key: "k".into(),
+            models: vec!["m".into()],
+            api: ProviderApi::OpenAiResponses,
+            model: None,
+        },
+    ];
+    store.save(&config).unwrap();
+    assert_eq!(store.load().unwrap().providers, config.providers, "三值往返无损");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // 未知值 → Parse 快速失败（不静默回落 openai）。
+    let dir = temp_dir("api_unknown");
+    let store = store_in(&dir);
+    std::fs::write(
+        store.path(),
+        r#"{"providers": [{"id": "p1", "api": "gemini"}]}"#,
+    )
+    .unwrap();
+    let err = store.load().unwrap_err();
+    assert!(matches!(err, ConfigError::Parse { .. }), "未知协议应坏文件拒绝：{err:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

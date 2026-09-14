@@ -480,15 +480,34 @@ export type LlmCallStatusDto = "ok" | "error"
  * 消息角色（data_model：role CHECK IN ('user', 'assistant')）。
  */
 export type MessageRole = "user" | "assistant"
+export type ProviderApi = 
 /**
- * 单套 LLM Provider（FR-009；OpenAI 兼容）。双层级（2026-09-09）：一个服务
+ * OpenAI Chat Completions 兼容（`/chat/completions`，Bearer）。现状默认路径，
+ * 行为零变化。
+ */
+"openai" | 
+/**
+ * Anthropic Messages API（`/v1/messages`，x-api-key + anthropic-version）。
+ */
+"anthropic" | 
+/**
+ * OpenAI Responses API（`/responses`）。
+ */
+"openai_responses"
+/**
+ * 单套 LLM Provider（FR-009）。双层级（2026-09-09）：一个服务
  * 提供多个模型（`models`，模型名字符串即身份）。
  */
 export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: string; 
 /**
  * 该服务可用的模型名列表；至少一个才能用于生成。
  */
-models: string[] }
+models: string[]; 
+/**
+ * API 兼容协议（2026-09-14 三选一，wire 值 snake_case）；
+ * 缺省 openai（存储侧 serde default，DTO 侧为必填键）。
+ */
+api: ProviderApi }
 /**
  * 建会话阵容位 wire 形态（多角色换挂的最小透传 DTO；两步选人 UI 的语义设计属
  * Task-31）。`characterId` = 模板卡 id，`isUser` = 用户扮演位标记。

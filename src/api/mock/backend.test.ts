@@ -744,6 +744,7 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
           baseUrl: 'https://example.invalid/v1',
           apiKey: 'sk-test',
           models: ['m1', 'm2'],
+          api: 'openai',
         },
       ],
       activeProviderId: 'p1',

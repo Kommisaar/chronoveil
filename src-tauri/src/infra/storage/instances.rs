@@ -98,3 +98,6 @@ pub(crate) fn soft_delete(conn: &Connection, id: i64, ts: i64) -> Result<(), Sto
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

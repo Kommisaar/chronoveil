@@ -45,6 +45,8 @@ impl ApiProtocol for OpenAiCompat {
                 .map(chat_message_wire)
                 .collect::<Vec<_>>(),
             "stream": stream,
+            // 采样温度（设置页全局，0–2）：OpenAI 兼容域即 0–2，原样下发。
+            "temperature": config.temperature,
         });
         // tools 仅在提供时进入请求体（空工具切片视同未提供），未提供时 wire 形态
         // 与无工具请求完全一致（OpenAI 兼容可选字段缺省不发）。

@@ -51,6 +51,12 @@ export interface AnimDefaults {
   punctPause: boolean;
   /** 全局出场动画风格（2026-09-14）：卡 renderStyle 为 null 时预览/展示回落值。 */
   renderStyle: string;
+  /** 全局采样温度（2026-09-14 温度覆写）：卡 temperature 为 null 时的展示/落点值。 */
+  temperature: number;
+  /** 全局默认模型二元组（2026-09-14 模型设置行）：跟随态展示与切自定义的
+   *  写卡落点；空串 = 未配置（跟随态按钮仅显示「跟随全局」）。 */
+  defaultProviderId: string;
+  defaultModelId: string;
 }
 
 /** 模板默认值（docs/streaming-animations.html 控件默认；引擎常量同源）。 */
@@ -59,6 +65,10 @@ const TEMPLATE_DEFAULTS: AnimDefaults = {
   msPerChar: RHYTHM_DEFAULT_MS,
   punctPause: true,
   renderStyle: DEFAULT_RENDER_STYLE,
+  // 与 Rust infra/config.rs DEFAULT_TEMPERATURE 同值（llm/config 两侧均 0.7）。
+  temperature: 0.7,
+  defaultProviderId: '',
+  defaultModelId: '',
 };
 
 /** model_config JSON 的表单形态（空串 = 该字段跟随全局）。 */
@@ -67,6 +77,8 @@ export interface ModelOverrideFields {
   model: string;
   baseUrl: string;
   apiKey: string;
+  /** 采样温度覆写（2026-09-14）：null = 跟随全局（序列化不写键）。 */
+  temperature: number | null;
   /** 未知键原样保留（Rust 忽略未知键，编辑往返不清除）。 */
   rest: Record<string, unknown>;
 }
@@ -79,6 +91,7 @@ function parseModelOverride(raw: string | null): ModelOverrideFields {
     model: '',
     baseUrl: '',
     apiKey: '',
+    temperature: null,
     rest: {},
   };
   if (!raw) return empty;
@@ -93,6 +106,13 @@ function parseModelOverride(raw: string | null): ModelOverrideFields {
       const value = obj[key];
       delete fields.rest[key];
       if (typeof value === 'string') fields[key] = value;
+    }
+    // temperature 是唯一的数值覆写键：有限数字才取，其余形态删除出 rest 丢弃
+    // （保存即修复，与非字符串的字符串键同法）。
+    const rawTemperature = obj['temperature'];
+    delete fields.rest['temperature'];
+    if (typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)) {
+      fields.temperature = rawTemperature;
     }
     return fields;
   } catch {
@@ -111,6 +131,7 @@ function serializeModelOverride(fields: ModelOverrideFields): string | null {
   if (model) obj.model = model;
   if (baseUrl) obj.baseUrl = baseUrl;
   if (apiKey) obj.apiKey = apiKey;
+  if (fields.temperature !== null) obj.temperature = fields.temperature;
   return Object.keys(obj).length > 0 ? JSON.stringify(obj) : null;
 }
 
@@ -138,8 +159,6 @@ export interface EditorForm {
   setOverride: (
     update: (current: ModelOverrideFields) => ModelOverrideFields,
   ) => void;
-  overrideOpen: boolean;
-  setOverrideOpen: (update: (open: boolean) => boolean) => void;
   /** 名称必填门槛：为空时自动保存挂起（IdentityField 出必填提示）。 */
   canSave: boolean;
   /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送。 */
@@ -200,17 +219,6 @@ export function useEditorForm(props: {
   const [animPunctPause, setAnimPunctPause] = useState<boolean | null>(initial.animPunctPause);
   const [accentColor, setAccentColor] = useState<string | null>(initial.accentColor);
   const [override, setOverrideState] = useState<ModelOverrideFields>(initial.override);
-  // 模型覆写折叠态：已有覆写值（含未知键）的角色自动展开，否则默认收起。
-  const [overrideOpen, setOverrideOpenState] = useState(() => {
-    const o = initial.override;
-    return (
-      o.providerId !== '' ||
-      o.model !== '' ||
-      o.baseUrl !== '' ||
-      o.apiKey !== '' ||
-      Object.keys(o.rest).length > 0
-    );
-  });
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
@@ -423,8 +431,6 @@ export function useEditorForm(props: {
     setAccentColor,
     override,
     setOverride: (update) => setOverrideState(update),
-    overrideOpen,
-    setOverrideOpen: (update) => setOverrideOpenState(update),
     canSave,
     flushSave,
     previewRef: (node) => {

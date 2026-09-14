@@ -103,6 +103,8 @@ async fn stream_request_shape_headers_and_events() {
     assert_eq!(body["model"], "test-model");
     assert_eq!(body["max_tokens"], 8192, "Anthropic 必填参数（模块常量安全值）");
     assert_eq!(body["stream"], true);
+    // 采样温度随 payload 下发（夹具默认 0.7 在本协议域 0–1 内，钳制不触发）。
+    assert_eq!(body["temperature"], 0.7);
     assert_eq!(body["system"], "你是助手", "System 提升为顶层 system 参数");
     let msgs = body["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 1, "system 不进 messages");
@@ -145,6 +147,7 @@ async fn empty_api_key_omits_x_api_key_header() {
         api_key: String::new(),
         model: "test-model".into(),
         api: ProviderApi::Anthropic,
+        temperature: 0.7,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: retry_policy(0),
@@ -158,6 +161,42 @@ async fn empty_api_key_omits_x_api_key_header() {
     let req = captured.lock().unwrap().clone().expect("应捕获到请求");
     assert_eq!(req.header("x-api-key"), None, "空密钥不发 x-api-key");
     assert_eq!(req.header("anthropic-version"), Some("2023-06-01"), "版本头恒发");
+}
+
+/// 全局温度超出本协议域（>1.0）→ payload 钳到 Anthropic 上限 1.0（域差不抛给
+/// 用户，见 wire_anthropic 的 ANTHROPIC_TEMPERATURE_MAX）。
+#[tokio::test]
+async fn temperature_above_domain_clamped_to_one() {
+    let captured: Arc<Mutex<Option<MockRequest>>> = Arc::new(Mutex::new(None));
+    let cap = captured.clone();
+    let server = MockServer::start(move |req, stream| {
+        *cap.lock().unwrap() = Some(req.clone());
+        let _ = sse_head(stream);
+        let _ = stream.write_all(sse_data(r#"{"type":"message_stop"}"#).as_bytes());
+        let _ = stream.flush();
+    });
+    let llm = LlmClient::new(LlmConfig {
+        base_url: server.url(),
+        api_key: "test-key".into(),
+        model: "test-model".into(),
+        api: ProviderApi::Anthropic,
+        temperature: 1.7,
+        connect_timeout_ms: 2_000,
+        read_timeout_ms: 2_000,
+        retry: retry_policy(0),
+    })
+    .unwrap();
+    let (sink_tx, _rx) = sink();
+    let (_signal, cancel) = cancel_channel();
+    llm.chat_stream(&messages(), IDS, sink_tx, &cancel, None)
+        .await
+        .expect("钳制路径不应失败");
+    let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
+    assert_eq!(
+        body["temperature"],
+        1.0,
+        "超域温度按协议上限钳制，不原样发出 1.7"
+    );
 }
 
 /// 流内 error 事件帧 → Protocol 错误（不可重试：单次连接即失败）。

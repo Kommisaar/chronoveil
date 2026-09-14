@@ -19,6 +19,11 @@ export const RHYTHM_MAX = RHYTHM_MAX_MS;
 export const NEAR_SCENES_MIN = 1;
 export const NEAR_SCENES_MAX = 6;
 
+/** 采样温度允许范围（0–2；与 infra/config.rs TEMPERATURE_MIN/MAX 双重兜底，
+ *  默认 0.7 与 DEFAULT_TEMPERATURE 同源）。滑杆已限位，值域内无非法中间态。 */
+export const TEMPERATURE_MIN = 0;
+export const TEMPERATURE_MAX = 2;
+
 const THEME_VALUES: readonly ThemeSetting[] = ['system', 'light', 'dark'];
 const LANGUAGE_VALUES: readonly LanguageSetting[] = ['system', 'zh', 'en'];
 
@@ -80,12 +85,14 @@ export const PROTOCOL_LABEL_KEYS: Record<ProviderApi, string> = {
 };
 
 
-export function validateProvider(provider: ProviderDto): ProviderValidity {
+export function validateProvider(
+  provider: Pick<ProviderDto, 'name' | 'baseUrl' | 'models'>,
+): ProviderValidity {
   return {
     name: provider.name.trim() !== '',
     baseUrl: isValidHttpUrl(provider.baseUrl.trim()),
     models:
-      provider.models.length > 0 && provider.models.every((m) => m.trim() !== ''),
+      provider.models.length > 0 && provider.models.every((m) => m.id.trim() !== ''),
   };
 }
 
@@ -99,7 +106,9 @@ export function isValidHttpUrl(value: string): boolean {
   }
 }
 
-export function isProviderValid(provider: ProviderDto): boolean {
+export function isProviderValid(
+  provider: Pick<ProviderDto, 'name' | 'baseUrl' | 'models'>,
+): boolean {
   const v = validateProvider(provider);
   return v.name && v.baseUrl && v.models;
 }
@@ -128,10 +137,10 @@ export function withoutModel(
   provider: ProviderDto,
   index: number,
 ): { provider: ProviderDto; activeModel: ConfigDto['activeModel'] } {
-  const removed = provider.models[index] ?? null;
+  const removedId = provider.models[index]?.id ?? null;
   const models = provider.models.filter((_, i) => i !== index);
   const activeModel =
-    config.activeProviderId === provider.id && config.activeModel !== null && config.activeModel === removed
+    config.activeProviderId === provider.id && config.activeModel !== null && config.activeModel === removedId
       ? null
       : config.activeModel;
   return { provider: { ...provider, models }, activeModel };

@@ -4,7 +4,7 @@
 // RHYTHM 常量、newProviderId 无 randomUUID 回退。（parseAnimBaseMs 边界组
 // 随 2026-09-14 动效基准改滑杆移除：滑杆限位后不存在非法文本中间态。）
 import { describe, expect, it } from 'vitest';
-import type { ProviderDto } from '../../api/types';
+import type { ModelSpecDto, ProviderDto } from '../../api/types';
 import {
   RHYTHM_MAX,
   RHYTHM_MIN,
@@ -13,13 +13,21 @@ import {
   validateProvider,
   withoutModel,
 } from './preferences';
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
 
 const provider = (partial: Partial<ProviderDto>): ProviderDto => ({
   id: 'p1',
   name: '本地中转',
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
-  models: ['test-model'],
+  models: [spec('test-model')],
   api: 'openai',
   ...partial,
 });
@@ -44,7 +52,7 @@ describe('validateProvider（结构化逐项有效性，供行内标错）', () 
     expect(validateProvider(provider({ name: '  ' })).baseUrl).toBe(true);
     expect(validateProvider(provider({ baseUrl: 'nope' })).baseUrl).toBe(false);
     expect(validateProvider(provider({ baseUrl: 'nope' })).models).toBe(true);
-    expect(validateProvider(provider({ models: ['m1', '   '] })).models).toBe(false);
+    expect(validateProvider(provider({ models: [spec('m1'), spec('   ')] })).models).toBe(false);
     expect(validateProvider(provider({ models: [] })).models).toBe(false);
   });
 });
@@ -65,9 +73,10 @@ describe('isValidHttpUrl（LLM base_url 只收 http/https）', () => {
 
 describe('withoutModel 越界下标（防御：列表与选中都不动）', () => {
   it('下标超界时 removed 为 null，命中条件不成立、原样返回', () => {
-    const p = provider({ models: ['m1'] });
+    const p = provider({ models: [spec('m1')] });
     const r = withoutModel({ activeProviderId: 'p1', activeModel: 'm1' }, p, 5);
-    expect(r.provider.models).toEqual(['m1']);
+    // 模型已元数据化（ModelSpecDto）：按整对象比较原样返回
+    expect(r.provider.models).toEqual([spec('m1')]);
     expect(r.activeModel).toBe('m1');
   });
 });

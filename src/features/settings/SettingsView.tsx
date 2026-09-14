@@ -136,12 +136,15 @@ export function SettingsView() {
       uiTheme: draft.uiTheme,
       directorModel: loaded.directorModel,
       nearScenes: nearScenes ?? loaded.nearScenes,
+      temperature: draft.temperature,
     };
   }, [loaded, draft, nearScenes]);
 
   // 脏状态：保存将写入的内容与载入基线逐字段比对
   const dirty = next !== null && loaded !== null && JSON.stringify(next) !== JSON.stringify(loaded);
 
+  // 校验问题清单（非法即挡自动保存）：不再页面级渲染（各卡自带行内提示，
+  // 页底汇总结语义重复，2026-09-14 按用户裁定裁撤），仅作保存闸门。
   const issues: string[] = [];
   if (draft) {
     if (draft.providers.some((p) => !isProviderValid(p))) issues.push(t('settings.issueProvider'));
@@ -284,20 +287,10 @@ export function SettingsView() {
             </SettingsCard>
 
             {/* 服务卡（装配抽在 ProvidersCard）：provider 增删改、空态引导与
-                删除确认随卡搬家，页级草稿经 setDraft 透传，footer 修改即保存
-                状态行的入参由本层派生传入 */}
-            <ProvidersCard
-              draft={draft}
-              onDraftChange={setDraft}
-              saving={saving}
-              saveError={saveError}
-              dirty={dirty}
-            />
+                删除确认随卡搬家，页级草稿经 setDraft 透传；自动保存失败红字
+                传入卡内 footer，成功/空闲路径不渲染状态行 */}
+            <ProvidersCard draft={draft} onDraftChange={setDraft} saveError={saveError} />
           </div>
-
-          {hasIssues && !saving ? (
-            <Text className={styles.issues}>{issues.join('；')}</Text>
-          ) : null}
         </>
       ) : loadError !== null ? (
         <Text className={styles.issues} role="alert">

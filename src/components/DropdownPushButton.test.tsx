@@ -51,6 +51,41 @@ describe('DropdownPushButton（RoundMenu 复刻件）', () => {
     expect(screen.getByRole('option', { name: '丙' })).toBeTruthy();
   });
 
+  it('级联：触发钮组合「父 / 叶」上下文，二级菜单叶子显裸名，叶子命中上抛', () => {
+    const { onChange } = renderCombo({
+      options: [
+        {
+          value: 'p1',
+          label: '服务甲',
+          children: [
+            { value: 'p1::m1', label: '模型一' },
+            { value: 'p1::m2', label: '模型二' },
+          ],
+        },
+      ],
+      value: 'p1::m1',
+      maxVisibleItems: 8,
+    });
+    // 触发钮处没有二级菜单的父行上下文，裸名无法指认 → 组合「父 / 叶」
+    expect(trigger().textContent).toBe('服务甲 / 模型一');
+    fireEvent.click(trigger());
+    // 点父行展开二级飞出层（jsdom 全零矩形走默认落位，不影响行渲染）
+    fireEvent.click(screen.getByRole('option', { name: '服务甲' }));
+    const submenu = screen.getByRole('listbox', { name: '服务甲' });
+    const leaves = [...submenu.querySelectorAll('button')].map((b) => b.textContent);
+    expect(leaves).toEqual(['模型一', '模型二']);
+    // 子菜单列表限高 = maxVisibleItems × 行高（jsdom 全零矩形恒走「下方默认
+    // 且空间充裕」分支；翻转/选边由浏览器实测，见组件 openSubmenu 注）
+    const subList = submenu.firstElementChild as HTMLElement;
+    expect(subList.style.maxHeight).toBe('288px');
+    expect(screen.getByRole('option', { name: '模型一' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    fireEvent.click(screen.getByRole('option', { name: '模型二' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('p1::m2');
+  });
+
   it('选择即上抛 onChange，退场动画播完才卸载菜单（closing 态）', () => {
     vi.useFakeTimers();
     try {

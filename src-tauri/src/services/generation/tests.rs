@@ -106,9 +106,32 @@ fn resolve_llm_applies_character_override_two_levels() {
     assert_eq!(cfg.base_url, "https://backup.example/v1");
     assert_eq!(cfg.model, "m3");
 
-    // 未知键忽略；空串不覆写
+    // 未知键忽略；空串不覆写（temperature 0.7 为域内合法覆写值，等价默认）。
     let lenient = character_with(Some(r#"{"temperature":0.7,"providerId":""}"#.into()));
     assert!(resolve_effective_llm(&test_config(), Some(&lenient)).is_ok());
+}
+
+/// 温度覆写（2026-09-14）：model_config.temperature 缺省跟随全局（设置页 0–2
+/// 滑杆），给出且在域内则覆写生效；越界快速失败（可读错误，不静默钳边）。
+#[test]
+fn resolve_llm_temperature_override_follows_and_applies() {
+    // 缺省 → 全局默认温度（new_with_defaults = 0.7）。
+    let base = resolve_effective_llm(&test_config(), Some(&character_with(None))).unwrap();
+    assert_eq!(base.temperature, 0.7);
+
+    // 域内覆写生效。
+    let over = character_with(Some(r#"{"temperature":1.3}"#.into()));
+    let cfg = resolve_effective_llm(&test_config(), Some(&over)).unwrap();
+    assert_eq!(cfg.temperature, 1.3);
+
+    // 越界（>2 / <0）→ 可读错误。
+    let high = character_with(Some(r#"{"temperature":2.5}"#.into()));
+    let err = resolve_effective_llm(&test_config(), Some(&high)).unwrap_err();
+    assert!(err.contains("temperature"), "错误可读：{err}");
+    let low = character_with(Some(r#"{"temperature":-0.5}"#.into()));
+    assert!(resolve_effective_llm(&test_config(), Some(&low))
+        .unwrap_err()
+        .contains("temperature"));
 }
 
 /// 协议随 provider 走（2026-09-14 三协议）：角色 model_config 切 provider 后
@@ -291,6 +314,7 @@ fn client(url: &str) -> LlmClient {
         api_key: "test".into(),
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
+        temperature: 0.7,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: crate::infra::llm::RetryPolicy {

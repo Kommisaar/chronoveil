@@ -98,6 +98,8 @@ async fn stream_request_shape_headers_and_events() {
     assert_eq!(body["model"], "test-model");
     assert_eq!(body["stream"], true);
     assert_eq!(body["store"], false, "ChronoVeil 隐私原则：拒绝服务端留存");
+    // 采样温度随 payload 下发（测试夹具走 LlmConfig::default() = 0.7）。
+    assert_eq!(body["temperature"], 0.7);
     assert_eq!(body["instructions"], "你是助手", "System 提升为顶层 instructions");
     let input = body["input"].as_array().unwrap();
     assert_eq!(input.len(), 1, "system 不进 input");

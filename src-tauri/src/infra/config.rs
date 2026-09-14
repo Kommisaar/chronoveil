@@ -50,8 +50,87 @@ fn default_near_scenes() -> u32 {
 /// 动效时长基准默认值（FR-009）。
 pub const DEFAULT_ANIM_DURATION_BASE_MS: u32 = 450;
 
+/// 采样温度允许范围（0–2：0 取概率最高的token，上限对齐 OpenAI 系 temperature
+/// 参数域；Anthropic 域更窄 0–1，超域由协议适配层钳制，见 wire_anthropic）。
+/// 与 TS 常量互指（同一约束两端）：`src/features/settings/preferences.ts` 的
+/// `TEMPERATURE_MIN` / `TEMPERATURE_MAX`（设置页滑杆限位同源）。
+pub const TEMPERATURE_MIN: f64 = 0.0;
+pub const TEMPERATURE_MAX: f64 = 2.0;
+
+/// 采样温度默认值：略低于协议默认 1.0，取更收敛的创造档（角色扮演对话）。
+pub const DEFAULT_TEMPERATURE: f64 = 0.7;
+
+/// 模型输入/输出模态（2026-09-14 模型元数据化；文本恒在，其余可选）。
+/// wire 值 snake_case，与前端 ModelModality 联合类型同源（specta 导出）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelModality {
+    Text,
+    Image,
+    Video,
+    Pdf,
+}
+
+/// 单个模型的元数据（2026-09-14 自纯模型名字符串升级）：id 即原模型名（全局
+/// 默认 active_model、导演跟随与角色覆写均以 id 字符串流转），其余字段供展示
+/// 与未来的调用参数裁剪。上下文窗口/最大输出缺省值与新增对话框预填一致
+/// （1M / 128K）；模态缺省 = 仅文本。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(default)]
+pub struct ModelSpec {
+    pub id: String,
+    pub context_window: u32,
+    pub max_output_tokens: u32,
+    pub input_types: Vec<ModelModality>,
+    pub output_types: Vec<ModelModality>,
+}
+
+impl Default for ModelSpec {
+    /// serde 缺键回落与 [`ModelSpec::from_id`] 同源：空 id（非法行由校验层标错）
+    /// + 1M 上下文 / 128K 输出 + 仅文本。
+    fn default() -> Self {
+        Self::from_id(String::new())
+    }
+}
+
+impl ModelSpec {
+    /// 旧字符串模型的等价构造（id 之外全默认）。
+    pub fn from_id(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            context_window: 1_000_000,
+            max_output_tokens: 128_000,
+            input_types: vec![ModelModality::Text],
+            output_types: vec![ModelModality::Text],
+        }
+    }
+}
+
+impl From<&str> for ModelSpec {
+    fn from(id: &str) -> Self {
+        Self::from_id(id)
+    }
+}
+
+/// 兼容反序列化：历史 config.json 的 models 是纯字符串数组（未发布应用，无
+/// 存量迁移义务，但字符串 → ModelSpec 的兜底让旧文件不用手改即可载入）。
+fn deserialize_models<'de, D>(deserializer: D) -> Result<Vec<ModelSpec>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|value| {
+            if let Some(id) = value.as_str() {
+                return Ok(ModelSpec::from_id(id));
+            }
+            serde_json::from_value::<ModelSpec>(value).map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+
 /// 单套 LLM Provider（FR-009；密钥明文本机，OQ-001 已决）。
-/// 双层级（2026-09-09）：一个 provider 提供多个 model（`models`，模型名字符串
+/// 双层级（2026-09-09）：一个 provider 提供多个 model（`models`，模型 id 字符串
 /// 即身份）；`model` 是旧单模型格式的兼容落点——load 时迁移进 `models` 后清空，
 /// 保存不再写出（skip_serializing_if）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,9 +143,10 @@ pub struct ProviderConfig {
     pub base_url: String,
     #[serde(default)]
     pub api_key: String,
-    /// 该服务可用的模型名列表（至少一个才能用于生成，解析层兜底校验）。
-    #[serde(default)]
-    pub models: Vec<String>,
+    /// 该服务可用的模型列表（至少一个才能用于生成，解析层兜底校验）；元素为
+    /// 模型元数据（id 即模型名），反序列化兼容旧的纯字符串数组。
+    #[serde(default, deserialize_with = "deserialize_models")]
+    pub models: Vec<ModelSpec>,
     /// API 兼容协议（2026-09-14 三选一）：缺省 openai——旧 config.json 无此键
     /// 零迁移兼容；未知值 serde 反序列化失败 → load 报 [`ConfigError::Parse`]
     /// 快速失败（ADR-012 坏文件语义，不静默回落默认协议）。协议是 provider 级
@@ -79,21 +159,23 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    /// 旧格式迁移 + 规范化（幂等）：`model` 搬入 `models`（去首尾空白、丢空串），
-    /// 迁移后 legacy 键清空。load/save 前都会走一遍。
+    /// 旧格式迁移 + 规范化（幂等）：`model` 搬入 `models`（id 去首尾空白、丢
+    /// 空串），迁移后 legacy 键清空。load/save 前都会走一遍。
     pub fn migrated(mut self) -> Self {
         if let Some(legacy) = self.model.take() {
             let legacy = legacy.trim();
-            if !legacy.is_empty() && !self.models.iter().any(|m| m == legacy) {
-                self.models.push(legacy.into());
+            if !legacy.is_empty() && !self.models.iter().any(|m| m.id == legacy) {
+                self.models.push(ModelSpec::from_id(legacy));
             }
         }
         self.models = self
             .models
             .iter()
-            .map(|m| m.trim())
-            .filter(|m| !m.is_empty())
-            .map(|m| m.to_string())
+            .map(|m| ModelSpec {
+                id: m.id.trim().to_string(),
+                ..m.clone()
+            })
+            .filter(|m| !m.id.is_empty())
             .collect();
         self
     }
@@ -101,7 +183,8 @@ impl ProviderConfig {
 
 /// 应用配置（键与类型见 TASK-003 / FR-009 / ADR-012）。
 /// 容器级 `#[serde(default)]`：缺键一律回落到 `Config::default()`；未知键 serde 默认忽略。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// 不再派生 Eq：temperature 为 f64（f64 无 Eq，NaN 所致）；等值断言走 PartialEq。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// 多套 Provider（FR-009「可存多套」）。
@@ -132,6 +215,9 @@ pub struct Config {
     /// services/prompt::AssembleInputs（经 generation 穿参）。
     #[serde(default = "default_near_scenes")]
     pub near_scenes: u32,
+    /// 采样温度（0–2，默认 0.7）：chat 请求以 temperature 参数随三协议下发
+    /// （消费点 services/generation → LlmConfig → 各 wire payload）。
+    pub temperature: f64,
 }
 
 impl Default for Config {
@@ -156,6 +242,7 @@ impl Config {
             ui_theme: "system".into(),
             director_model: None,
             near_scenes: DEFAULT_NEAR_SCENES,
+            temperature: DEFAULT_TEMPERATURE,
         }
     }
 
@@ -172,6 +259,14 @@ impl Config {
             return Err(ConfigError::Invalid(format!(
                 "near_scenes = {} 越界（允许 {}–{}）",
                 self.near_scenes, NEAR_SCENES_MIN, NEAR_SCENES_MAX
+            )));
+        }
+        // NaN 落在 0.0..=2.0 之外 → 同样被拒（JSON 本身载不进 NaN，防御手改文件
+        // 之外的路径；serde_json 解析 NaN 字符串本就报 Parse）。
+        if !(TEMPERATURE_MIN..=TEMPERATURE_MAX).contains(&self.temperature) {
+            return Err(ConfigError::Invalid(format!(
+                "temperature = {} 越界（允许 {}–{}）",
+                self.temperature, TEMPERATURE_MIN, TEMPERATURE_MAX
             )));
         }
         Ok(())
@@ -193,8 +288,8 @@ impl Config {
             .active_model
             .as_deref()
             .map(str::trim)
-            .filter(|m| !m.is_empty() && provider.models.iter().any(|x| x == m));
-        let model = explicit.or_else(|| provider.models.first().map(String::as_str))?;
+            .filter(|m| !m.is_empty() && provider.models.iter().any(|x| x.id == *m));
+        let model = explicit.or_else(|| provider.models.first().map(|s| s.id.as_str()))?;
         Some((provider, model))
     }
 

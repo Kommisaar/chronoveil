@@ -14,17 +14,31 @@
  * ——同 AccentColorPicker 对「弹层越出画面」的踩坑口径），横向不钳位（菜单
  * 与触发钮同宽）。
  */
-import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
-import { Checkmark20Regular, ChevronDown20Regular } from '@fluentui/react-icons';
+import {
+  makeStyles,
+  mergeClasses,
+  tokens,
+} from '@fluentui/react-components';
+import {
+  Checkmark20Regular,
+  ChevronDown20Regular,
+  ChevronRight20Regular,
+} from '@fluentui/react-icons';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DROPDOWN_POP_MS } from './motion';
-
-/** 菜单行高：maxVisibleItems 换算列表 max-height 的单一事实源。 */
-const ITEM_HEIGHT_PX = 36;
-/** 菜单与锚点的间距 / 落位量测时与裁剪边界的余量（同 AccentColorPicker 口径）。 */
+// 级联子系统共用常量与二级飞出层（本文件超 500 行上限时按职责拆出的伴生件）
+import {
+  DropdownPushSubmenu,
+  ITEM_HEIGHT_PX,
+  SUBMENU_PAD_PX,
+  SUBMENU_WIDTH_PX,
+} from './DropdownPushSubmenu';
+// 落位几何纯函数（主菜单与子菜单共用的可视边界口径与子菜单纵向选边）
+import { findClipBounds, MARGIN_PX, placeSubmenuVertically } from './dropdownPlacement';
+/** 菜单与锚点的间距（纵向落位与横向翻转共用；裁剪余量 MARGIN_PX 在
+ *  dropdownPlacement）。 */
 const GAP_PX = 6;
-const MARGIN_PX = 8;
 
 const useStyles = makeStyles({
   root: {
@@ -141,6 +155,17 @@ const useStyles = makeStyles({
     flexShrink: 0,
     color: tokens.colorBrandForeground1,
   },
+  // 级联父行的子菜单指向箭头：方向指示不是选中标记，灰色与触发钮 chevron
+  // 同色（复用 itemCheck 会染上品牌蓝——2026-09-15 用户反馈）
+  itemArrow: {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    color: tokens.colorNeutralForeground3,
+  },
+  // 级联父行：行容器做子菜单定位参照（relative）；本身不可选（无勾选语义）
+  subItem: {
+    position: 'relative',
+  },
 });
 
 export interface DropdownPushOption {
@@ -150,6 +175,13 @@ export interface DropdownPushOption {
   detail?: string;
   /** 行首图标（复刻 RoundMenu 的图标行）；缺省不占位。 */
   icon?: ReactNode;
+  /** 级联子菜单（复刻 RoundMenu submenu，2026-09-14）：有 children 的行自身
+   *  不可选，悬停/点击在行右侧展开二级飞出层，选中叶子才触发 onChange（叶子
+   *  value 需全局唯一，建议调用方用「父 id::子 id」复合键）。仅支持两级。
+   *  叶子 label 用裸名（不带父级前缀）：二级菜单里父行就在旁边（子菜单名也
+   *  取父 label），前缀冗余；触发钮脱离子菜单上下文，由组件组合
+   *  「父 label / 叶 label」补回指认信息（2026-09-14 用户反馈去前缀）。 */
+  children?: DropdownPushOption[];
 }
 
 export interface DropdownPushButtonProps {
@@ -162,6 +194,8 @@ export interface DropdownPushButtonProps {
   maxVisibleItems: number;
   /** 禁用（跟随全局态）：断交互 + 压暗，值由调用方显示全局基准。 */
   disabled?: boolean;
+  /** 值未命中任何选项时的触发钮占位文案（如「未设置」）；缺省显示原值。 */
+  placeholder?: string;
   className?: string;
 }
 
@@ -180,6 +214,12 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
+  // 级联子菜单：当前展开的父行 value + 飞出层落位（相对主菜单盒的偏移与列
+  // 表限高，null = 收起）。
+  const [openSub, setOpenSub] = useState<string | null>(null);
+  const [subPos, setSubPos] = useState<{ left: number; top: number; maxHeight: number } | null>(
+    null,
+  );
 
   const clearCloseTimer = (): void => {
     if (closeTimer.current !== null) {
@@ -202,6 +242,7 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
     if (props.disabled) return;
     clearCloseTimer();
     setPlacement(null);
+    setOpenSub(null);
     setPhase('open');
   };
   const requestClose = (): void => {
@@ -210,6 +251,7 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null;
       setPhase('closed');
+      setOpenSub(null);
     }, DROPDOWN_POP_MS);
     setPhase('closing');
   };
@@ -219,7 +261,8 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
   useEffect(() => {
     if (phase !== 'open') return;
     const onPointerDown = (e: PointerEvent): void => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      if (wrapRef.current && !wrapRef.current.contains(target)) {
         requestClose();
       }
     };
@@ -234,35 +277,21 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
     };
   }, [phase]);
 
-  // 落位量测：打开后、首帧绘制前（useLayoutEffect）在「最近裁剪容器
-  // （overflow 非 visible 祖先）∩ 视口」内选边——下方放不下且上方放得下
-  // 则翻转，都放不下选更大一侧并限高。closing 复用已算好的落位（动画期间
-  // 不重排）。量测依赖真实布局，jsdom 全零矩形恒走下方默认，翻转分支由
-  // 浏览器实测验证（单测不覆盖，原因见测试文件头）。
+  // 主菜单与子菜单共用的可视边界（最近裁剪容器 ∩ 视口，口径单一事实源在
+  // dropdownPlacement.findClipBounds；以触发钮包裹层为起点向上找）。
+  const clipBounds = () => findClipBounds(wrapRef.current);
+
+  // 落位量测：打开后、首帧绘制前（useLayoutEffect）在 clipBounds 内选边——
+  // 下方放不下且上方放得下则翻转，都放不下选更大一侧并限高。closing 复用
+  // 已算好的落位（动画期间不重排）。量测依赖真实布局，jsdom 全零矩形恒走
+  // 下方默认，翻转分支由浏览器实测验证（单测不覆盖，原因见测试文件头）。
   useLayoutEffect(() => {
     if (phase !== 'open' || placement !== null) return;
     const wrap = wrapRef.current;
     const menu = menuRef.current;
     if (!wrap || !menu) return;
 
-    let clipTop: number | null = null;
-    let clipBottom: number | null = null;
-    let node: HTMLElement | null = wrap.parentElement;
-    while (node) {
-      const cs = getComputedStyle(node);
-      // overflow 为空串视为未裁剪：jsdom 的 getComputedStyle 不解析 overflow
-      // （返回 ''），不豁免会把单测里每个祖先都误判成裁剪容器
-      if (cs.overflowY !== '' && cs.overflowY !== 'visible') {
-        const r = node.getBoundingClientRect();
-        clipTop = r.top;
-        clipBottom = r.bottom;
-        break;
-      }
-      node = node.parentElement;
-    }
-    const topBound = Math.max(clipTop ?? 0, 0) + MARGIN_PX;
-    const bottomBound =
-      Math.min(clipBottom ?? window.innerHeight, window.innerHeight) - MARGIN_PX;
+    const { top: topBound, bottom: bottomBound } = clipBounds();
 
     const wrapRect = wrap.getBoundingClientRect();
     const menuH = menu.offsetHeight;
@@ -296,7 +325,63 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
     }
   }, [phase, placement]);
 
-  const selected = props.options.find((o) => o.value === props.value);
+  // 选中项递归查找（两级：父行 value 不参与选中，叶子命中即当前值）；命中
+  // 叶子时连同父行带回——触发钮的组合文案需要父级上下文（见 children 契约）。
+  const findSelected = (
+    options: DropdownPushOption[],
+  ): { option: DropdownPushOption; parent?: DropdownPushOption } | undefined => {
+    const top = options.find((o) => o.value === props.value);
+    if (top !== undefined) return { option: top };
+    for (const o of options) {
+      const leaf = (o.children ?? []).find((c) => c.value === props.value);
+      if (leaf !== undefined) return { option: leaf, parent: o };
+    }
+    return undefined;
+  };
+  const selected = findSelected(props.options);
+  // 当前展开子菜单的父选项（openSub/subPos 齐备才有；悬空 id 不渲染飞出层）
+  const sub =
+    openSub !== null && subPos !== null
+      ? (props.options.find((o) => o.value === openSub) ?? null)
+      : null;
+
+  /** 悬停/点击父行：以行矩形定位子菜单。横向主菜单右侧展开，视口右缘放不
+   *  下翻左侧；纵向选边（估算实高 = 叶子数 × 行高 + 盒内边距，直显上限截断
+   *  ——形制固定故无需等渲染量测）交给 placeSubmenuVertically 纯函数，边界
+   *  取 clipBounds 与主菜单落位同口径。选边数学已单测；事件期取矩形等时序
+   *  依赖真实布局，jsdom 全零矩形走不了真实分支（浏览器实测验证）。偏移换
+   *  算到主菜单盒坐标——子菜单是其 absolute 子元素（留在 FluentProvider 子
+   *  树内继承主题变量，portal 出去会丢 token，见 DropdownPushSubmenu 头注）。 */
+  const openSubmenu = (o: DropdownPushOption, el: HTMLElement): void => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const r = el.getBoundingClientRect();
+    const m = menu.getBoundingClientRect();
+    let left = r.right + GAP_PX - m.left;
+    if (r.right + GAP_PX + SUBMENU_WIDTH_PX > window.innerWidth - MARGIN_PX) {
+      // 翻到行左侧；钳位换算到菜单盒坐标（允许伸到菜单左外侧，只保视口余量）
+      left = Math.max(r.left - SUBMENU_WIDTH_PX - GAP_PX - m.left, MARGIN_PX - m.left);
+    }
+    const { top: boundTop, bottom: boundBottom } = clipBounds();
+    const listCap = props.maxVisibleItems * ITEM_HEIGHT_PX;
+    const subH =
+      Math.min((o.children ?? []).length * ITEM_HEIGHT_PX, listCap) + SUBMENU_PAD_PX * 2;
+    // 纵向选边纯函数（口径与分支细节见 dropdownPlacement.placeSubmenuVertically）
+    const placementV = placeSubmenuVertically({
+      rowTop: r.top,
+      rowBottom: r.bottom,
+      bounds: { top: boundTop, bottom: boundBottom },
+      subH,
+      listCap,
+      boxPad: SUBMENU_PAD_PX * 2,
+    });
+    setSubPos({
+      left,
+      top: placementV.top - m.top,
+      maxHeight: placementV.maxHeight,
+    });
+    setOpenSub(o.value);
+  };
   const open = phase !== 'closed';
   const visibleCap = props.maxVisibleItems * ITEM_HEIGHT_PX;
   const listMaxHeight =
@@ -314,7 +399,15 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
         disabled={props.disabled}
         onClick={() => (phase === 'open' ? requestClose() : openMenu())}
       >
-        <span className={styles.itemText}>{selected ? selected.label : props.value}</span>
+        {/* 叶子选中时组合「父 / 叶」：触发钮处没有二级菜单的父行上下文，
+            裸名无法指认（同值在别的服务下可能重名）；detail 仍不上面板。 */}
+        <span className={styles.itemText}>
+          {selected === undefined
+            ? (props.placeholder ?? props.value)
+            : selected.parent === undefined
+              ? selected.option.label
+              : `${selected.parent.label} / ${selected.option.label}`}
+        </span>
         <ChevronDown20Regular
           className={mergeClasses(styles.chevron, open && styles.chevronOpen)}
         />
@@ -329,30 +422,75 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
           } ${phase === 'closing' ? 'dropdown-pop-out' : 'dropdown-pop-in'}`}
         >
           <div ref={listRef} className={styles.list} style={{ maxHeight: `${listMaxHeight}px` }}>
-            {props.options.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                role="option"
-                aria-selected={o.value === props.value}
-                className={styles.item}
-                onClick={() => {
-                  props.onChange(o.value);
-                  requestClose();
-                }}
-              >
-                {o.icon ? <span className={styles.itemIcon}>{o.icon}</span> : null}
-                {/* label 与 detail 合成单文本节点：可访问名按整串计算
-                    （分嵌套 span 会在元素边界丢空格，读屏名成「甲· a」） */}
-                <span className={styles.itemText}>
-                  {o.detail ? `${o.label} · ${o.detail}` : o.label}
-                </span>
-                {o.value === props.value ? (
-                  <Checkmark20Regular className={styles.itemCheck} />
-                ) : null}
-              </button>
-            ))}
+            {props.options.map((o) => {
+              const hasSub = (o.children?.length ?? 0) > 0;
+              if (!hasSub) {
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="option"
+                    aria-selected={o.value === props.value}
+                    className={styles.item}
+                    onClick={() => {
+                      props.onChange(o.value);
+                      requestClose();
+                    }}
+                  >
+                    {o.icon ? <span className={styles.itemIcon}>{o.icon}</span> : null}
+                    {/* label 与 detail 合成单文本节点：可访问名按整串计算
+                        （分嵌套 span 会在元素边界丢空格，读屏名成「甲· a」） */}
+                    <span className={styles.itemText}>
+                      {o.detail ? `${o.label} · ${o.detail}` : o.label}
+                    </span>
+                    {o.value === props.value ? (
+                      <Checkmark20Regular className={styles.itemCheck} />
+                    ) : null}
+                  </button>
+                );
+              }
+              // 级联父行：不可选，悬停/点击展开右侧子菜单（叶子才回调 onChange）
+              return (
+                <div
+                  key={o.value}
+                  className={styles.subItem}
+                  onMouseEnter={(e) => openSubmenu(o, e.currentTarget)}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    aria-haspopup="true"
+                    aria-expanded={openSub === o.value}
+                    className={styles.item}
+                    onClick={(e) => openSubmenu(o, e.currentTarget)}
+                  >
+                    {o.icon ? <span className={styles.itemIcon}>{o.icon}</span> : null}
+                    <span className={styles.itemText}>
+                      {o.detail ? `${o.label} · ${o.detail}` : o.label}
+                    </span>
+                    <ChevronRight20Regular className={styles.itemArrow} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
+          {/* 二级飞出层：主菜单的 absolute 子元素（偏移已折算到菜单盒，见
+              openSubmenu；悬空父 id 不渲染）。 */}
+          {sub !== null && subPos !== null ? (
+            <DropdownPushSubmenu
+              parent={sub}
+              left={subPos.left}
+              top={subPos.top}
+              maxHeight={subPos.maxHeight}
+              value={props.value}
+              closing={phase === 'closing'}
+              onSelect={(v) => {
+                props.onChange(v);
+                requestClose();
+              }}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>

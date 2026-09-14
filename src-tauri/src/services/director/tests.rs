@@ -280,7 +280,9 @@ fn config_with_provider(models: &[&str], director: Option<&str>) -> FileConfig {
             name: "主".into(),
             base_url: "https://main.example/v1".into(),
             api_key: "k1".into(),
-            models: models.iter().map(|m| m.to_string()).collect(),
+            // m 是 &&str：解引用拷出 &str（m.clone() 拷的是外层引用，触发新
+            // rustc 的 suspicious_double_ref_op 警告，会挂 clippy 门禁）。
+            models: models.iter().map(|m| ModelSpec::from_id(*m)).collect(),
             api: crate::infra::llm::ProviderApi::OpenAi,
             model: None,
         }],
@@ -440,6 +442,7 @@ fn assemble_prompt_sections_are_labeled() {
 
 use crate::domain::models::{NewCharacter, NewMessage, NewSession, RosterPick};
 use crate::domain::ports::StoragePort;
+use crate::infra::config::ModelSpec;
 use crate::infra::llm::mock::{json_body, MockServer};
 use crate::infra::llm::{EventSink, LlmEvent, RetryPolicy};
 use crate::infra::storage::test_support::temp_storage;
@@ -460,6 +463,7 @@ fn director_client(url: &str) -> LlmClient {
         api_key: "test".into(),
         model: "director-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
+        temperature: 0.7,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {

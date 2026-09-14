@@ -7,17 +7,14 @@
  * 强调色取色器已按字段域拆至 AccentColorPicker（沿用本文件的
  * useFieldStyles）。
  */
-import { Button, Dropdown, Option, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
-import { ChevronRight20Regular } from '@fluentui/react-icons';
+import { Button, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ProviderDto } from '../../../api/types';
 import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
 import { SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
 import { DropdownPushButton } from '../../../components/DropdownPushButton';
 import { SegmentedControl } from '../../../components/SegmentedControl';
-import type { ModelOverrideFields } from './useEditorForm';
 
 /** 三壳共用的字段级样式（makeStyles 可跨组件调用）。 */
 export const useFieldStyles = makeStyles({
@@ -373,98 +370,5 @@ export function PerformanceField(props: {
   );
 }
 
-/** 模型覆写行（2026-09-13 并入「其他配置」分组卡）：行尾 chevron 开合
- *  （aria-expanded 挂按钮），行下全宽双层级下拉（服务 + 模型），留空跟随
- *  全局。旧数据里的 baseUrl/apiKey 覆写键不再提供输入框（连接信息归属服务
- *  级），但 parse/serialize 对未知/遗留键原样保留，编辑往返不丢失。 */
-export function OverrideSection(props: {
-  open: boolean;
-  onToggle: () => void;
-  override: ModelOverrideFields;
-  onOverrideChange: (
-    update: (current: ModelOverrideFields) => ModelOverrideFields,
-  ) => void;
-  providers: ProviderDto[];
-}) {
-  const styles = useFieldStyles();
-  const { t } = useTranslation();
-  const selectedProvider = props.providers.find((p) => p.id === props.override.providerId);
-  const models = selectedProvider?.models ?? [];
-  // 存量覆写里的模型名不在所选服务列表（服务改配/换服务）→ 追加为额外选项，
-  // 避免下拉显示成"跟随全局"却实际覆写着旧值。
-  const staleModel =
-    props.override.model !== '' && !models.includes(props.override.model)
-      ? props.override.model
-      : null;
-  return (
-    <>
-      <SettingsRow
-        title={t('characters.modelOverride')}
-        description={t('characters.overrideHint')}
-        control={
-          <Button
-            appearance="subtle"
-            size="small"
-            aria-label={t('characters.modelOverride')}
-            aria-expanded={props.open}
-            icon={
-              <ChevronRight20Regular
-                className={mergeClasses(styles.chevron, props.open && styles.chevronOpen)}
-              />
-            }
-            onClick={props.onToggle}
-          />
-        }
-      />
-      {props.open ? (
-        <div className={styles.cardBody}>
-          <label className={styles.field}>
-            <Text size={200}>{t('characters.provider')}</Text>
-            <Dropdown
-              value={selectedProvider ? selectedProvider.name : t('characters.followGlobal')}
-              selectedOptions={[props.override.providerId]}
-              onOptionSelect={(_, d) =>
-                props.onOverrideChange((o) => ({ ...o, providerId: d.optionValue ?? '' }))
-              }
-              aria-label={t('characters.provider')}
-            >
-              <Option value="" text={t('characters.followGlobal')}>
-                {t('characters.followGlobal')}
-              </Option>
-              {props.providers.map((p) => (
-                <Option key={p.id} value={p.id} text={p.name}>
-                  {p.name} · {p.id}
-                </Option>
-              ))}
-            </Dropdown>
-          </label>
-          <label className={styles.field}>
-            <Text size={200}>{t('characters.model')}</Text>
-            <Dropdown
-              value={props.override.model === '' ? t('characters.followGlobal') : props.override.model}
-              selectedOptions={[props.override.model]}
-              onOptionSelect={(_, d) =>
-                props.onOverrideChange((o) => ({ ...o, model: d.optionValue ?? '' }))
-              }
-              aria-label={t('characters.model')}
-            >
-              <Option value="" text={t('characters.followGlobal')}>
-                {t('characters.followGlobal')}
-              </Option>
-              {staleModel ? (
-                <Option value={staleModel} text={staleModel}>
-                  {staleModel}
-                </Option>
-              ) : null}
-              {models.map((m) => (
-                <Option key={m} value={m} text={m}>
-                  {m}
-                </Option>
-              ))}
-            </Dropdown>
-          </label>
-        </div>
-      ) : null}
-    </>
-  );
-}
+/** 模型覆写行 2026-09-14 拆至 OverrideSection.tsx（本文件触及 500 行上限，
+ *  且覆写段随温度行独立成概念）；useFieldStyles 仍由本件导出供其复用。 */

@@ -9,9 +9,18 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getConfig, saveConfig } from '../../api/commands';
 import { DEFAULT_CONFIG } from '../../api/mock/backend';
-import type { ConfigDto, ProviderDto } from '../../api/types';
+import type { ConfigDto, ModelSpecDto, ProviderDto } from '../../api/types';
 import { useUiStore } from '../../stores/ui';
 import { SettingsView } from './SettingsView';
+
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
 import '../../i18n';
 
 function renderSettings() {
@@ -27,7 +36,7 @@ const fullProvider = (partial: Partial<ProviderDto>): ProviderDto => ({
   name: '本地中转',
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-test',
-  models: ['test-model'],
+  models: [spec('test-model')],
   api: 'openai',
   ...partial,
 });
@@ -45,53 +54,62 @@ const AUTOSAVE_WAIT = { timeout: 3000 };
 /** 原地等待 ms（真实计时器，用于越过防抖窗口做否定断言）。 */
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 底部确认主钮（与左列「添加供应商」入口同名：取清单 group 之外那颗）。 */
+const confirmAddButton = (): HTMLButtonElement =>
+  screen
+    .getAllByRole('button', { name: '添加供应商' })
+    .find((b) => !screen.getByRole('group', { name: '模型服务' }).contains(b))! as HTMLButtonElement;
+
 describe('SettingsView（TASK-009）', () => {
   beforeEach(async () => {
     await saveConfig(seedConfig({}));
   });
   afterEach(cleanup);
 
-  it('验收 7：无 provider 时表单区引导新建', async () => {
+  it('验收 7：无 provider 时直接进入新增表单', async () => {
     renderSettings();
-    expect(await screen.findByText(/还没有模型服务/)).toBeTruthy();
-    // 空态内也有新建入口
-    expect(screen.getAllByRole('button', { name: '新建' }).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/添加模型供应商/)).toBeTruthy();
+    // 确认主钮在场（未填模型时禁用；与左列入口同名，取清单外那颗）
+    expect(confirmAddButton().disabled).toBe(true);
   });
 
-  it('验收 2/5/6：新建 provider → 加模型前不落盘 → 添加模型后自动落盘，directorModel 原样保留', async () => {
+  it('验收 2/5/6：新增走缓冲表单——确认前不落盘，确认后自动落盘，directorModel 原样保留', async () => {
     renderSettings();
-    await screen.findByText(/还没有模型服务/);
-    fireEvent.click(screen.getAllByRole('button', { name: '新建' })[0]!);
+    await screen.findByText(/添加模型供应商/);
 
-    // 未填齐（无名称）：卡片级校验提示；越过防抖窗口后仍不落盘
+    // 缓冲表单未填齐：确认钮禁用；越过防抖窗口后草稿仍为空（非法态不进草稿）
+    // 即时校验（2026-09-14）：空表单直接红字列出缺项
     expect(await screen.findByText(/名称为必填/)).toBeTruthy();
+    expect(confirmAddButton().disabled).toBe(true);
     await settle(700);
     expect((await getConfig()).providers).toHaveLength(0);
 
-    fireEvent.change(await screen.findByLabelText(/-name$/), { target: { value: '主服务' } });
-    fireEvent.change(screen.getByLabelText(/-baseUrl$/), {
+    fireEvent.change(screen.getByLabelText('add-name'), { target: { value: '主服务' } });
+    fireEvent.change(screen.getByLabelText('add-baseUrl'), {
       target: { value: 'https://api.test/v1' },
     });
 
-    // 只有 name/baseUrl、还没有模型 → 草稿仍非法 → 整个 provider 都不落盘
+    // 只有 name/baseUrl、还没有模型 → 仍非法 → 确认钮保持禁用、不落盘
     await settle(700);
     expect((await getConfig()).providers).toHaveLength(0);
+    expect(confirmAddButton().disabled).toBe(true);
 
-    // 添加模型 → 草稿整体合法 → 待自动保存状态 → 落盘
-    fireEvent.change(screen.getByLabelText(/-newModel$/), { target: { value: 'gpt-x' } });
+    // 添加模型走 ModelDialog（2026-09-14 模型元数据化）→ 表单整体合法 →
+    // 确认入草稿 → 防抖后自动落盘
     fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
-    expect(await screen.findByText('更改将自动保存')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'gpt-x' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(confirmAddButton());
 
     await waitFor(async () => {
       const saved = await getConfig();
       expect(saved.providers).toHaveLength(1);
       expect(saved.providers[0]!.name).toBe('主服务');
-      expect(saved.providers[0]!.models).toEqual(['gpt-x']);
+      // 模型已元数据化（ModelSpecDto）：对话框缺省元数据即夹具 spec
+      expect(saved.providers[0]!.models).toEqual([spec('gpt-x')]);
       // 不呈现的字段整份带回（saveConfig 整份覆写不丢字段）
       expect(saved.directorModel).toBe('director-keep');
     }, AUTOSAVE_WAIT);
-    // 落盘后待保存状态消失
-    await waitFor(() => expect(screen.queryByText('更改将自动保存')).toBeNull(), AUTOSAVE_WAIT);
   });
 
   it('验收 2：api_key 默认掩码，可见性切换', async () => {
@@ -132,8 +150,10 @@ describe('SettingsView（TASK-009）', () => {
     const confirm = await screen.findByRole('button', { name: '删除' });
     expect((confirm as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(confirm);
-    // 删除选中项 → 详情回落到剩余服务（任意时刻详情面板至多一个 name 输入）
-    await waitFor(() => expect(screen.getAllByLabelText(/-name$/)).toHaveLength(1));
+    // 删除选中项 → 详情回落到剩余服务（其删除钮重新在场）
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '删除 本地中转' })).toBeTruthy();
+    });
     // 删除经自动保存落盘
     await waitFor(async () => {
       expect((await getConfig()).providers).toHaveLength(1);
@@ -143,22 +163,19 @@ describe('SettingsView（TASK-009）', () => {
   it('验收 2：模型行「设为默认」切全局默认二元组，自动落盘 active_provider_id + active_model', async () => {
     await saveConfig(
       seedConfig({
-        providers: [fullProvider({ models: ['m1'] }), fullProvider({ id: 'p2', name: '备用', models: ['m2'] })],
+        providers: [fullProvider({ models: [spec('m1')] }), fullProvider({ id: 'p2', name: '备用', models: [spec('m2')] })],
         activeProviderId: 'p1',
         activeModel: 'm1',
       }),
     );
     renderSettings();
-    // 默认详情 = 第一个服务：其模型行单选已选中
-    const firstRadio = (await screen.findByRole('radio', { name: '设为默认' })) as HTMLInputElement;
-    expect(firstRadio.checked).toBe(true);
-    // 列表-详情结构：切到「备用」详情，其模型行单选未选中；点选即切全局默认
-    fireEvent.click(screen.getByRole('button', { name: /备用/ }));
-    const secondRadio = (await screen.findByRole('radio', {
-      name: '设为默认',
-    })) as HTMLInputElement;
-    expect(secondRadio.checked).toBe(false);
-    fireEvent.click(secondRadio);
+    // 默认详情 = 第一个服务：头部「默认」徽标在场（全局默认指向 p1）
+    expect((await screen.findAllByText('默认')).length).toBeGreaterThan(0);
+    // 列表-详情结构：切到「备用」详情，m2 行未默认 → 行内「设为默认」动作钮；
+    // 点选即整对写入全局默认（activeProviderId + activeModel）
+    const nav = await screen.findByRole('group', { name: '模型服务' });
+    fireEvent.click(within(nav).getByRole('button', { name: /备用/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '设为默认 m2' }));
     await waitFor(async () => {
       const saved = await getConfig();
       expect(saved.activeProviderId).toBe('p2');
@@ -169,7 +186,7 @@ describe('SettingsView（TASK-009）', () => {
   it('验收 2：删除全局默认模型 → 确认对话框拦截（U4），确认后 activeModel 回落置 null 并落盘', async () => {
     await saveConfig(
       seedConfig({
-        providers: [fullProvider({ models: ['keep', 'gone'] })],
+        providers: [fullProvider({ models: [spec('keep'), spec('gone')] })],
         activeProviderId: 'p1',
         activeModel: 'gone',
       }),
@@ -181,7 +198,8 @@ describe('SettingsView（TASK-009）', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除模型' }));
     await waitFor(async () => {
       const saved = await getConfig();
-      expect(saved.providers[0]!.models).toEqual(['keep']);
+      // 模型已元数据化（ModelSpecDto）：按 id 比较
+      expect(saved.providers[0]!.models.map((m) => m.id)).toEqual(['keep']);
       expect(saved.activeModel).toBeNull();
     }, AUTOSAVE_WAIT);
   });
@@ -220,13 +238,14 @@ describe('SettingsView（TASK-009）', () => {
     renderSettings();
     const input = await screen.findByLabelText('近景场景数');
     expect((input as HTMLInputElement).value).toBe('2');
-    // 越域（0 / 7）→ 字段级提示 + 底部汇总各一次，越过防抖窗口后不落盘
+    // 越域（0 / 7）→ 字段级提示一处（页底汇总 2026-09-14 按用户裁定裁撤，
+    // issues 只作保存闸门），越过防抖窗口后不落盘
     fireEvent.change(input, { target: { value: '7' } });
-    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(2);
+    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(1);
     await settle(700);
     expect((await getConfig()).nearScenes).toBe(baseline.nearScenes);
     fireEvent.change(screen.getByLabelText('近景场景数'), { target: { value: '0' } });
-    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(2);
+    expect(await screen.findAllByText(/近景场景数需为 1–6/)).toHaveLength(1);
     await settle(700);
     expect((await getConfig()).nearScenes).toBe(baseline.nearScenes);
     // 边界值 5 合法 → 自动落盘

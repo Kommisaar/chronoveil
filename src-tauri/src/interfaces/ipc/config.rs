@@ -4,15 +4,57 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
-use crate::infra::config::Config as FileConfig;
+use crate::infra::config::{Config as FileConfig, ModelModality, ModelSpec};
 use crate::infra::config::ProviderConfig as FileProvider;
 use crate::infra::llm::ProviderApi;
 use crate::state::AppState;
 
 use super::error::IpcError;
 
+/// 单个模型的元数据 wire 形态（2026-09-14 模型元数据化；存储侧 infra 的
+/// ModelSpec snake_case，此处 camelCase 直出前端）。字段语义见 infra/config.rs。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSpecDto {
+    pub id: String,
+    pub context_window: u32,
+    pub max_output_tokens: u32,
+    pub input_types: Vec<ModelModality>,
+    pub output_types: Vec<ModelModality>,
+}
+
+impl From<ModelSpec> for ModelSpecDto {
+    fn from(m: ModelSpec) -> Self {
+        Self::from(&m)
+    }
+}
+
+impl From<&ModelSpec> for ModelSpecDto {
+    fn from(m: &ModelSpec) -> Self {
+        Self {
+            id: m.id.clone(),
+            context_window: m.context_window,
+            max_output_tokens: m.max_output_tokens,
+            input_types: m.input_types.clone(),
+            output_types: m.output_types.clone(),
+        }
+    }
+}
+
+impl From<ModelSpecDto> for ModelSpec {
+    fn from(dto: ModelSpecDto) -> Self {
+        Self {
+            id: dto.id,
+            context_window: dto.context_window,
+            max_output_tokens: dto.max_output_tokens,
+            input_types: dto.input_types,
+            output_types: dto.output_types,
+        }
+    }
+}
+
 /// 单套 LLM Provider（FR-009）。双层级（2026-09-09）：一个服务
-/// 提供多个模型（`models`，模型名字符串即身份）。
+/// 提供多个模型（`models`，模型 id 字符串即身份）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderDto {
@@ -20,15 +62,16 @@ pub struct ProviderDto {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
-    /// 该服务可用的模型名列表；至少一个才能用于生成。
-    pub models: Vec<String>,
+    /// 该服务可用的模型列表；至少一个才能用于生成。
+    pub models: Vec<ModelSpecDto>,
     /// API 兼容协议（2026-09-14 三选一，wire 值 snake_case）；
     /// 缺省 openai（存储侧 serde default，DTO 侧为必填键）。
     pub api: ProviderApi,
 }
 
 /// 应用配置（FR-009 / ADR-012；wire 形态 camelCase，落盘文件仍为 infra 的 snake_case 键）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// 不再派生 Eq：temperature 为 f64（f64 无 Eq）；等值断言走 PartialEq。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigDto {
     pub providers: Vec<ProviderDto>,
@@ -51,6 +94,9 @@ pub struct ConfigDto {
     pub director_model: Option<String>,
     /// 近景场景数（近景窗口可选化：最近 N 个已结算场整场进近景，1–6，默认 2）。
     pub near_scenes: u32,
+    /// 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
+    /// Anthropic 侧超 1.0 由协议适配钳制）。
+    pub temperature: f64,
 }
 
 impl From<&FileConfig> for ConfigDto {
@@ -64,7 +110,7 @@ impl From<&FileConfig> for ConfigDto {
                     name: p.name.clone(),
                     base_url: p.base_url.clone(),
                     api_key: p.api_key.clone(),
-                    models: p.models.clone(),
+                    models: p.models.iter().map(ModelSpecDto::from).collect(),
                     api: p.api,
                 })
                 .collect(),
@@ -78,6 +124,7 @@ impl From<&FileConfig> for ConfigDto {
             ui_theme: c.ui_theme.clone(),
             director_model: c.director_model.clone(),
             near_scenes: c.near_scenes,
+            temperature: c.temperature,
         }
     }
 }
@@ -93,7 +140,7 @@ impl From<ConfigDto> for FileConfig {
                     name: p.name,
                     base_url: p.base_url,
                     api_key: p.api_key,
-                    models: p.models,
+                    models: p.models.into_iter().map(ModelSpec::from).collect(),
                     api: p.api,
                     model: None,
                 })
@@ -108,6 +155,7 @@ impl From<ConfigDto> for FileConfig {
             ui_theme: d.ui_theme,
             director_model: d.director_model,
             near_scenes: d.near_scenes,
+            temperature: d.temperature,
         }
     }
 }
@@ -151,7 +199,7 @@ mod tests {
                 name: "本地中转".into(),
                 base_url: "https://example.invalid/v1".into(),
                 api_key: "sk-test".into(),
-                models: vec!["m1".into(), "m2".into()],
+                models: vec![ModelSpec::from_id("m1").into(), ModelSpec::from_id("m2").into()],
                 api: ProviderApi::OpenAi,
             }],
             active_provider_id: Some("p1".into()),
@@ -163,21 +211,32 @@ mod tests {
             ui_theme: "dark".into(),
             director_model: None,
             near_scenes: 4,
+            temperature: 0.9,
         };
         let wire = serde_json::to_value(&dto).unwrap();
         assert_eq!(wire["activeProviderId"], "p1", "wire camelCase");
         assert_eq!(wire["activeModel"], "m2", "wire camelCase");
         assert_eq!(wire["providers"][0]["baseUrl"], "https://example.invalid/v1");
-        assert_eq!(wire["providers"][0]["models"], serde_json::json!(["m1", "m2"]));
+        assert_eq!(
+            wire["providers"][0]["models"],
+            serde_json::json!([
+                { "id": "m1", "contextWindow": 1_000_000, "maxOutputTokens": 128_000, "inputTypes": ["text"], "outputTypes": ["text"] },
+                { "id": "m2", "contextWindow": 1_000_000, "maxOutputTokens": 128_000, "inputTypes": ["text"], "outputTypes": ["text"] },
+            ])
+        );
         assert_eq!(wire["rhythmMsPerChar"], 90);
         assert_eq!(wire["nearScenes"], 4, "近景场景数 camelCase 透传");
+        assert_eq!(wire["temperature"], 0.9, "采样温度 camelCase 透传");
 
         let file: FileConfig = dto.clone().into();
         let back: ConfigDto = (&file).into();
         assert_eq!(dto, back, "DTO ↔ 落盘结构往返无损");
         assert_eq!(file.rhythm_ms_per_char, 90);
         assert_eq!(file.near_scenes, 4);
-        assert_eq!(file.providers[0].models, vec!["m1".to_string(), "m2".to_string()]);
+        assert_eq!(
+            file.providers[0].models,
+            vec![ModelSpec::from_id("m1"), ModelSpec::from_id("m2")]
+        );
     }
 
     #[test]
@@ -186,6 +245,7 @@ mod tests {
 
         let defaults = get_config_impl(&app).unwrap();
         assert_eq!(defaults.rhythm_ms_per_char, 45, "无文件 → 全默认（FR-009）");
+        assert_eq!(defaults.temperature, 0.7, "采样温度默认 0.7");
 
         let mut next = defaults.clone();
         next.ui_theme = "dark".into();

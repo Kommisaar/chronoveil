@@ -374,6 +374,7 @@ thinkMs: number | null; createdAt: number;
 interrupted: boolean }
 /**
  * 应用配置（FR-009 / ADR-012；wire 形态 camelCase，落盘文件仍为 infra 的 snake_case 键）。
+ * 不再派生 Eq：temperature 为 f64（f64 无 Eq）；等值断言走 PartialEq。
  */
 export type ConfigDto = { providers: ProviderDto[]; 
 /**
@@ -408,7 +409,12 @@ directorModel: string | null;
 /**
  * 近景场景数（近景窗口可选化：最近 N 个已结算场整场进近景，1–6，默认 2）。
  */
-nearScenes: number }
+nearScenes: number; 
+/**
+ * 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
+ * Anthropic 侧超 1.0 由协议适配钳制）。
+ */
+temperature: number }
 /**
  * 命令错误的统一 wire 形态。`kind` 是判别字段（camelCase），前端可 switch 分型。
  */
@@ -480,6 +486,16 @@ export type LlmCallStatusDto = "ok" | "error"
  * 消息角色（data_model：role CHECK IN ('user', 'assistant')）。
  */
 export type MessageRole = "user" | "assistant"
+/**
+ * 模型输入/输出模态（2026-09-14 模型元数据化；文本恒在，其余可选）。
+ * wire 值 snake_case，与前端 ModelModality 联合类型同源（specta 导出）。
+ */
+export type ModelModality = "text" | "image" | "video" | "pdf"
+/**
+ * 单个模型的元数据 wire 形态（2026-09-14 模型元数据化；存储侧 infra 的
+ * ModelSpec snake_case，此处 camelCase 直出前端）。字段语义见 infra/config.rs。
+ */
+export type ModelSpecDto = { id: string; contextWindow: number; maxOutputTokens: number; inputTypes: ModelModality[]; outputTypes: ModelModality[] }
 export type ProviderApi = 
 /**
  * OpenAI Chat Completions 兼容（`/chat/completions`，Bearer）。现状默认路径，
@@ -496,13 +512,13 @@ export type ProviderApi =
 "openai_responses"
 /**
  * 单套 LLM Provider（FR-009）。双层级（2026-09-09）：一个服务
- * 提供多个模型（`models`，模型名字符串即身份）。
+ * 提供多个模型（`models`，模型 id 字符串即身份）。
  */
 export type ProviderDto = { id: string; name: string; baseUrl: string; apiKey: string; 
 /**
- * 该服务可用的模型名列表；至少一个才能用于生成。
+ * 该服务可用的模型列表；至少一个才能用于生成。
  */
-models: string[]; 
+models: ModelSpecDto[]; 
 /**
  * API 兼容协议（2026-09-14 三选一，wire 值 snake_case）；
  * 缺省 openai（存储侧 serde default，DTO 侧为必填键）。

@@ -1,29 +1,39 @@
-// 编辑器共享 UI 件冒烟（pieces.tsx）：强调色取色器（开合/选色回调/跟随海报/
-// 选后面板保持打开/点外部关闭）、模型覆写折叠段（开合/遗留模型追加选项/选择
-// 回调）、人设 markdown 预览（引擎直插 DOM、空态提示开关）、预览框（ref 绑定
-// 与空态提示）、出场字段（风格标签回显/播放回调）。i18n 固定中文，断言 zh 文案。
+// 编辑器共享 UI 件冒烟（pieces.tsx / OverrideSection.tsx）：强调色取色器
+// （开合/选色回调/跟随海报/选后面板保持打开/点外部关闭）、模型配置两行
+// （模型设置级联菜单/温度行跟随自定义）、人设 markdown 预览（引擎直插 DOM、
+// 空态提示开关）、预览框（ref 绑定与空态提示）、出场字段（风格标签回显/播放
+// 回调）。i18n 固定中文，断言 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderDto } from '../../../api/types';
+import type { ModelSpecDto, ProviderDto } from '../../../api/types';
 import '../../../i18n';
 import { AccentColorPicker } from './AccentColorPicker';
 import {
-  OverrideSection,
   PerformanceField,
   PersonaPreviewBox,
   PreviewBox,
 } from './pieces';
+import { OverrideSection } from './OverrideSection';
 import type { ModelOverrideFields } from './useEditorForm';
 
 function renderUi(node: ReactNode) {
   return render(<FluentProvider theme={webLightTheme}>{node}</FluentProvider>);
 }
 
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
+
 const PROVIDERS: ProviderDto[] = [
-  { id: 'p1', name: '主服务', baseUrl: 'https://api.test/v1', apiKey: '', models: ['m1', 'm2'], api: 'openai' },
-  { id: 'p2', name: '备用', baseUrl: 'https://api.test/v2', apiKey: '', models: ['m3'], api: 'openai' },
+  { id: 'p1', name: '主服务', baseUrl: 'https://api.test/v1', apiKey: '', models: [spec('m1'), spec('m2')], api: 'openai' },
+  { id: 'p2', name: '备用', baseUrl: 'https://api.test/v2', apiKey: '', models: [spec('m3')], api: 'openai' },
 ];
 
 const EMPTY_OVERRIDE: ModelOverrideFields = {
@@ -31,6 +41,7 @@ const EMPTY_OVERRIDE: ModelOverrideFields = {
   model: '',
   baseUrl: '',
   apiKey: '',
+  temperature: null,
   rest: {},
 };
 
@@ -89,82 +100,157 @@ describe('AccentColorPicker（Office 风格取色器）', () => {
   });
 });
 
-describe('OverrideSection（模型覆写折叠段）', () => {
-  it('收起态：字段不渲染，点标题触发开合回调', () => {
-    const onToggle = vi.fn();
+describe('OverrideSection（模型设置级联行 + 温度行）', () => {
+  // 全局默认 = 主服务 / m1（跟随态按钮展示值 + 切自定义的写卡落点）。
+  const GLOBAL = { globalProviderId: 'p1', globalModelId: 'm1', globalTemperature: 0.7 };
+
+  /** 点开模型设置的级联菜单（触发钮 aria-label = 模型设置；仅自定义态可用）。 */
+  function openModelMenu() {
+    fireEvent.click(screen.getByRole('button', { name: /模型设置/ }));
+  }
+
+  /** 切到自定义模式（分段 radio）。 */
+  function switchCustom() {
+    const group = screen.getByRole('radiogroup', { name: /模型设置/ });
+    fireEvent.click(
+      [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '自定义')!,
+    );
+  }
+
+  it('跟随态：级联钮禁用并展示全局默认，分段停在跟随', () => {
     renderUi(
       <OverrideSection
-        open={false}
-        onToggle={onToggle}
         override={EMPTY_OVERRIDE}
         onOverrideChange={vi.fn()}
         providers={PROVIDERS}
+        {...GLOBAL}
       />,
     );
-    expect(screen.queryByRole('combobox')).toBeNull();
-    const toggle = screen.getByRole('button', { name: /模型覆写/ });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(onToggle).toHaveBeenCalledTimes(1);
+    const trigger = screen.getByRole('button', { name: /模型设置/ });
+    expect(trigger).toHaveProperty('disabled', true);
+    expect(trigger.textContent).toContain('主服务 / m1');
+    const group = screen.getByRole('radiogroup', { name: /模型设置/ });
+    expect(
+      group.querySelector('[role="radio"][aria-checked="true"]')?.textContent,
+    ).toContain('跟随全局');
   });
 
-  it('展开态：服务/模型下拉齐全，空覆写显示「跟随全局」', () => {
-    renderUi(
-      <OverrideSection
-        open
-        onToggle={vi.fn()}
-        override={EMPTY_OVERRIDE}
-        onOverrideChange={vi.fn()}
-        providers={PROVIDERS}
-      />,
-    );
-    const combos = screen.getAllByRole('combobox');
-    expect(combos).toHaveLength(2);
-    expect(combos[0]!.textContent).toContain('跟随全局');
-    expect(combos[1]!.textContent).toContain('跟随全局');
-  });
-
-  it('存量覆写的模型不在所选服务列表：追加为额外选项（不显示成跟随全局）', () => {
-    renderUi(
-      <OverrideSection
-        open
-        onToggle={vi.fn()}
-        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'legacy-model' }}
-        onOverrideChange={vi.fn()}
-        providers={PROVIDERS}
-      />,
-    );
-    const combos = screen.getAllByRole('combobox');
-    expect(combos[0]!.textContent).toContain('主服务');
-    expect(combos[1]!.textContent).toContain('legacy-model');
-    fireEvent.click(combos[1]!);
-    const options = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(options).toContain('跟随全局');
-    expect(options).toContain('legacy-model');
-    expect(options).toContain('m1');
-    expect(options).toContain('m2');
-    // 其它服务的模型不混入
-    expect(options).not.toContain('m3');
-  });
-
-  it('选服务：onOverrideChange 收到函数式更新，应用后写入 providerId', () => {
+  it('切自定义：以当前展示值（全局默认）写卡——updater 写入全局二元组', () => {
     const onOverrideChange = vi.fn();
     renderUi(
       <OverrideSection
-        open
-        onToggle={vi.fn()}
         override={EMPTY_OVERRIDE}
         onOverrideChange={onOverrideChange}
         providers={PROVIDERS}
+        {...GLOBAL}
       />,
     );
-    fireEvent.click(screen.getAllByRole('combobox')[0]!);
-    fireEvent.click(screen.getByRole('option', { name: /备用/ }));
+    switchCustom();
     expect(onOverrideChange).toHaveBeenCalledTimes(1);
     const updater = onOverrideChange.mock.calls[0]![0] as (
       current: ModelOverrideFields,
     ) => ModelOverrideFields;
-    expect(updater(EMPTY_OVERRIDE).providerId).toBe('p2');
+    const next = updater(EMPTY_OVERRIDE);
+    expect(next.providerId).toBe('p1');
+    expect(next.model).toBe('m1');
+  });
+
+  it('自定义态：级联钮启用并显示覆写值；存量模型不在服务列表时追加为额外叶子', () => {
+    renderUi(
+      <OverrideSection
+        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'legacy-model' }}
+        onOverrideChange={vi.fn()}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    const trigger = screen.getByRole('button', { name: /模型设置/ });
+    expect(trigger).toHaveProperty('disabled', false);
+    expect(trigger.textContent).toContain('主服务 / legacy-model');
+    openModelMenu();
+    fireEvent.click(screen.getByRole('option', { name: '主服务' }));
+    const withChildren = screen.getAllByRole('option').map((o) => o.textContent);
+    // 二级叶子显裸名（服务名在父行上，前缀冗余）；触发钮才组合「服务 / 叶」
+    expect(withChildren).toContain('legacy-model');
+    expect(withChildren).toContain('m1');
+    expect(withChildren).toContain('m2');
+    // 「默认模型」叶子已删（2026-09-15 用户裁定）：覆写必指名具体模型
+    expect(withChildren).not.toContain('默认模型');
+    // 其它服务的模型不混入主服务的子菜单
+    expect(withChildren).not.toContain('m3');
+  });
+
+  it('自定义态选叶子：onOverrideChange 收到函数式更新，应用后写入 providerId/model', () => {
+    const onOverrideChange = vi.fn();
+    renderUi(
+      <OverrideSection
+        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1' }}
+        onOverrideChange={onOverrideChange}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    openModelMenu();
+    fireEvent.click(screen.getByRole('option', { name: '备用' }));
+    fireEvent.click(screen.getByRole('option', { name: 'm3' }));
+    expect(onOverrideChange).toHaveBeenCalledTimes(1);
+    const updater = onOverrideChange.mock.calls[0]![0] as (
+      current: ModelOverrideFields,
+    ) => ModelOverrideFields;
+    const next = updater({ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1' });
+    expect(next.providerId).toBe('p2');
+    expect(next.model).toBe('m3');
+  });
+
+  it('切回跟随：分段清空 providerId/model（不动温度与其余键；菜单内无跟随叶子）', () => {
+    const onOverrideChange = vi.fn();
+    renderUi(
+      <OverrideSection
+        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1', temperature: 1.2 }}
+        onOverrideChange={onOverrideChange}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    openModelMenu();
+    // 菜单里没有「跟随全局」叶子：跟随语义由分段托管
+    expect(screen.getByRole('option', { name: '主服务' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: '跟随全局' })).toBeNull();
+    const group = screen.getByRole('radiogroup', { name: /模型设置/ });
+    fireEvent.click(
+      [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '跟随全局')!,
+    );
+    const updater = onOverrideChange.mock.calls[0]![0] as (
+      current: ModelOverrideFields,
+    ) => ModelOverrideFields;
+    const next = updater({ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1', temperature: 1.2 });
+    expect(next.providerId).toBe('');
+    expect(next.model).toBe('');
+    expect(next.temperature).toBe(1.2);
+  });
+
+  it('温度行：跟随态滑杆禁用、描述带全局值；切自定义即以当前展示值写卡', () => {
+    const onOverrideChange = vi.fn();
+    renderUi(
+      <OverrideSection
+        override={EMPTY_OVERRIDE}
+        onOverrideChange={onOverrideChange}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    const slider = screen.getByRole('slider', { name: '温度' });
+    expect(slider).toHaveProperty('disabled', true);
+    expect(screen.getByText('跟随全局 · 当前 0.7')).toBeTruthy();
+    const group = screen.getByRole('radiogroup', { name: '温度' });
+    fireEvent.click(
+      [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '自定义')!,
+    );
+    expect(onOverrideChange).toHaveBeenCalledTimes(1);
+    const updater = onOverrideChange.mock.calls[0]![0] as (
+      current: ModelOverrideFields,
+    ) => ModelOverrideFields;
+    expect(updater(EMPTY_OVERRIDE).temperature).toBe(0.7);
   });
 });
 

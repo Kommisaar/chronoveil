@@ -28,6 +28,7 @@ const CONFIG: ConfigDto = {
   uiTheme: 'system',
   directorModel: null,
   nearScenes: 2,
+  temperature: 0.7,
 };
 
 function renderSettings() {

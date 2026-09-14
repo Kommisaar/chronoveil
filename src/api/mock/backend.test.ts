@@ -27,9 +27,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CharacterInput,
   ConfigDto,
+  ModelSpecDto,
   SessionOpeningInput,
   SessionRosterMember,
 } from '../types';
+
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
 
 const BASE = new Date('2026-01-01T12:00:00Z').getTime();
 
@@ -100,6 +110,7 @@ function configWith(overrides: Partial<ConfigDto> = {}): ConfigDto {
     uiTheme: 'system',
     directorModel: null,
     nearScenes: 2,
+    temperature: 0.7,
     ...overrides,
   };
 }
@@ -729,9 +740,39 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
 });
 
 describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () => {
-  it('默认配置与 Rust Config::new_with_defaults 一致（无文件 → 全默认）', async () => {
+  it('初始态 = Rust 全默认 + 预置种子供应商（浏览器 dev 免手填；DEFAULT_CONFIG 导出仍保持全默认对齐）', async () => {
     const { backend } = await loadMock();
-    expect(await backend.getConfig()).toEqual(configWith());
+    expect(await backend.getConfig()).toEqual(
+      configWith({
+        providers: [
+          {
+            id: 'mock-deepseek',
+            name: 'DeepSeek',
+            baseUrl: 'https://api.deepseek.com',
+            apiKey: '',
+            api: 'openai',
+            models: [
+              {
+                id: 'deepseek-chat',
+                contextWindow: 128000,
+                maxOutputTokens: 8192,
+                inputTypes: ['text'],
+                outputTypes: ['text'],
+              },
+              {
+                id: 'deepseek-reasoner',
+                contextWindow: 128000,
+                maxOutputTokens: 8192,
+                inputTypes: ['text'],
+                outputTypes: ['text'],
+              },
+            ],
+          },
+        ],
+        activeProviderId: 'mock-deepseek',
+        activeModel: 'deepseek-chat',
+      }),
+    );
   });
 
   it('save → get 往返一致；读 / 写均深拷贝，改动返回值不污染内存基线', async () => {
@@ -743,7 +784,7 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
           name: '本地中转',
           baseUrl: 'https://example.invalid/v1',
           apiKey: 'sk-test',
-          models: ['m1', 'm2'],
+          models: [spec('m1'), spec('m2')],
           api: 'openai',
         },
       ],
@@ -762,13 +803,13 @@ describe('config（FR-009 / ADR-012：往返 + 值域校验 + 防污染）', () 
     expect(await backend.getConfig()).toEqual(next);
 
     // 调用方改草稿 / 返回值不污染基线（cloneProviders 语义）
-    next.providers[0]?.models.push('m3');
+    next.providers[0]?.models.push(spec('m3'));
     next.rhythmMsPerChar = 10;
     const fresh = await backend.getConfig();
-    expect(fresh.providers[0]?.models).toEqual(['m1', 'm2']);
+    expect(fresh.providers[0]?.models).toEqual([spec('m1'), spec('m2')]);
     expect(fresh.rhythmMsPerChar).toBe(120);
-    fresh.providers[0]?.models.push('m4');
-    expect((await backend.getConfig()).providers[0]?.models).toEqual(['m1', 'm2']);
+    fresh.providers[0]?.models.push(spec('m4'));
+    expect((await backend.getConfig()).providers[0]?.models).toEqual([spec('m1'), spec('m2')]);
   });
 
   it('rhythm 越界报 config 错误（FR-009：10–160，边界值放行）', async () => {

@@ -95,6 +95,8 @@ impl ApiProtocol for OpenAiResponses {
             "input": input,
             "stream": stream,
             "store": STORE,
+            // 采样温度（设置页全局，0–2）：Responses 参数域同 OpenAI 0–2，原样下发。
+            "temperature": config.temperature,
         });
         if let Some(instructions) = join_system_text(messages) {
             payload["instructions"] = Value::String(instructions);

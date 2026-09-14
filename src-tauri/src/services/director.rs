@@ -68,6 +68,8 @@ pub fn resolve_director_llm(config: &FileConfig) -> Result<LlmClient, String> {
         model: model.to_string(),
         // 协议随 active provider 走（2026-09-14 三协议）。
         api: provider.api,
+        // 采样温度同全局设置（与对话路径同温；结算 JSON 靠重试兜可靠性）。
+        temperature: config.temperature,
         ..LlmConfig::default()
     })
     .map_err(|error| error.to_string())

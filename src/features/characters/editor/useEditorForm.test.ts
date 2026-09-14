@@ -81,7 +81,6 @@ describe('useEditorForm 挂载与基线', () => {
     expect(result.current.override.providerId).toBe('p1');
     expect(result.current.override.model).toBe('m1');
     expect(result.current.override.rest).toEqual({ legacyKey: { a: 1 } });
-    expect(result.current.overrideOpen).toBe(true);
     expect(result.current.canSave).toBe(true);
     expect(result.current.live.nameText).toBe('林深');
   });
@@ -287,9 +286,9 @@ describe('useEditorForm model_config 解析边界', () => {
         model: '',
         baseUrl: '',
         apiKey: '',
+        temperature: null,
         rest: {},
       });
-      expect(result.current.overrideOpen).toBe(false);
     }
   });
 
@@ -336,14 +335,40 @@ describe('useEditorForm 序列化出口（经 flushSave 载荷断言）', () => 
     });
   });
 
-  it('覆写值带空白：解析原样保留（overrideOpen 判定看原值）', () => {
+  it('温度覆写（2026-09-14）：自定义写入 temperature 键，回 null 序列化不写键；存量非数字温度被清除', async () => {
+    // 存量坏值（字符串温度）：parse 丢弃、序列化不往返（保存即修复）
+    const { result, onAutosave } = renderForm({
+      ...EDIT_CHARACTER,
+      modelConfig: '{"temperature":"hot"}',
+    });
+    expect(result.current.override.temperature).toBeNull();
+    act(() => {
+      result.current.setOverride((o) => ({ ...o, temperature: 1.2 }));
+    });
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ modelConfig: '{"temperature":1.2}' }),
+    );
+    // 回跟随全局：键从序列化产物消失，无其他覆写时整份回落 null
+    act(() => {
+      result.current.setOverride((o) => ({ ...o, temperature: null }));
+    });
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ modelConfig: null }),
+    );
+    await advance(2000);
+  });
+
+  it('覆写值带空白：解析原样保留（序列化 trim）', () => {
     const { result } = renderForm({
       ...EDIT_CHARACTER,
       modelConfig: '{"providerId":"  ","model":" m2 "}',
     });
     expect(result.current.override.providerId).toBe('  ');
     expect(result.current.override.model).toBe(' m2 ');
-    expect(result.current.overrideOpen).toBe(true);
   });
 });
 
@@ -376,16 +401,7 @@ describe('useEditorForm live 派生', () => {
   });
 });
 
-describe('useEditorForm 开合与预览动画', () => {
-  it('setOverrideOpen 函数式开合（既有覆写值自动展开）', () => {
-    const { result } = renderForm();
-    expect(result.current.overrideOpen).toBe(true);
-    act(() => result.current.setOverrideOpen((o) => !o));
-    expect(result.current.overrideOpen).toBe(false);
-    act(() => result.current.setOverrideOpen((o) => !o));
-    expect(result.current.overrideOpen).toBe(true);
-  });
-
+describe('useEditorForm 预览动画', () => {
   it('playPreview：容器绑定后可播，遗留风格串自校验回落 fade，选合法风格按 id 播', () => {
     const { result } = renderForm();
     const container = document.createElement('div');
@@ -415,7 +431,7 @@ describe('useEditorForm 开合与预览动画', () => {
       useEditorForm({
         character: { ...EDIT_CHARACTER, animDurationMs: 700, animRhythmMs: 120, animPunctPause: false },
         onAutosave,
-        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type' },
+        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type', temperature: 0.7, defaultProviderId: '', defaultModelId: '' },
       }),
     );
     const container = document.createElement('div');

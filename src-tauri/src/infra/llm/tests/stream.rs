@@ -72,6 +72,8 @@ async fn normal_stream_routes_content_reasoning_and_ignores_unknowns() {
     let body = req.json();
     assert_eq!(body["model"], "test-model");
     assert_eq!(body["stream"], true);
+    // 采样温度随 payload 下发（测试夹具走 LlmConfig::default() = 0.7）。
+    assert_eq!(body["temperature"], 0.7);
     assert_eq!(body["messages"][0]["role"], "user");
     assert_eq!(body["messages"][0]["content"], "你好");
 

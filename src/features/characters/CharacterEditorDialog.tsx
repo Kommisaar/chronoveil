@@ -10,7 +10,7 @@
  * - 表单逻辑（状态 / 修改即保存 / 模型覆写 / 预览引擎）全部在 editor/useEditorForm，
  *   字段级组件在 editor/pieces 与 editor/IdentityField——本文件只是排版壳；
  *   右栏 = 三张分组设置卡（2026-09-13 用户定稿）：基础信息（身份行 + 强调色 +
- *   人设）、输出动画（预览 + 动画样式）与其他配置（模型覆写）；
+ *   人设）、输出动画（预览 + 动画样式）与模型配置（模型覆写 + 温度覆写）；
  *   2026-09-13 用户定稿：取消 / 保存按钮移除，改动经表单钩子防抖自动落库，
  *   本文件在全部关闭路径（背板 / × / Esc）先 flushSave 补存最后一拍再请求关闭；
  *   历法不属角色卡（2026-09-13 产品裁剪），会话历法在开局向导按会话配置；
@@ -51,6 +51,9 @@ import {
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { SettingsCard, SettingsDivider } from '../../components/SettingsCard';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
+// 全局采样温度缺省值：与 infra/config.rs DEFAULT_TEMPERATURE 同值（0.7）。
+// features 之间禁互引（settings/preferences.ts 有同值常量），按互指纪律落本地。
+const DEFAULT_TEMPERATURE = 0.7;
 import {
   ACCELERATE_CURVE,
   DECELERATE_CURVE,
@@ -64,7 +67,8 @@ import { IdentityField } from './editor/IdentityField';
 import { AnimParamRows } from './editor/AnimParamRows';
 import type { AnimDefaults } from './editor/useEditorForm';
 import { PosterPane } from './editor/PosterPane';
-import { OverrideSection, PerformanceField, useFieldStyles } from './editor/pieces';
+import { OverrideSection } from './editor/OverrideSection';
+import { PerformanceField, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
 import { useSurfaceMorph } from './editor/useSurfaceMorph';
 
@@ -236,7 +240,7 @@ export interface CharacterEditorDialogProps {
   /** providers 下拉数据源（getConfig 的 providers）。 */
   providers: ProviderDto[];
   /** 全局配置加载失败的降级文案（Task-14，父组件设置；null = 未失败）：
-      就地落在「其他配置」卡（覆写下拉区域），与「未配置 provider」的
+      就地落在「模型配置」卡（覆写下拉区域），与「未配置 provider」的
       空列表可区分——空列表不设此 prop。 */
   providersError?: string | null;
   /** 演出参数「跟随全局」基准（全局配置派生）；缺省回落模板默认。 */
@@ -343,7 +347,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                 />
                 {/* 输出动画卡（2026-09-13 用户定稿独立成卡）：行 1 预览、行 2
                     动画样式（风格下拉 + 预览动画）、行 3–5 演出参数（卡可覆写，
-                    留空跟随全局）；其他配置卡放模型覆写。同一分组卡语言 */}
+                    留空跟随全局）；模型配置卡放模型/温度覆写。同一分组卡语言 */}
                 <SettingsCard title={t('characters.sectionAnim')}>
                   <PerformanceField
                     renderStyle={form.renderStyle}
@@ -364,6 +368,9 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                         msPerChar: RHYTHM_DEFAULT_MS,
                         punctPause: true,
                         renderStyle: DEFAULT_RENDER_STYLE,
+                        temperature: DEFAULT_TEMPERATURE,
+                        defaultProviderId: '',
+                        defaultModelId: '',
                       }
                     }
                     onDurationChange={form.setAnimDurationMs}
@@ -373,11 +380,12 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                 </SettingsCard>
                 <SettingsCard title={t('characters.sectionOther')}>
                   <OverrideSection
-                    open={form.overrideOpen}
-                    onToggle={() => form.setOverrideOpen((o) => !o)}
                     override={form.override}
                     onOverrideChange={form.setOverride}
                     providers={providers}
+                    globalTemperature={animDefaults?.temperature ?? DEFAULT_TEMPERATURE}
+                    globalProviderId={animDefaults?.defaultProviderId ?? ''}
+                    globalModelId={animDefaults?.defaultModelId ?? ''}
                   />
                   {/* 全局配置加载失败的降级信号（Task-14）：信号落点即受影响
                       的覆写下拉所在卡；不用 errorText 通道（那是保存/删除失败

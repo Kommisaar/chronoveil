@@ -7,8 +7,17 @@
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CharacterSummary, ConfigDto } from '../../api/types';
+import type { CharacterSummary, ConfigDto, ModelSpecDto } from '../../api/types';
 import '../../i18n';
+
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
 import { CharactersView } from './CharactersView';
 
 const mocks = vi.hoisted(() => ({
@@ -113,19 +122,18 @@ describe('配置加载降级（Task-14）', () => {
     mocks.listCharacters.mockResolvedValue([LIN]);
     await renderAndOpenEditor();
 
-    // 加载成功路径不落错误信号（区别于加载失败的空列表）
+    // 加载成功路径不落错误信号（区别于加载失败的空列表）：无全局默认可选，
+    // 模型设置级联钮跟随态禁用且显示「跟随全局」
     expect(screen.queryByRole('alert')).toBeNull();
-    // 展开覆写：provider 选项只剩「跟随全局」（无数据 ≠ 加载失败）
-    fireEvent.click(screen.getByRole('button', { name: '模型覆写' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Provider' }));
-    const options = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(options).toEqual(['跟随全局']);
+    const trigger = screen.getByRole('button', { name: '模型设置' });
+    expect(trigger).toHaveProperty('disabled', true);
+    expect(trigger.textContent).toContain('跟随全局');
   });
 
   it('getConfig 成功（有 provider）：覆写下拉选项齐全且无失败文案（成功路径不回归）', async () => {
     const config: ConfigDto = {
       providers: [
-        { id: 'p1', name: 'OpenAI', baseUrl: 'https://example.test', apiKey: 'k', models: ['gpt'], api: 'openai' },
+        { id: 'p1', name: 'OpenAI', baseUrl: 'https://example.test', apiKey: 'k', models: [spec('gpt')], api: 'openai' },
       ],
       activeProviderId: 'p1',
       activeModel: 'gpt',
@@ -137,16 +145,24 @@ describe('配置加载降级（Task-14）', () => {
       uiTheme: 'system',
       directorModel: null,
       nearScenes: 2,
+      temperature: 0.7,
     };
     mocks.listCharacters.mockResolvedValue([LIN]);
     mocks.getConfig.mockResolvedValue(config);
     await renderAndOpenEditor();
 
     expect(screen.queryByRole('alert')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '模型覆写' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Provider' }));
+    // 切自定义（以全局默认 OpenAI / gpt 写卡）后开级联菜单：服务与模型叶子齐全
+    fireEvent.click(
+      [...screen.getByRole('radiogroup', { name: '模型设置' }).querySelectorAll('[role="radio"]')]
+        .find((r) => r.textContent === '自定义')!,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '模型设置' }));
+    fireEvent.click(screen.getByRole('option', { name: 'OpenAI' }));
+    // 二级叶子显裸名（2026-09-14 去父级前缀；服务名在父行上）；
+    // 「默认模型」叶子已删（2026-09-15），叶子只有真实模型
     const options = screen.getAllByRole('option').map((o) => o.textContent);
-    expect(options).toContain('跟随全局');
-    expect(options.some((text) => text?.includes('OpenAI'))).toBe(true);
+    expect(options).toContain('gpt');
+    expect(options).not.toContain('默认模型');
   });
 });

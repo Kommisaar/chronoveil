@@ -21,6 +21,9 @@ use super::trace::CallObservation;
 const MAX_TOKENS: i64 = 8192;
 /// `anthropic-version` 头取值：2023-06-01 为官方长期稳定的版本号。
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Anthropic temperature 官方参数域上限（0–1，比全局设置域 0–2 窄）：超域按
+/// 此钳制（1.0 恰是 Anthropic 默认档），不把协议域差抛给用户。
+const ANTHROPIC_TEMPERATURE_MAX: f64 = 1.0;
 
 /// Anthropic Messages API 协议（`{base}/v1/messages`，x-api-key）。
 pub(super) struct AnthropicMessages;
@@ -70,6 +73,8 @@ impl ApiProtocol for AnthropicMessages {
             "max_tokens": MAX_TOKENS,
             "messages": wire_messages,
             "stream": stream,
+            // 采样温度（设置页全局，0–2）：本协议域 0–1，超域钳到上限。
+            "temperature": config.temperature.min(ANTHROPIC_TEMPERATURE_MAX),
         });
         if let Some(system) = join_system_text(messages) {
             payload["system"] = Value::String(system);

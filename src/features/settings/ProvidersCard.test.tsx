@@ -1,22 +1,32 @@
-// ProvidersCard 单测：列表-详情结构（2026-09-14）——左列服务清单选中切换、
-// 新建即选中、删除选中后详情回落、空态引导。状态化壳回灌 draft（onDraftChange
-// 函数式更新落 useState），模拟父级 SettingsView 的草稿流，断言实际渲染的
-// 清单与详情联动；其余草稿迁移逻辑（改名跟随 / withoutModel）由父层持有，
-// 不在本件断言范围。
+// ProvidersCard 单测：清单-详情结构（2026-09-14 参考稿重排）——左列清单选中
+// 切换、新增走缓冲表单（确认前不触碰草稿，确认后入草稿并选中）、删除选中后
+// 详情回落、无服务直接给新增表单。状态化壳回灌 draft（onDraftChange 函数式
+// 更新落 useState），模拟父级 SettingsView 的草稿流，断言实际渲染的清单与
+// 详情联动；其余草稿迁移逻辑（改名跟随 / withoutModel）由父层持有，不在本件
+// 断言范围。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ConfigDto, ProviderDto } from '../../api/types';
+import type { ConfigDto, ModelSpecDto, ProviderDto } from '../../api/types';
 import '../../i18n';
 import { ProvidersCard } from './ProvidersCard';
+
+/** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
+const spec = (id: string): ModelSpecDto => ({
+  id,
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  inputTypes: ['text'],
+  outputTypes: ['text'],
+});
 
 const providerA: ProviderDto = {
   id: 'p-a',
   name: '本地中转',
   baseUrl: 'https://api.example.com/v1',
   apiKey: 'sk-a',
-  models: ['gpt-4o-mini'],
+  models: [spec('gpt-4o-mini')],
   api: 'openai',
 };
 
@@ -25,7 +35,7 @@ const providerB: ProviderDto = {
   name: 'Claude 官方',
   baseUrl: 'https://api.anthropic.com',
   apiKey: 'sk-b',
-  models: ['claude-sonnet-4'],
+  models: [spec('claude-sonnet-4')],
   api: 'anthropic',
 };
 
@@ -41,7 +51,9 @@ const emptyDraft: ConfigDto = {
   uiTheme: 'system',
   directorModel: null,
   nearScenes: 2,
+  temperature: 0.7,
 };
+
 
 function draftWith(...providers: ProviderDto[]): ConfigDto {
   return { ...emptyDraft, providers };
@@ -59,9 +71,7 @@ function setupStateful(initial: ConfigDto) {
         <ProvidersCard
           draft={draft}
           onDraftChange={(update) => setDraft((prev) => update(prev) ?? prev)}
-          saving={false}
           saveError={null}
-          dirty={false}
         />
       </FluentProvider>
     );
@@ -73,37 +83,53 @@ function setupStateful(initial: ConfigDto) {
 const navItem = (name: RegExp): HTMLElement =>
   within(screen.getByRole('group', { name: '模型服务' })).getByRole('button', { name });
 
-describe('ProvidersCard 列表-详情', () => {
-  it('默认选中第一个服务：详情面板渲染其字段，左列两项带协议 meta 与默认徽标', () => {
-    setupStateful({
-      ...draftWith({ ...providerA }, { ...providerB }),
-      activeProviderId: 'p-a',
-      activeModel: 'gpt-4o-mini',
-    });
-    // 详情 = 第一个服务（其模型行在面板内可见）
-    expect(screen.getByRole('textbox', { name: 'p-a-name' }).closest('div')).toBeTruthy();
-    // 左列清单项只显示名称；全局默认指向 p-a → 名称尾内联「默认」徽标，p-b 无
-    expect(navItem(/本地中转/).textContent).toBe('本地中转默认');
-    expect(navItem(/Claude 官方/).textContent).toBe('Claude 官方');
+/** 底部确认主钮（与左列「添加供应商」入口同名：取清单 group 之外那颗）。 */
+const confirmAddButton = (): HTMLButtonElement =>
+  screen
+    .getAllByRole('button', { name: '添加供应商' })
+    .find((b) => !screen.getByRole('group', { name: '模型服务' }).contains(b))! as HTMLButtonElement;
+
+describe('ProvidersCard 清单-详情', () => {
+  it('默认选中第一个服务：右栏详情为其编辑面板，左列两项齐全', () => {
+    setupStateful(draftWith({ ...providerA }, { ...providerB }));
+    // 详情 = 第一个服务（其删除钮以服务名成对出现在详情头）
+    expect(screen.getByRole('button', { name: '删除 本地中转' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '删除 Claude 官方' })).toBeNull();
+    expect(navItem(/本地中转/)).toBeTruthy();
+    expect(navItem(/Claude 官方/)).toBeTruthy();
   });
 
   it('点击左列项切换详情面板', () => {
     setupStateful(draftWith({ ...providerA }, { ...providerB }));
     fireEvent.click(navItem(/Claude 官方/));
-    expect(screen.getByRole('textbox', { name: 'p-b-name' })).toBeTruthy();
-    expect(screen.queryByRole('textbox', { name: 'p-a-name' })).toBeNull();
+    expect(screen.getByRole('button', { name: '删除 Claude 官方' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '删除 本地中转' })).toBeNull();
   });
 
-  it('新建服务即选中：草稿追加 + 详情切到新服务（空名 → 头部显示占位）', async () => {
+  it('新增走缓冲表单：确认前不追加草稿，确认后入草稿并选中', async () => {
     setupStateful(draftWith({ ...providerA }));
-    fireEvent.click(screen.getByRole('button', { name: '新建' }));
-    await waitFor(() => {
-      expect(screen.queryByRole('textbox', { name: 'p-a-name' })).toBeNull();
+    fireEvent.click(navItem(/添加供应商/));
+    // 右栏切到新增表单（详情面板被替换）
+    expect(await screen.findByText(/添加模型供应商/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '删除 本地中转' })).toBeNull();
+
+    // 未填齐：确认主钮禁用（缓冲态不触草稿）
+    expect(confirmAddButton().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('add-name'), { target: { value: '新服务' } });
+    fireEvent.change(screen.getByLabelText('add-baseUrl'), {
+      target: { value: 'https://api.new.com/v1' },
     });
-    // 新服务 id 随机：以左列新增第二项 + 详情存在非 p-a 的 name 输入为凭
-    const detailName = screen.getByRole('textbox', { name: /-name$/ });
-    expect(detailName.getAttribute('aria-label')).not.toBe('p-a-name');
-    expect(navItem(/例如：本地中转/)).toBeTruthy();
+    // 添加模型走 ModelDialog（2026-09-14 模型元数据化）：填 ID 保存后行内才出现
+    fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'm1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(screen.getByLabelText('add-model-0')).toBeTruthy();
+    expect(confirmAddButton().disabled).toBe(false);
+
+    fireEvent.click(confirmAddButton());
+    // 确认后：草稿追加 + 右栏切到新服务详情
+    expect(await screen.findByRole('button', { name: '删除 新服务' })).toBeTruthy();
+    expect(navItem(/新服务/)).toBeTruthy();
   });
 
   it('删除选中的服务：详情回落到剩余服务', async () => {
@@ -114,7 +140,7 @@ describe('ProvidersCard 列表-详情', () => {
     fireEvent.click(await screen.findByRole('button', { name: '删除' }));
     await waitFor(() => {
       // 选中 id 悬空 → 派生回落第一个剩余服务，详情不消失
-      expect(screen.getByRole('textbox', { name: 'p-a-name' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '删除 本地中转' })).toBeTruthy();
     });
     expect(
       within(screen.getByRole('group', { name: '模型服务' })).queryByRole('button', {
@@ -123,14 +149,24 @@ describe('ProvidersCard 列表-详情', () => {
     ).toBeNull();
   });
 
-  it('空草稿：单列空态引导，新建后进入编辑', async () => {
+  it('无服务：布局不分叉，清单只剩添加入口，右栏即新增表单', async () => {
     setupStateful(emptyDraft);
-    expect(screen.getByText(/还没有模型服务/)).toBeTruthy();
-    expect(screen.queryByRole('group', { name: '模型服务' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '新建' }));
-    await waitFor(() => {
-      expect(screen.getByRole('group', { name: '模型服务' })).toBeTruthy();
+    expect(await screen.findByText(/添加模型供应商/)).toBeTruthy();
+    // 清单列恒在：只有「添加供应商」一项（呈选中态）
+    expect(within(screen.getByRole('group', { name: '模型服务' })).getByRole('button', {
+      name: '添加供应商',
+    })).toBeTruthy();
+
+    // 填齐确认 → 草稿出现第一套服务并选中
+    fireEvent.change(screen.getByLabelText('add-name'), { target: { value: '首个服务' } });
+    fireEvent.change(screen.getByLabelText('add-baseUrl'), {
+      target: { value: 'https://api.first.com/v1' },
     });
-    expect(screen.getByRole('textbox', { name: /-name$/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'm1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(confirmAddButton());
+    expect(await screen.findByRole('button', { name: '删除 首个服务' })).toBeTruthy();
+    expect(navItem(/首个服务/)).toBeTruthy();
   });
 });

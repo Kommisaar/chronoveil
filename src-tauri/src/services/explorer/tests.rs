@@ -21,6 +21,7 @@ fn client(url: &str) -> LlmClient {
         api_key: "test".into(),
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
+        temperature: 0.7,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {
@@ -378,6 +379,7 @@ async fn llm_failure_degrades_to_none() {
         api_key: "test".into(),
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
+        temperature: 0.7,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {

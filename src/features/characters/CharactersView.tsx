@@ -159,7 +159,7 @@ export function CharactersView() {
   useEffect(() => {
     // providers 供 model_config 覆写下拉（验收 2）；加载失败不阻塞角色列表，
     // 只是覆写下拉暂无选项——失败不空吞，降级信号落 providersError（编辑器
-    // 「其他配置」卡就地红字，Task-14），与「未配置 provider」的空列表可区分；
+    // 「模型配置」卡就地红字，Task-14），与「未配置 provider」的空列表可区分；
     // 不加自动重试/全局错误态：覆写是低频可重进路径，重开视图即重拉。
     // 依赖刻意只留 []：t 仅在失败时生成文案，i18n 切语言不触发重拉配置。
     let cancelled = false;
@@ -172,6 +172,9 @@ export function CharactersView() {
           msPerChar: config.rhythmMsPerChar,
           punctPause: config.punctPauseEnabled,
           renderStyle: config.renderStyle,
+          temperature: config.temperature,
+          defaultProviderId: config.activeProviderId ?? '',
+          defaultModelId: config.activeModel ?? '',
         });
       })
       .catch((e) => {

@@ -38,6 +38,7 @@ fn missing_file_returns_defaults() {
     assert_eq!(config.ui_theme, "system");
     assert_eq!(config.director_model, None);
     assert_eq!(config.near_scenes, 2, "近景场景数默认 2（ADR-004 原窗口）");
+    assert_eq!(config.temperature, 0.7, "采样温度默认 0.7");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -111,6 +112,7 @@ fn save_load_roundtrip_and_no_tmp_leftover() {
         ui_theme: "light".into(),
         director_model: Some("director-model".into()),
         near_scenes: 4,
+        temperature: 0.8,
     };
     store.save(&config).unwrap();
 
@@ -218,7 +220,7 @@ fn legacy_model_json_migrates_into_models() {
     )
     .unwrap();
     let config = store.load().unwrap();
-    assert_eq!(config.providers[0].models, vec!["old-model".to_string()]);
+    assert_eq!(config.providers[0].models, vec![ModelSpec::from_id("old-model")]);
     assert_eq!(config.providers[0].model, None, "legacy 键迁移后清空");
     assert_eq!(config.active_model, None, "旧文件无 active_model → 缺省");
 
@@ -238,6 +240,75 @@ fn legacy_model_json_migrates_into_models() {
         "legacy 键不再写出：{on_disk}"
     );
     assert_eq!(store.load().unwrap().providers[0], provider);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// models 元数据化的向后兼容（2026-09-14）：旧字符串数组 → ModelSpec（id 迁入、
+/// 元数据取缺省 1M / 128K / 仅文本）；新对象数组原样载入。未发布应用无存量
+/// 迁移义务，此兼容仅为免手改本地 config.json。
+#[test]
+fn legacy_string_models_and_object_models_both_load() {
+    let dir = temp_dir("string-models");
+    let store = store_in(&dir);
+    std::fs::write(
+        store.path(),
+        r#"{
+                "providers": [{
+                    "id": "p1",
+                    "name": "旧字符串数组",
+                    "base_url": "https://example.invalid/v1",
+                    "api_key": "sk",
+                    "models": ["deepseek-chat", "deepseek-reasoner"]
+                }],
+                "active_provider_id": "p1",
+                "active_model": "deepseek-reasoner"
+            }"#,
+    )
+    .unwrap();
+    let config = store.load().unwrap();
+    assert_eq!(
+        config.providers[0].models,
+        vec![ModelSpec::from_id("deepseek-chat"), ModelSpec::from_id("deepseek-reasoner")]
+    );
+    assert_eq!(
+        config.active_selection().map(|(_, m)| m.to_string()),
+        Some("deepseek-reasoner".to_string())
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // 新对象数组：元数据原样保留（含非缺省值）。
+    let dir = temp_dir("object-models");
+    let store = store_in(&dir);
+    std::fs::write(
+        store.path(),
+        r#"{
+                "providers": [{
+                    "id": "p1",
+                    "name": "对象数组",
+                    "base_url": "https://example.invalid/v1",
+                    "api_key": "sk",
+                    "models": [{
+                        "id": "vision-model",
+                        "context_window": 256000,
+                        "max_output_tokens": 8192,
+                        "input_types": ["text", "image"],
+                        "output_types": ["text"]
+                    }]
+                }]
+            }"#,
+    )
+    .unwrap();
+    let config = store.load().unwrap();
+    assert_eq!(
+        config.providers[0].models,
+        vec![ModelSpec {
+            id: "vision-model".into(),
+            context_window: 256_000,
+            max_output_tokens: 8_192,
+            input_types: vec![ModelModality::Text, ModelModality::Image],
+            output_types: vec![ModelModality::Text],
+        }]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -341,6 +412,41 @@ fn near_scenes_defaults_and_range_rejected() {
     let err = store.save(&bad).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
     assert!(matches!(store.load().unwrap_err(), ConfigError::Invalid(_)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 采样温度（0–2）：缺键 → serde 缺省 0.7（旧 config.json 零迁移兼容）；越界
+/// 读取与保存都拒绝（从众 rhythm 的校验风格，不静默钳边）；边界值 0.0 / 2.0 放行。
+#[test]
+fn temperature_defaults_and_range_rejected() {
+    let dir = temp_dir("temp");
+    let store = store_in(&dir);
+    // 缺键 → 默认 0.7（旧 config.json 兼容）。
+    std::fs::write(store.path(), r#"{"ui_theme": "dark"}"#).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.temperature, 0.7, "缺键补默认");
+    // 边界值放行。
+    for good in [0.0, 0.7, 2.0] {
+        std::fs::write(store.path(), format!(r#"{{"temperature": {good}}}"#)).unwrap();
+        assert_eq!(store.load().unwrap().temperature, good);
+    }
+    // 越界读取拒绝（快速失败，不静默归一）。
+    for bad in [-0.1, 2.1, 99.0] {
+        std::fs::write(store.path(), format!(r#"{{"temperature": {bad}}}"#)).unwrap();
+        let err = store.load().unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Invalid(_)),
+            "{bad} 应越界拒绝，实际：{err:?}"
+        );
+        assert!(err.to_string().contains("temperature"), "错误可读：{err}");
+    }
+    // 越界保存同样拒绝（save 前先 validate）。
+    let bad = Config {
+        temperature: 2.5,
+        ..Config::new_with_defaults()
+    };
+    let err = store.save(&bad).unwrap_err();
+    assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

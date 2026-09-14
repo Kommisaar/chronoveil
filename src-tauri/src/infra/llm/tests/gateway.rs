@@ -123,8 +123,9 @@ async fn tool_role_and_message_fields_wire_shape() {
     assert!(msgs[2].get("tool_calls").is_none());
 }
 
-/// 既有无工具请求 wire 形态零变化：顶层恰好 model / messages / stream 三键，
-/// 无 tools / tool_choice；消息恰好 role / content 两键。
+/// 无工具请求 wire 形态：顶层恰好 model / messages / stream / temperature 四键
+/// （temperature 随配置恒下发——2026-09-14 采样温度入契约），无 tools /
+/// tool_choice；消息恰好 role / content 两键。
 #[tokio::test]
 async fn plain_request_wire_shape_unchanged() {
     let captured: Arc<Mutex<Option<MockRequest>>> = Arc::new(Mutex::new(None));
@@ -141,9 +142,10 @@ async fn plain_request_wire_shape_unchanged() {
 
     let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
     let top = body.as_object().unwrap();
-    assert_eq!(top.len(), 3, "顶层键集合不得变化：{top:?}");
+    assert_eq!(top.len(), 4, "顶层键集合不得变化：{top:?}");
     assert_eq!(body["model"], "test-model");
     assert_eq!(body["stream"], false);
+    assert_eq!(body["temperature"], 0.7, "采样温度随配置恒下发");
     assert_eq!(body["messages"][0].as_object().unwrap().len(), 2, "消息键集合不得变化");
     assert_eq!(body["messages"][0]["role"], "user");
     assert_eq!(body["messages"][0]["content"], "你好");
@@ -333,7 +335,8 @@ async fn content_alongside_tool_calls_prefers_tool_calls() {
 /// 顶层键集合与无工具请求一致）。
 #[tokio::test]
 async fn tool_choice_never_rides_without_tools_and_empty_slice_omits_tools() {
-    // 空工具切片：tools / tool_choice 都不发，顶层恰好 model / messages / stream 三键。
+    // 空工具切片：tools / tool_choice 都不发，顶层恰好 model / messages / stream
+    // / temperature 四键（temperature 随配置恒下发，与无工具请求一致）。
     let captured: Arc<Mutex<Option<MockRequest>>> = Arc::new(Mutex::new(None));
     let cap = captured.clone();
     let empty = MockServer::start(move |req, stream| {
@@ -348,7 +351,8 @@ async fn tool_choice_never_rides_without_tools_and_empty_slice_omits_tools() {
     assert_eq!(turn, ToolLoopTurn::Content("收尾正文".into()));
     let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
     let top = body.as_object().unwrap();
-    assert_eq!(top.len(), 3, "顶层键集合与无工具请求一致：{top:?}");
+    assert_eq!(top.len(), 4, "顶层键集合与无工具请求一致：{top:?}");
+    assert_eq!(body["temperature"], 0.7, "采样温度随配置恒下发");
     assert!(body.get("tools").is_none(), "空切片不得发空 tools 数组");
     assert!(body.get("tool_choice").is_none(), "无 tools 时 tool_choice 恒不随附");
 

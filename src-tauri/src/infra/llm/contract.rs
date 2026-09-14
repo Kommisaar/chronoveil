@@ -30,7 +30,8 @@ impl Default for RetryPolicy {
 }
 
 /// Provider 连接配置（INT-002；2026-09-14 起 API 兼容协议随 Provider 走）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// 不再派生 Eq：temperature 为 f64（f64 无 Eq）；等值断言走 PartialEq。
+#[derive(Debug, Clone, PartialEq)]
 pub struct LlmConfig {
     /// 服务根地址（如 `https://api.deepseek.com`），结尾 `/` 会被容忍。
     pub base_url: String,
@@ -40,6 +41,10 @@ pub struct LlmConfig {
     /// API 兼容协议（三选一）：请求构造与响应解析按此分派（见 protocol.rs）。
     /// 缺省 OpenAi（现状默认路径，行为零变化）。
     pub api: ProviderApi,
+    /// 采样温度（0–2）：随三协议 payload 的 temperature 参数下发。默认值与
+    /// 设置侧全局默认同源（infra/config.rs 的 DEFAULT_TEMPERATURE = 0.7；
+    /// 本层不反向 import config——config 已依赖本层，互指靠此注释维系同值）。
+    pub temperature: f64,
     /// 建连超时（毫秒）。
     pub connect_timeout_ms: u64,
     /// 单次读取空闲超时（毫秒）：超时未到任何字节视为超时（可重试）。
@@ -54,6 +59,7 @@ impl Default for LlmConfig {
             api_key: String::new(),
             model: String::new(),
             api: ProviderApi::OpenAi,
+            temperature: 0.7,
             connect_timeout_ms: 10_000,
             read_timeout_ms: 30_000,
             retry: RetryPolicy::default(),

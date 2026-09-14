@@ -208,14 +208,32 @@ const USAGES: readonly UsageEntry[] = [
     context: '设置项描述（Text size 200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/components/SettingsCard.tsx', line: 69, style: 'footerHint', token: 'colorNeutralForeground3',
     context: '卡片底部提示位（base200）', backgrounds: ['colorNeutralBackground1'] },
-  // 服务卡 empty/status 两用点随 Task-13（1d94b3e）自 SettingsView 随卡搬入
-  // ProvidersCard；ProvidersCard 的 issues 红字走 colorPaletteRedForeground1，
-  // 不属本守卫的中性前景口径。（SettingsView 尾注 hint 用点随 2026-09-14
-  // 「移除页尾 config.json 提示」删除，清单条目同步摘除。）
-  { file: 'src/features/settings/ProvidersCard.tsx', line: 42, style: 'empty', token: 'colorNeutralForeground3',
-    context: '无 provider 空态（ProvidersCard 服务卡内）', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/settings/ProvidersCard.tsx', line: 56, style: 'status', token: 'colorNeutralForeground3',
-    context: '修改即保存状态行（base200，ProvidersCard footer 提示位）', backgrounds: ['colorNeutralBackground1'] },
+  // 服务卡 2026-09-14 照参考稿重排后，ProvidersCard 旧 empty/status 两 fg3 用
+  // 点随样式删除/改红字载体而消失（条目同步摘除）；重排后的中性前景新用点在
+  // 下方 features/settings 分组登记。（各卡 issues 红字走 colorPaletteRedForeground1，
+  // 不属本守卫的中性前景口径。）
+  // —— features/settings（服务卡清单-详情重排；页面容器无底色透到 content bg1，
+  // 清单项悬停 bg1Hover / 选中 bg1）——
+  { file: 'src/features/settings/ProvidersCard.tsx', line: 56, style: 'navItem', token: 'colorNeutralForeground1',
+    context: '服务清单项名称（base300，透明底落 bg1，选中态描边盒 bg1）', backgrounds: ['colorNeutralBackground1', 'colorNeutralBackground1Hover'] },
+  { file: 'src/features/settings/ProviderCard.tsx', line: 62, style: 'title', token: 'colorNeutralForeground1',
+    context: '详情头服务名大标题（base500 semibold，大文本 3:1 档）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/ProviderCard.tsx', line: 92, style: 'fieldLabel', token: 'colorNeutralForeground2',
+    context: '竖排字段标签（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/ProviderCard.tsx', line: 81, style: 'headDelete', token: 'colorNeutralForeground3',
+    context: '详情头删除钮图标（16px，悬停染红，palette 红不在本清单）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/ProviderCard.tsx', line: 142, style: 'modelsEmpty', token: 'colorNeutralForeground3',
+    context: '空模型列表虚线提示（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/AddProviderForm.tsx', line: 47, style: 'title', token: 'colorNeutralForeground1',
+    context: '新增表单大标题（base500 semibold，大文本 3:1 档）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/AddProviderForm.tsx', line: 50, style: 'desc', token: 'colorNeutralForeground2',
+    context: '新增表单描述（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/AddProviderForm.tsx', line: 60, style: 'fieldLabel', token: 'colorNeutralForeground2',
+    context: '竖排字段标签（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/AddProviderForm.tsx', line: 98, style: 'modelsEmpty', token: 'colorNeutralForeground3',
+    context: '空模型列表虚线提示（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/settings/AddProviderForm.tsx', line: 117, style: 'footerHint', token: 'colorNeutralForeground3',
+    context: '底部「至少添加一个模型」提示（base200）', backgrounds: ['colorNeutralBackground1'] },
 ];
 
 /** 配对不确定清单（当前为空）：海报渐变底等无法静态定值配对的用点先进此处

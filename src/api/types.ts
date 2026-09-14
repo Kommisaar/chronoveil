@@ -47,6 +47,10 @@ export type {
   IpcError,
   /** Provider 的 API 兼容协议（2026-09-14 三协议；wire 值 snake_case）。 */
   ProviderApi,
+  /** 单个模型的元数据（2026-09-14 模型元数据化；id 即模型名）。 */
+  ModelSpecDto,
+  /** 模型输入/输出模态。 */
+  ModelModality,
 } from './generated/bindings';
 
 /** 界面偏好档位（FR-009；config.json 键 ui_theme / ui_language） */

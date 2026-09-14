@@ -34,7 +34,9 @@ use crate::domain::error::StorageError;
 use crate::domain::llm_call::LlmCallKind;
 use crate::domain::models::{Character, Message, MessageRole, NewMessage};
 use crate::domain::ports::StoragePort;
-use crate::infra::config::{Config as FileConfig, ProviderConfig};
+use crate::infra::config::{
+    Config as FileConfig, ProviderConfig, TEMPERATURE_MAX, TEMPERATURE_MIN,
+};
 use crate::infra::llm::{
     CallTrace, EventSink, LlmClient, LlmConfig, LlmEvent, MessageIds, StreamOutcome,
 };
@@ -63,7 +65,8 @@ pub fn default_title(content: &str) -> String {
 /// Character.model_config 的 JSON 形态（camelCase 键，全部可选；未知键忽略）。
 /// `providerId` 切到 config.providers 中的另一套（双层级 2026-09-09：模型取该
 /// 服务的 active/first）；其余键直接覆写对应字段（旧数据里的 baseUrl/apiKey
-/// 键继续生效；UI 已不再产出这两个键）。
+/// 键继续生效；UI 已不再产出这两个键）。`temperature`（2026-09-14 温度覆写）
+/// 缺省跟随全局，给出时须在 0–2 值域内（与 infra/config.rs validate 同域拒绝）。
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelConfigOverride {
@@ -71,6 +74,7 @@ struct ModelConfigOverride {
     base_url: Option<String>,
     api_key: Option<String>,
     model: Option<String>,
+    temperature: Option<f64>,
 }
 
 /// 解析生效的 LLM 连接配置：全局默认 (provider, model) 二元组（双层级
@@ -89,6 +93,8 @@ pub fn resolve_effective_llm(
     let mut base_url = provider.base_url.clone();
     let mut api_key = provider.api_key.clone();
     let mut model = active_model.to_string();
+    // 采样温度以全局设置为底（角色温度覆写在其后）。
+    let mut temperature = config.temperature;
     // 协议随 provider 走（2026-09-14 三协议）：provider 级属性，请求分派与响应
     // 解析都依赖它，切 provider 时整体跟随。
     let mut api = provider.api;
@@ -98,6 +104,17 @@ pub fn resolve_effective_llm(
         if !trimmed.is_empty() {
             let over: ModelConfigOverride = serde_json::from_str(trimmed)
                 .map_err(|e| format!("角色 model_config 解析失败：{e}"))?;
+            // 温度覆写（2026-09-14）：值域与 infra validate 同为 0–2，越界快速
+            // 失败（可读错误），不静默钳边——坏值在编辑侧保存即被 UI 滑杆挡住，
+            // 这里兜手改库/旧数据的底。
+            if let Some(t) = over.temperature {
+                if !(TEMPERATURE_MIN..=TEMPERATURE_MAX).contains(&t) {
+                    return Err(format!(
+                        "角色 model_config 的 temperature = {t} 越界（允许 {TEMPERATURE_MIN}–{TEMPERATURE_MAX}）"
+                    ));
+                }
+                temperature = t;
+            }
             if let Some(id) = over.provider_id.as_deref().filter(|s| !s.trim().is_empty()) {
                 let switched = config
                     .providers
@@ -113,7 +130,7 @@ pub fn resolve_effective_llm(
                 model = switched
                     .models
                     .first()
-                    .cloned()
+                    .map(|s| s.id.clone())
                     .ok_or_else(|| format!("服务「{id}」没有任何模型：请在设置页添加"))?;
             }
             // 旧键 baseUrl/apiKey 覆写不携带协议：协议是 provider 级属性，不在
@@ -137,7 +154,15 @@ pub fn resolve_effective_llm(
     if model.trim().is_empty() {
         return Err("LLM model 不能为空：请检查 Provider 配置".into());
     }
-    Ok(LlmConfig { base_url, api_key, model, api, ..LlmConfig::default() })
+    Ok(LlmConfig {
+        base_url,
+        api_key,
+        model,
+        api,
+        // 采样温度：全局设置为底，角色 model_config.temperature 可覆写。
+        temperature,
+        ..LlmConfig::default()
+    })
 }
 
 // ---------------------------------------------------------------------------

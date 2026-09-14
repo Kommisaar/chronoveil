@@ -1,30 +1,33 @@
 // 服务卡装配（UI-003「模型服务」，FR-009）：自 SettingsView 抽出的 provider
-// 管理卡，2026-09-14 改「列表-详情」结构——左列是已配置服务清单（名称 +
-// 协议小字 + 默认徽标，选中态视觉沿用会话侧栏的语言：1Selected 底 + 悬停
-// 同底），右侧是选中服务的详情编辑面板（ProviderCard，字段与行为不变）。
-// 选中态是本卡的本地 UI 态：默认落第一个服务，点清单切换；新建的服务直接
-// 落选中（用户随即填表）；删除选中服务后经派生回落到第一个剩余服务（选中
-// id 悬空不清理，避免在删除路径上做额外状态手术）。空态时退回单列引导
-// （虚线框 + 新建钮），不渲染空左列。草稿是页级单一状态（SettingsView 持
-// 有）：本件经 onDraftChange（透传父层 setDraft）做函数式更新，provider
-// 增删改的草稿迁移逻辑（改名跟随、默认模型二元组写入、删默认模型回落
-// withoutModel）自 SettingsView 逐字搬入；saveError/saving/dirty 等页级派
-// 生态由父层计算后传入，本件不做派生。
-import { Button, Text, makeStyles, tokens } from '@fluentui/react-components';
-import { Add16Regular } from '@fluentui/react-icons';
+// 管理卡，2026-09-14 照参考稿重排为「清单-详情」双栏——顶部整宽「默认模型」
+// 设置行（SettingsRow 同形制，右侧级联下拉选供应商→模型）；下方左列服务清单
+// （盒形图标 + 名称 + 绿点；绿点 = 全局默认指向该服务，即「生效中」的对位语义），
+// 底部「添加供应商」进入缓冲式新增表单（AddProviderForm，确认前不触碰页级
+// 草稿）；右栏为选中服务的详情编辑面板（ProviderCard）。无服务时布局不分叉：
+// 清单只剩「添加供应商」入口（选中态），右栏即新增表单。选中态是本卡的本地
+// UI 态：默认落第一个服务，点清单切换；删除选中服务后经派生回落到第一个剩
+// 余服务（选中 id 悬空不清理，避免在删除路径上做额外状态手术）。草稿是页级
+// 单一状态（SettingsView 持有）：
+// 本件经 onDraftChange（透传父层 setDraft）做函数式更新，provider 增删改的
+// 草稿迁移逻辑（改名跟随、默认模型二元组写入、删默认模型回落 withoutModel）
+// 自 SettingsView 逐字搬入；保存失败红字（saveError）由父层传入，footer 仅此
+// 一项，成功/空闲路径不渲染。
+import { Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Add16Regular, Box16Regular, Chat20Regular, Temperature20Regular } from '@fluentui/react-icons';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConfigDto, ProviderDto } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { SettingsCard } from '../../components/SettingsCard';
-import {
-  newProviderId,
-  withoutModel,
-} from './preferences';
+import { DropdownPushButton } from '../../components/DropdownPushButton';
+import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
+import { TooltipSlider } from '../../components/TooltipSlider';
+import { newProviderId, TEMPERATURE_MAX, TEMPERATURE_MIN, withoutModel } from './preferences';
 import { ProviderCard } from './ProviderCard';
+import { AddProviderForm } from './AddProviderForm';
 
 const useStyles = makeStyles({
-  // 列表-详情双栏：左列固定宽（与会话侧栏同档的清单形态），右栏吃剩余宽
+  // 清单-详情双栏：左列固定宽，右栏吃剩余宽。无服务时同样渲染（清单只剩
+  // 「添加供应商」入口，右栏即新增表单），布局不分叉。
   panes: {
     display: 'flex',
     alignItems: 'stretch',
@@ -41,66 +44,68 @@ const useStyles = makeStyles({
     paddingRight: tokens.spacingHorizontalM,
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
   },
-  // 清单项（会话侧栏 item 同法）：两行——名称 + 协议小字；minWidth 0 保
-  // 证长名称省略号生效（flex 子项默认 min-width:auto）
+  // 清单项（参考稿：盒形图标 + 名称 + 状态点；选中项描边盒）。minWidth 0
+  // 保证长名称省略号生效（flex 子项默认 min-width:auto）
   navItem: {
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    gap: '2px',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
     width: '100%',
-    minHeight: '44px',
+    minHeight: '40px',
     padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
     borderRadius: tokens.borderRadiusMedium,
-    border: 'none',
-    textAlign: 'left',
+    border: '1px solid transparent',
     backgroundColor: 'transparent',
     fontFamily: 'inherit',
+    fontSize: tokens.fontSizeBase300,
+    color: tokens.colorNeutralForeground1,
     cursor: 'pointer',
+    textAlign: 'left',
     ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
   },
-  // 选中态：1Selected 底且悬停不加深（反压基础 hover，侧栏 itemActive 同法）
+  // 选中项：描边盒（参考稿 DeepSeek 选中态），悬停不加深（完整 border 简写，
+  // 与基础类的 border 简写同槽——griffel 同槽禁简写/长手混用）
   navItemActive: {
-    backgroundColor: tokens.colorNeutralBackground1Selected,
-    ':hover': { backgroundColor: tokens.colorNeutralBackground1Selected },
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    backgroundColor: tokens.colorNeutralBackground1,
+    ':hover': { backgroundColor: tokens.colorNeutralBackground1 },
+  },
+  navIcon: {
+    flexShrink: 0,
+    fontSize: tokens.fontSizeBase300,
   },
   navLabel: {
-    display: 'block',
+    flex: 1,
+    minWidth: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    color: tokens.colorNeutralForeground1,
-    fontSize: tokens.fontSizeBase300,
   },
-  // 全局默认徽标（内联名称行尾）：低调三阶前景，与名称同基线
-  navBadge: {
-    marginLeft: tokens.spacingHorizontalS,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
+  // 绿点 = 全局默认指向该服务（「生效中」的对位标记，视觉而外无文字）
+  navDot: {
+    flexShrink: 0,
+    width: '8px',
+    height: '8px',
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: tokens.colorPaletteGreenForeground1,
   },
-  // 新建钮固定清单底部：清单短时贴近清单（不吸底，与服务卡高度自然增长
-  // 的现状一致），marginTop 拉开与末项的间距
+  // 添加入口钉在清单底部：清单短时贴近清单，与详情卡自然增长一致
   navAdd: {
     marginTop: tokens.spacingVerticalS,
-    width: '100%',
   },
-  // 右侧详情面板：吃剩余宽度；minWidth 0 防 Input 撑破分栏
+  // 顶部整宽「默认模型」设置行（SettingsRow 同款形制）的右侧级联钮：定宽
+  // 控件位（主题/近景行的控件同位），长文案省略号收进按钮自身
+  defaultControl: {
+    width: '280px',
+  },
+  // 「控制温度」行的滑杆：与节奏卡滑杆同宽口径
+  temperatureSlider: {
+    width: '240px',
+  },
+  // 右侧面板：吃剩余宽度；minWidth 0 防 Input 撑破分栏
   detail: {
     flex: 1,
     minWidth: 0,
-  },
-  // 无 provider 空态（验收 7）：虚线框引导新建。引导型空态的合理特例——
-  // 不收编进 EmptyState/StateBlock（那是「无数据可看」的占位语义）；这里
-  // 是表单区内的「下一步行动引导」，需要虚线框 + 行内新建钮的分量感
-  empty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: tokens.spacingVerticalS,
-    padding: tokens.spacingVerticalXL,
-    border: `1px dashed ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    color: tokens.colorNeutralForeground3,
   },
   // 保存失败红字（footer 状态行用）：与页级底部汇总（SettingsView 的 issues）
   // 同款视觉，组件内 makeStyles 本地化（RhythmSettingsCard 抽出同法）
@@ -108,14 +113,12 @@ const useStyles = makeStyles({
     color: tokens.colorPaletteRedForeground1,
     fontSize: tokens.fontSizeBase200,
   },
-  // 修改即保存状态（置于服务卡底部提示位）：minHeight 防状态切换跳动
+  // 保存失败状态行（footer）：minHeight 防状态切换跳动
   status: {
     display: 'flex',
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
     minHeight: tokens.spacingVerticalL,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
   },
 });
 
@@ -124,22 +127,17 @@ export interface ProvidersCardProps {
   draft: ConfigDto;
   /** 草稿函数式更新入口（透传父层 setDraft；搬入的更新器逐字保留 null 守卫）。 */
   onDraftChange: (update: (d: ConfigDto | null) => ConfigDto | null) => void;
-  /** 修改即保存状态行（页级派生态，footer 展示）：保存中。 */
-  saving: boolean;
-  /** 修改即保存状态行：上次落盘失败原因（非 null 时红字展示）。 */
+  /** 上次自动保存落盘失败原因（非 null 时 footer 红字展示；成功/空闲不渲染
+   *  footer——状态行已按用户裁定裁撤，仅错误出口保留）。 */
   saveError: string | null;
-  /** 修改即保存状态行：草稿与载入基线不一致。 */
-  dirty: boolean;
 }
 
-/** 服务卡：左列服务清单 + 右侧详情编辑 + 空态引导 + 修改即保存状态行 +
- *  删除确认（UI-003）。 */
+/** 服务卡：左列服务清单 + 右侧详情/新增表单 + 修改即保存失败行 + 删除确认
+ *  （UI-003）。 */
 export function ProvidersCard({
   draft,
   onDraftChange: setDraft,
-  saving,
   saveError,
-  dirty,
 }: ProvidersCardProps) {
   const styles = useStyles();
   const { t } = useTranslation();
@@ -148,27 +146,12 @@ export function ProvidersCard({
   // 左列选中的服务 id（本地 UI 态）：悬空 id 经派生回落第一个服务，不在
   // 删除路径上做状态清理（见组件头注）。
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 新增模式：右栏切换为缓冲式 AddProviderForm（确认前不触碰页级草稿）。
+  const [adding, setAdding] = useState(false);
   const selected =
     draft.providers.find((p) => p.id === selectedId) ?? draft.providers[0] ?? null;
-
-  const addProvider = () => {
-    // id 在更新器外生成：新建后随即选中该服务（id 只在此一处产生，复用即选中）。
-    const id = newProviderId();
-    setSelectedId(id);
-    setDraft((d) => {
-      if (d === null) return d;
-      const provider: ProviderDto = {
-        id,
-        name: '',
-        baseUrl: '',
-        apiKey: '',
-        models: [],
-        // 新建服务缺省 OpenAI 兼容协议（详情面板可切三档）。
-        api: 'openai',
-      };
-      return { ...d, providers: [...d.providers, provider] };
-    });
-  };
+  // 无服务时新增表单即右栏（也不再渲染空清单列）
+  const inAddMode = adding || draft.providers.length === 0;
 
   const changeProvider = (id: string, nextProvider: ProviderDto) =>
     setDraft((d) => {
@@ -183,9 +166,9 @@ export function ProvidersCard({
         activeModel !== null &&
         nextProvider.models.length === prev.models.length
       ) {
-        const idx = prev.models.indexOf(activeModel);
-        if (idx >= 0 && nextProvider.models[idx] !== activeModel) {
-          activeModel = nextProvider.models[idx]!;
+        const idx = prev.models.findIndex((m) => m.id === activeModel);
+        if (idx >= 0 && nextProvider.models[idx] !== undefined && nextProvider.models[idx]!.id !== activeModel) {
+          activeModel = nextProvider.models[idx]!.id;
         }
       }
       return {
@@ -195,9 +178,40 @@ export function ProvidersCard({
       };
     });
 
+  /** 缓冲新增确认：id 在父级此处生成（顺带落选中），整套入草稿并由修改即
+   *  保存链路落盘。 */
+  const confirmAdd = (provider: Omit<ProviderDto, 'id'>) => {
+    const id = newProviderId();
+    setAdding(false);
+    setSelectedId(id);
+    setDraft((d) => (d === null ? d : { ...d, providers: [...d.providers, { ...provider, id }] }));
+  };
+
   /** 模型行「设为默认」：整对写入 (activeProviderId, activeModel)。 */
   const activateModel = (providerId: string, model: string) =>
     setDraft((d) => (d === null ? d : { ...d, activeProviderId: providerId, activeModel: model }));
+
+  // 「默认模型」级联菜单：一级 = 供应商、二级 = 模型。叶子 value 用
+  // 「providerId::modelId」复合键（provider id 为 uuid，'::' 不可能撞），选中
+  // 后拆回整对写入全局默认。叶子 label 是裸模型名——二级菜单里服务名就在父行
+  // 上（2026-09-14 用户反馈去前缀），触发钮由组件组合「服务 / 模型」补回。
+  const defaultOptions = draft.providers.map((p) => ({
+    value: p.id,
+    label: p.name.trim() || t('settings.providerNamePlaceholder'),
+    children: p.models.map((m) => ({
+      value: `${p.id}::${m.id}`,
+      label: m.id,
+    })),
+  }));
+  const defaultValue =
+    draft.activeProviderId !== null && draft.activeModel !== null
+      ? `${draft.activeProviderId}::${draft.activeModel}`
+      : '';
+  const confirmDefault = (composite: string) => {
+    const sep = composite.indexOf('::');
+    if (sep < 0) return;
+    activateModel(composite.slice(0, sep), composite.slice(sep + 2));
+  };
 
   /** 删除模型行：默认选中指向被删模型时同步回落（置 null，解析层取第一个模型）。 */
   const removeModel = (providerId: string, index: number) =>
@@ -228,80 +242,119 @@ export function ProvidersCard({
     <>
       <SettingsCard
         title={t('settings.provider')}
-        footer={{
-          // 修改即保存状态行（新建入口在左列清单底部，footer 不再放动作钮）
-          hint: (
-            <div className={styles.status}>
-              {saveError ? (
-                <Text className={styles.issues} role="alert">
-                  {t('settings.saveFailed')}: {saveError}
-                </Text>
-              ) : saving ? (
-                <Text>{t('settings.saving')}</Text>
-              ) : dirty ? (
-                <Text>{t('settings.autosaveHint')}</Text>
-              ) : null}
-            </div>
-          ),
-        }}
+        // footer 仅承载自动保存失败红字（错误必须可见）；成功/空闲路径不渲染
+        // footer，正常使用中状态行整体不存在。（exactOptionalPropertyTypes 下
+        // 不能显式传 footer=undefined，用条件展开表达「无 footer」。）
+        {...(saveError !== null
+          ? {
+              footer: {
+                hint: (
+                  <div className={styles.status}>
+                    <Text className={styles.issues} role="alert">
+                      {t('settings.saveFailed')}: {saveError}
+                    </Text>
+                  </div>
+                ),
+              },
+            }
+          : {})}
       >
-        {draft.providers.length === 0 ? (
-          <div className={styles.empty}>
-            <Text>{t('settings.providerEmpty')}</Text>
-            <Button icon={<Add16Regular />} onClick={addProvider}>
-              {t('settings.addProvider')}
-            </Button>
+        {/* 顶部整宽「默认模型」行（与其他设置卡行同形制）：左图标 + 标题/描述，
+            右侧级联下拉（一级供应商、二级模型）；行下分隔线隔开双栏区。 */}
+        <SettingsRow
+          icon={<Chat20Regular />}
+          title={t('settings.defaultModel')}
+          description={t('settings.defaultModelDesc')}
+          control={
+            <DropdownPushButton
+              className={styles.defaultControl}
+              ariaLabel={t('settings.defaultModel')}
+              value={defaultValue}
+              placeholder={t('settings.defaultModelNone')}
+              maxVisibleItems={8}
+              options={defaultOptions}
+              onChange={confirmDefault}
+            />
+          }
+        />
+        <SettingsDivider />
+        {/* 控制温度行：滑杆 0–2（步进 0.1）天然限位，值域内无非法中间态，
+            改动随整份草稿走修改即保存链路落盘。 */}
+        <SettingsRow
+          icon={<Temperature20Regular />}
+          title={t('settings.temperature')}
+          description={t('settings.temperatureDesc', { value: draft.temperature.toFixed(1) })}
+          control={
+            <TooltipSlider
+              className={styles.temperatureSlider}
+              min={TEMPERATURE_MIN}
+              max={TEMPERATURE_MAX}
+              step={0.1}
+              value={draft.temperature}
+              onChange={(value) =>
+                setDraft((d) => (d === null ? d : { ...d, temperature: value }))
+              }
+              ariaLabel={t('settings.temperature')}
+              formatValue={(value) => value.toFixed(1)}
+            />
+          }
+        />
+        <SettingsDivider />
+        <div className={styles.panes}>
+          {/* 左列：服务清单（盒形图标 + 名称 + 全局默认绿点）+ 添加供应商。
+              清单项可访问名 = 名称文本自然拼接（图标 aria-hidden）。 */}
+          <div className={styles.nav} role="group" aria-label={t('settings.provider')}>
+            {draft.providers.map((provider) => {
+              const isDefaultProvider = draft.activeProviderId === provider.id;
+              const isSelected = !inAddMode && selected !== null && provider.id === selected.id;
+              return (
+                <button
+                  key={provider.id}
+                  type="button"
+                  className={`${styles.navItem} ${isSelected ? styles.navItemActive : ''}`}
+                  aria-current={isSelected ? 'true' : undefined}
+                  onClick={() => {
+                    setAdding(false);
+                    setSelectedId(provider.id);
+                  }}
+                >
+                  <Box16Regular className={styles.navIcon} aria-hidden />
+                  <span className={styles.navLabel}>
+                    {provider.name.trim() || t('settings.providerNamePlaceholder')}
+                  </span>
+                  {isDefaultProvider ? <span className={styles.navDot} aria-hidden /> : null}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className={`${styles.navItem} ${styles.navAdd} ${inAddMode ? styles.navItemActive : ''}`}
+              aria-current={inAddMode ? 'true' : undefined}
+              onClick={() => setAdding(true)}
+            >
+              <Add16Regular className={styles.navIcon} aria-hidden />
+              <span className={styles.navLabel}>{t('settings.addProvider')}</span>
+            </button>
           </div>
-        ) : (
-          <div className={styles.panes}>
-            {/* 左列：服务清单（单行名称；全局默认项名称尾内联「默认」徽标）+
-                新建入口。清单项可访问名 = 名称 + 徽标文本自然拼接。 */}
-            <div className={styles.nav} role="group" aria-label={t('settings.provider')}>
-              {draft.providers.map((provider) => {
-                const isSelected = selected !== null && provider.id === selected.id;
-                const isDefault = draft.activeProviderId === provider.id;
-                return (
-                  <button
-                    key={provider.id}
-                    type="button"
-                    className={`${styles.navItem} ${isSelected ? styles.navItemActive : ''}`}
-                    aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => setSelectedId(provider.id)}
-                  >
-                    <span className={styles.navLabel}>
-                      {provider.name.trim() || t('settings.providerNamePlaceholder')}
-                      {isDefault ? (
-                        <span className={styles.navBadge}>{t('settings.defaultBadge')}</span>
-                      ) : null}
-                    </span>
-                  </button>
-                );
-              })}
-              <Button
-                className={styles.navAdd}
-                icon={<Add16Regular />}
-                onClick={addProvider}
-              >
-                {t('settings.addProvider')}
-              </Button>
-            </div>
-            {/* 右栏：选中服务的详情编辑面板（字段与行为不变）。 */}
-            {selected !== null ? (
-              <div className={styles.detail}>
-                <ProviderCard
-                  key={selected.id}
-                  provider={selected}
-                  isActiveProvider={draft.activeProviderId === selected.id}
-                  activeModel={draft.activeModel}
-                  onChange={(p) => changeProvider(selected.id, p)}
-                  onActivateModel={(model) => activateModel(selected.id, model)}
-                  onRemoveModel={(index) => removeModel(selected.id, index)}
-                  onDelete={() => setDeleteTarget(selected)}
-                />
-              </div>
+          {/* 右栏：新增缓冲表单或选中服务的详情编辑面板（无服务时 inAddMode
+              恒真，右栏即新增表单，左列只剩添加入口）。 */}
+          <div className={styles.detail}>
+            {inAddMode ? (
+              <AddProviderForm onConfirm={confirmAdd} />
+            ) : selected !== null ? (
+              <ProviderCard
+                key={selected.id}
+                provider={selected}
+                isDefaultProvider={draft.activeProviderId === selected.id}
+                activeModel={draft.activeModel}
+                onChange={(p) => changeProvider(selected.id, p)}
+                onActivateModel={(model) => activateModel(selected.id, model)}
+                onRemoveModel={(index) => removeModel(selected.id, index)}
+                onDelete={() => setDeleteTarget(selected)}
+              />
             ) : null}
           </div>
-        )}
+        </div>
       </SettingsCard>
 
       {/* 删除确认（UI-003）：激活中的 provider 要求先转移激活，确认键禁用。

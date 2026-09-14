@@ -1,6 +1,10 @@
 // 单套 Provider 编辑卡（UI-003「模型服务」，FR-009；双层级 2026-09-09）：
-// name / base_url / api_key 三行 + 「模型」列表（每行：设为默认单选 + 模型名 +
-// 行内删除，底部添加行）+ 删除服务。全局默认是 (provider, model) 二元组，选中
+// name / 兼容方式 / base_url / api_key 四行 + 「模型」列表（每行：设为默认单选 +
+// 模型名 + 行内删除，底部添加行）+ 删除服务。兼容方式（2026-09-14）选 wire 协议
+// （openai / anthropic / openai_responses，Task-01 Rust 侧已支持），下拉复刻件
+// 与角色编辑器/设置页同一控件语言；协议决定 baseUrl 的解释方式（Rust 侧路径与
+// 鉴权头），Base URL 占位示例随协议自适应，切档不清空已填配置（用户可能只是接
+// 了兼容网关，地址与模型保留）。全局默认是 (provider, model) 二元组，选中
 // 某模型行的单选即写入整对值；api_key 默认掩码、可见性切换（OQ-001：明文本机
 // 存储，掩码仅为输入防窥）。删除确认（含激活占用拦截）与默认选中回落由父级
 // ProvidersCard 承担，本组件只上报意图。模型行删除（U4）：唯一模型或全局默认
@@ -23,9 +27,28 @@ import {
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ProviderApi } from '../../api/generated/bindings';
 import type { ProviderDto } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { DropdownPushButton } from '../../components/DropdownPushButton';
 import { validateProvider } from './preferences';
+
+/** 三协议档位单一事实源（wire 值 = bindings 的 ProviderApi；Task-01 三协议）。
+ *  label / 占位示例各用 Record 全量映射，协议扩档时 tsc 强制补齐文案。 */
+const PROTOCOLS: readonly ProviderApi[] = ['openai', 'anthropic', 'openai_responses'];
+
+const PROTOCOL_LABEL_KEYS: Record<ProviderApi, string> = {
+  openai: 'settings.protocolOpenAi',
+  anthropic: 'settings.protocolAnthropic',
+  openai_responses: 'settings.protocolOpenAiResponses',
+};
+
+/** 占位示例即协议用法提示（anthropic 官方域名不带 /v1，openai 系带 /v1）。 */
+const PROTOCOL_BASE_URL_PLACEHOLDER_KEYS: Record<ProviderApi, string> = {
+  openai: 'settings.baseUrlPlaceholderOpenAi',
+  anthropic: 'settings.baseUrlPlaceholderAnthropic',
+  openai_responses: 'settings.baseUrlPlaceholderOpenAiResponses',
+};
 
 const useStyles = makeStyles({
   root: {
@@ -52,6 +75,11 @@ const useStyles = makeStyles({
     gridTemplateColumns: '160px minmax(0, 1fr)',
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
+  },
+  // 兼容方式下拉撑满输入列：与上下行的 Input 同宽对齐（本卡的行语言是
+  // 160px 标签 + 输入列满宽，不同于设置页 SettingsRow 的固定宽控件）
+  protocolSelect: {
+    width: '100%',
   },
   modelsLabel: {
     alignSelf: 'start',
@@ -128,6 +156,18 @@ export function ProviderCard({
 
   const patch = (partial: Partial<ProviderDto>) => onChange({ ...provider, ...partial });
 
+  const protocolOptions = PROTOCOLS.map((value) => ({
+    value,
+    label: t(PROTOCOL_LABEL_KEYS[value]),
+  }));
+
+  /** 下拉回传字符串，经档位表映射回 ProviderApi 再上报；find 不到的分支只为
+   *  类型收窄存在（下拉契约保证只回传档位 value），非运行时防御。 */
+  const selectProtocol = (value: string): void => {
+    const match = protocolOptions.find((o) => o.value === value);
+    if (match) patch({ api: match.value });
+  };
+
   const renameModel = (index: number, name: string) =>
     patch({ models: provider.models.map((m, i) => (i === index ? name : m)) });
 
@@ -183,12 +223,24 @@ export function ProviderCard({
           onChange={(_, d) => patch({ name: d.value })}
         />
       </div>
+      {/* 兼容方式行在名称之后：协议决定 baseUrl 的解释方式，先选协议再填地址 */}
+      <div className={styles.field}>
+        <Text>{t('settings.protocolCompat')}</Text>
+        <DropdownPushButton
+          className={styles.protocolSelect}
+          ariaLabel={`${provider.id}-protocol`}
+          value={provider.api}
+          onChange={selectProtocol}
+          maxVisibleItems={3}
+          options={protocolOptions}
+        />
+      </div>
       <div className={styles.field}>
         <Text>{t('settings.baseUrl')}</Text>
         <Input
           value={provider.baseUrl}
           aria-label={`${provider.id}-baseUrl`}
-          placeholder="https://api.example.com/v1"
+          placeholder={t(PROTOCOL_BASE_URL_PLACEHOLDER_KEYS[provider.api])}
           aria-invalid={!validity.baseUrl}
           onChange={(_, d) => patch({ baseUrl: d.value })}
         />

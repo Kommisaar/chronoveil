@@ -281,11 +281,26 @@ impl StreamFrameParser for ResponsesStreamParser {
             }
             // 失败终态：Protocol 错误终止流，不可重试——服务端已给出明确失败语义
             //（response.failed / error 事件），按断流重发只会原样复现。
+            // 错误详情逐级回退：response.failed 的 response.error 对象 → 流内
+            // error 事件的嵌套 error 键 → 官方顶层 error 事件的 message / code
+            // 顶层字段（该形态无包裹对象，缺一fallback 即只剩前缀）。
             Some("response.failed") | Some("error") => {
-                Err(LlmError::Protocol(format!(
-                    "Responses 流式错误帧：{}",
-                    value.pointer("/response/error").or_else(|| value.get("error")).map(Value::to_string).unwrap_or_default()
-                )))
+                let detail = value
+                    .pointer("/response/error")
+                    .or_else(|| value.get("error"))
+                    .map(Value::to_string)
+                    .or_else(|| {
+                        let message = value.get("message").and_then(Value::as_str);
+                        let code = value.get("code").and_then(Value::as_str);
+                        match (message, code) {
+                            (Some(m), Some(c)) => Some(format!("{c}: {m}")),
+                            (Some(m), None) => Some(m.to_owned()),
+                            (None, Some(c)) => Some(c.to_owned()),
+                            (None, None) => None,
+                        }
+                    })
+                    .unwrap_or_default();
+                Err(LlmError::Protocol(format!("Responses 流式错误帧：{detail}")))
             }
             // response.created / response.in_progress / response.output_item.added /
             // content_part.added 等进度事件与未知事件一律忽略。

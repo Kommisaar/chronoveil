@@ -176,6 +176,48 @@ async fn response_failed_is_protocol_error_and_not_retried() {
     assert_eq!(observed.done, 0);
 }
 
+/// 流内顶层 error 事件（官方形态：message / code 等为顶层字段，无包裹对象）→
+/// Protocol 错误且诊断信息含 message 内容；请求已发出（流中失败），不可重试。
+#[tokio::test]
+async fn stream_top_level_error_event_keeps_diagnostics() {
+    let server = MockServer::start(|_req, stream| {
+        let _ = sse_head(stream);
+        // 先发一帧正常增量再失败：错误发生在流中而非连接期。
+        let _ = stream.write_all(
+            sse_data(r#"{"type":"response.output_text.delta","delta":"部分"}"#).as_bytes(),
+        );
+        let payload = serde_json::json!({
+            "type": "error",
+            "code": "server_error",
+            "message": "The server had an error",
+            "param": null,
+            "sequence_number": 2
+        });
+        let _ = stream.write_all(sse_data(&payload.to_string()).as_bytes());
+        let _ = stream.flush();
+    });
+    let (sink_tx, mut rx) = sink();
+    let (_signal, cancel) = cancel_channel();
+    let failure = client_with_api(&server.url(), retry_policy(2), ProviderApi::OpenAiResponses)
+        .chat_stream(&messages(), IDS, sink_tx, &cancel, None)
+        .await
+        .expect_err("顶层 error 事件应失败");
+    match &failure.error {
+        LlmError::Protocol(reason) => {
+            assert!(
+                reason.contains("The server had an error"),
+                "诊断信息须含顶层 message：{reason}"
+            );
+            assert!(reason.contains("server_error"), "诊断信息含顶层 code：{reason}");
+        }
+        other => panic!("应为 Protocol：{other:?}"),
+    }
+    assert_eq!(server.connection_count(), 1, "请求已发出，流中失败不可重试");
+    let observed = drain(&mut rx);
+    assert_eq!(observed.done, 0, "失败流不产 done");
+    assert_eq!(observed.errors.len(), 1);
+}
+
 /// 非流式结构化调用：output 中 message item 的 output_text 部件拼接。
 #[tokio::test]
 async fn complete_json_joins_output_text() {
@@ -306,4 +348,24 @@ async fn function_call_to_tool_calls_and_output_request_mapping() {
         }),
         "tool 结果 → function_call_output item"
     );
+}
+
+/// tool 消息缺 tool_call_id → 请求构造期 Protocol 错误（无法回链
+/// function_call_output；构造期拦截，请求未发出）。
+#[tokio::test]
+async fn tool_message_without_tool_call_id_fails_before_request() {
+    let server = MockServer::start(|_req, _stream| {
+        panic!("不应发出请求：tool 消息缺 tool_call_id 应在构造期报错");
+    });
+    let (_signal, _cancel) = cancel_channel();
+    let conversation = vec![ChatMessage::new(ChatRole::Tool, "孤儿结果")];
+    let err = client_with_api(&server.url(), retry_policy(0), ProviderApi::OpenAiResponses)
+        .complete_with_tools(&conversation, &[memory_tool()], None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, LlmError::Protocol(ref m) if m.contains("无法回链")),
+        "实际：{err:?}"
+    );
+    assert_eq!(server.connection_count(), 0, "构造期报错，请求未发出");
 }

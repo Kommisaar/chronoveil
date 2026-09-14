@@ -50,15 +50,16 @@ impl SseParser {
         Self { buf: Vec::new() }
     }
 
-    /// 喂入一段原始字节，返回其中凑齐的所有行解析出的条目。
+    /// 喂入一段原始字节，返回其中凑齐的所有行解析出的条目（`[DONE]` 哨兵判定 +
+    /// OpenAI 帧解析的等价组合）。生产流式路径已改走 [`SseParser::feed_data`] +
+    /// 协议帧解析器分派（2026-09-14 三协议），本方法供测试与直读方使用。
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<SseItem> {
         items_from_payloads(self.feed_data(bytes))
     }
 
     /// 协议无关形态：喂入一段原始字节，返回凑齐行的 `data:` 负载（非 data 行忽略，
-    /// `[DONE]` 哨兵不在此解释——由调用方按协议语义处理）。Anthropic / Responses
-    /// 帧解析经此取负载；OpenAI 路径沿用 [`SseParser::feed`]（等价于本方法 +
-    /// `[DONE]` 哨兵判定 + OpenAI 帧解析）。
+    /// `[DONE]` 哨兵不在此解释——由调用方按协议语义处理）。生产流式路径经本方法
+    /// 取负载后按 `config.api` 分派协议帧解析（wire_anthropic / wire_responses）。
     pub fn feed_data(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buf.extend_from_slice(bytes);
         let mut payloads = Vec::new();
@@ -76,6 +77,8 @@ impl SseParser {
     }
 
     /// 流结束：冲刷残行（未换行的尾巴）。正常 SSE 以 `\n` 结尾，此处通常为空。
+    /// （等价组合说明同 [`SseParser::feed`]：生产路径走 [`SseParser::finish_data`]，
+    /// 本方法供测试与直读方使用。）
     pub fn finish(&mut self) -> Vec<SseItem> {
         items_from_payloads(self.finish_data())
     }

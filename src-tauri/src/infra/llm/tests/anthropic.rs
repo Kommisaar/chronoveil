@@ -71,7 +71,9 @@ async fn stream_request_shape_headers_and_events() {
             serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"，世界"}}).to_string(),
             serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}).to_string(),
             serde_json::json!({"type":"message_stop"}).to_string(),
-            // message_stop 之后的杂音帧不再被消费，也不应产生事件。
+            // message_stop 之后的迟到帧：客户端见 Done 即提前 return，残余帧整体
+            // 丢弃——下方 tokens 断言锁定不含「迟到的杂音」。
+            serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"迟到的杂音"}}).to_string(),
         ] {
             let _ = stream.write_all(sse_data(&payload).as_bytes());
         }
@@ -330,5 +332,25 @@ async fn invalid_tool_arguments_fail_before_request() {
         .await
         .unwrap_err();
     assert!(matches!(err, LlmError::Protocol(_)), "实际：{err:?}");
+    assert_eq!(server.connection_count(), 0, "构造期报错，请求未发出");
+}
+
+/// tool 消息缺 tool_call_id → 请求构造期 Protocol 错误（无法回链 Anthropic
+/// tool_result；构造期拦截，请求未发出）。
+#[tokio::test]
+async fn tool_message_without_tool_call_id_fails_before_request() {
+    let server = MockServer::start(|_req, _stream| {
+        panic!("不应发出请求：tool 消息缺 tool_call_id 应在构造期报错");
+    });
+    let (_signal, _cancel) = cancel_channel();
+    let conversation = vec![ChatMessage::new(ChatRole::Tool, "孤儿结果")];
+    let err = client_with_api(&server.url(), retry_policy(0), ProviderApi::Anthropic)
+        .complete_with_tools(&conversation, &[memory_tool()], None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, LlmError::Protocol(ref m) if m.contains("无法回链")),
+        "实际：{err:?}"
+    );
     assert_eq!(server.connection_count(), 0, "构造期报错，请求未发出");
 }

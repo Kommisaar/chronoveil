@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::error::StorageError;
 
-/// LLM 调用类别（llm_calls.kind CHECK 三值）：主对话流式 / 记忆探索器工具循环 /
-/// 导演结算裁决。
+/// LLM 调用类别（llm_calls.kind CHECK 四值，含历史 'draft'；Rust 枚举三值，
+/// 'draft' 判损坏，见文件尾测试）：主对话流式 / 记忆探索器工具循环 / 导演结算裁决。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmCallKind {
@@ -72,7 +72,7 @@ impl LlmCallStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LlmCall {
     pub id: i64,
-    /// 所属会话；历史起草调用（2026-09-13 裁撤）曾为 None，现行写入方恒 Some。
+    /// 所属会话；现行写入方恒 Some。
     pub session_id: Option<i64>,
     pub kind: LlmCallKind,
     pub model: String,

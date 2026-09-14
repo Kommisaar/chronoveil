@@ -223,8 +223,7 @@ export const sessions: SessionSummary[] = [
 ];
 
 // characterId 语义（wire 定案，对齐 ipc.rs to_chat_message）：assistant 条 =
-// 发声的 LLM 位实例真值（2/4/6），user 条恒 null（调用方按 role 渲染）——
-// 不再是命令层推导假值，也不是模板卡 id。
+// 发声的 LLM 位实例真值（2/4/6），user 条恒 null（调用方按 role 渲染）。
 export const messagesBySession: Record<number, ChatMessage[]> = {
   1: [
     {

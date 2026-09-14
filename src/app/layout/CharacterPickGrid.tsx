@@ -91,8 +91,8 @@ const useStyles = makeStyles({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    // 首字徽标（圆形实底）：无头像时的占位语言从「裸大字浮在渐变上」改为
-    // 「压暗圆盘上的字母」，配合 PICK_SCRIM_ALPHA 保证 OnBrand 可读
+    // 首字徽标（圆形实底）：字母压在按 PICK_SCRIM_ALPHA 压暗的圆盘上，
+    // 保证 OnBrand 可读
     width: '48px',
     height: '48px',
     borderRadius: tokens.borderRadiusCircular,

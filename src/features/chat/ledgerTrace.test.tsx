@@ -106,7 +106,9 @@ describe('LedgerTraceSection 时序序号：最旧 1、最新最大', () => {
 describe('LedgerTraceSection 会话汇总口径', () => {
   it('失败数只统计 error；token 合计只统计 ok 且 null 记 0', () => {
     // error 行携带 500/700 的 token 诱饵：若合计误把 error 行算进去，会变成
-    // ↑ 600 / ↓ 730；若 ok 行 null token 误不记 0，会变 NaN——两种口径篡改都红
+    // ↑ 600 / ↓ 730；ok 行 null token 钉住「null 行不贡献、不出 NaN 文案」
+    // （断言钉输出语义）。?? 0 对 null 运行时冗余（JS 算术 null 归 0，
+    // number|null 过 tsc 才需要它），真正防的是 undefined 混入（NaN 唯一来源）
     renderTrace([
       makeCall({ id: 1, startedAt: 3000, promptTokens: 100, completionTokens: 30 }),
       makeCall({ id: 2, startedAt: 2000, promptTokens: null, completionTokens: null }),

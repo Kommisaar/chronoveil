@@ -29,8 +29,8 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
   },
   // 侧栏收起后的展开按钮：悬于主内容区左上角（千问同位）。外观/尺寸/悬停
-  // 反馈由 useGhostIconButtonStyles('medium') 承载（36px 容器 + 20px 图标，
-  // 与迁移前逐项一致）；本地特例只剩定位与不透明底——浮于滚动内容之上，
+  // 反馈由 useGhostIconButtonStyles('medium') 承载（36px 容器 + 20px 图标）；
+  // 本地特例只剩定位与不透明底——浮于滚动内容之上，
   // 钩子默认透明底会让内容从钮底透出（钩子头注预告的浮层覆写点）。
   expandBtn: {
     position: 'absolute',

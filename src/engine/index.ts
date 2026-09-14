@@ -74,7 +74,7 @@ export interface RendererOptions {
   msPerChar?: number;
   /** 标点微停开关，默认开 */
   punctPause?: boolean;
-  /** 发射粒度 1/2/4，内部默认 1（逐字；2026-09-13 用户定稿，原为 2） */
+  /** 发射粒度 1/2/4，内部默认 1（逐字；2026-09-13 用户定稿） */
   granularity?: Granularity;
   /** 思考贴士池，默认内置 12 条 */
   thinkTips?: readonly string[];

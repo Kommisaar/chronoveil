@@ -15,7 +15,7 @@
 // - 清单唯一数据源在 ui store（sessions / refreshSessions）：本组件挂载即重拉
 //   （AppShell 仅聊天视图挂载本组件，从其他视图回来自然重拉，验收 3），
 //   ChatView 同源读取，两侧不出现陈旧分叉（验收 4）；清单加载错误态同源
-//   （sessionsLoadError，Task-11 提升自本组件已退役的本地标记）。
+//   （sessionsLoadError，与清单同源在 ui store）。
 // 条目入场动画：挂载时逐项浮现一次（app.css 的 sidebar-enter 全局类，
 // 错开延迟经行内 --enter-delay 注入）。
 // 右缘 handle（2026-09-08 用户要求）：点击收起/展开侧栏——root 只做

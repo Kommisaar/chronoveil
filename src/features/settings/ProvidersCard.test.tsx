@@ -169,4 +169,27 @@ describe('ProvidersCard 清单-详情', () => {
     expect(await screen.findByRole('button', { name: '删除 首个服务' })).toBeTruthy();
     expect(navItem(/首个服务/)).toBeTruthy();
   });
+
+  it('行内「编辑模型」：对话框预填该行元数据，保存后原位替换同一行', async () => {
+    setupStateful(draftWith({ ...providerA }));
+    fireEvent.click(navItem(/添加供应商/));
+    expect(await screen.findByText(/添加模型供应商/)).toBeTruthy();
+
+    // 先经新增对话框造一行模型 m1
+    fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'm1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect((screen.getByLabelText('add-model-0') as HTMLInputElement).value).toBe('m1');
+
+    // 行内编辑钮（aria-label = 编辑模型 + 模型名）→ 对话框以该行为 initial 打开
+    fireEvent.click(screen.getByRole('button', { name: '编辑模型 m1' }));
+    expect(screen.getByText('编辑模型')).toBeTruthy();
+    expect((screen.getByLabelText('模型 ID') as HTMLInputElement).value).toBe('m1');
+    fireEvent.change(screen.getByLabelText('模型 ID'), { target: { value: 'm1-renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    // 原位替换：仍只有第 0 行，不追加新行
+    expect((screen.getByLabelText('add-model-0') as HTMLInputElement).value).toBe('m1-renamed');
+    expect(screen.queryByLabelText('add-model-1')).toBeNull();
+  });
 });

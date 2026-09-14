@@ -1,8 +1,9 @@
 //! 本体（super）的单测：自 services/generation.rs 尾部的 `mod tests` 外置（500 行规范；测试代码逐字搬移，断言零改动）。
 
 use super::*;
-use crate::domain::models::{NewCharacter, NewSession, RosterPick};
-use crate::infra::config::ProviderConfig;
+use crate::domain::models::{Character, NewCharacter, NewSession, RosterPick};
+use crate::infra::config::{Config as FileConfig, ProviderConfig};
+use crate::infra::llm::LlmConfig;
 use crate::infra::llm::mock::{delta_json, json_body, json_raw_body, status_head, MockServer, sse_data, sse_head};
 use crate::infra::storage::test_support::temp_storage;
 use crate::infra::storage::Storage;

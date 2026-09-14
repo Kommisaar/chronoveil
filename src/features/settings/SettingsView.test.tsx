@@ -5,7 +5,7 @@
 // 删除拦截、非激活删除、默认模型二元组切换、删默认模型回落、主题/语言
 // 改动即时生效、非法草稿不落盘。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getConfig, saveConfig } from '../../api/commands';
 import { DEFAULT_CONFIG } from '../../api/mock/backend';
@@ -124,10 +124,15 @@ describe('SettingsView（TASK-009）', () => {
       }),
     );
     renderSettings();
-    fireEvent.click(await screen.findByRole('button', { name: '删除 备用' }));
+    // 列表-详情结构（2026-09-14）：先在左列选中「备用」，详情面板才出现其删除钮
+    //（圈定左列 group，防命中详情面板的「删除 备用」钮）
+    const nav = await screen.findByRole('group', { name: '模型服务' });
+    fireEvent.click(within(nav).getByRole('button', { name: /备用/ }));
+    fireEvent.click(screen.getByRole('button', { name: '删除 备用' }));
     const confirm = await screen.findByRole('button', { name: '删除' });
     expect((confirm as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(confirm);
+    // 删除选中项 → 详情回落到剩余服务（任意时刻详情面板至多一个 name 输入）
     await waitFor(() => expect(screen.getAllByLabelText(/-name$/)).toHaveLength(1));
     // 删除经自动保存落盘
     await waitFor(async () => {
@@ -144,10 +149,16 @@ describe('SettingsView（TASK-009）', () => {
       }),
     );
     renderSettings();
-    const radios = await screen.findAllByRole('radio', { name: '设为默认' });
-    expect((radios[0] as HTMLInputElement).checked).toBe(true);
-    expect((radios[1] as HTMLInputElement).checked).toBe(false);
-    fireEvent.click(radios[1]!);
+    // 默认详情 = 第一个服务：其模型行单选已选中
+    const firstRadio = (await screen.findByRole('radio', { name: '设为默认' })) as HTMLInputElement;
+    expect(firstRadio.checked).toBe(true);
+    // 列表-详情结构：切到「备用」详情，其模型行单选未选中；点选即切全局默认
+    fireEvent.click(screen.getByRole('button', { name: /备用/ }));
+    const secondRadio = (await screen.findByRole('radio', {
+      name: '设为默认',
+    })) as HTMLInputElement;
+    expect(secondRadio.checked).toBe(false);
+    fireEvent.click(secondRadio);
     await waitFor(async () => {
       const saved = await getConfig();
       expect(saved.activeProviderId).toBe('p2');

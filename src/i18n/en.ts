@@ -233,6 +233,7 @@ export const en = {
     protocolOpenAi: 'OpenAI-compatible',
     protocolAnthropic: 'Anthropic',
     protocolOpenAiResponses: 'OpenAI Responses',
+    defaultBadge: 'default',
     baseUrl: 'Base URL',
     baseUrlPlaceholderOpenAi: 'https://api.example.com/v1',
     baseUrlPlaceholderAnthropic: 'https://api.anthropic.com',

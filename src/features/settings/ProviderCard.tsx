@@ -27,23 +27,13 @@ import {
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ProviderApi } from '../../api/generated/bindings';
-import type { ProviderDto } from '../../api/types';
+import type { ProviderApi, ProviderDto } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { DropdownPushButton } from '../../components/DropdownPushButton';
-import { validateProvider } from './preferences';
+import { PROVIDER_PROTOCOLS, PROTOCOL_LABEL_KEYS, validateProvider } from './preferences';
 
-/** 三协议档位单一事实源（wire 值 = bindings 的 ProviderApi；Task-01 三协议）。
- *  label / 占位示例各用 Record 全量映射，协议扩档时 tsc 强制补齐文案。 */
-const PROTOCOLS: readonly ProviderApi[] = ['openai', 'anthropic', 'openai_responses'];
-
-const PROTOCOL_LABEL_KEYS: Record<ProviderApi, string> = {
-  openai: 'settings.protocolOpenAi',
-  anthropic: 'settings.protocolAnthropic',
-  openai_responses: 'settings.protocolOpenAiResponses',
-};
-
-/** 占位示例即协议用法提示（anthropic 官方域名不带 /v1，openai 系带 /v1）。 */
+/** 协议 → Base URL 占位示例 i18n key（占位即协议用法提示：anthropic 官方域名
+ *  不带 /v1，openai 系带 /v1）。档位本体与行标签见 preferences 的单一事实源。 */
 const PROTOCOL_BASE_URL_PLACEHOLDER_KEYS: Record<ProviderApi, string> = {
   openai: 'settings.baseUrlPlaceholderOpenAi',
   anthropic: 'settings.baseUrlPlaceholderAnthropic',
@@ -156,7 +146,7 @@ export function ProviderCard({
 
   const patch = (partial: Partial<ProviderDto>) => onChange({ ...provider, ...partial });
 
-  const protocolOptions = PROTOCOLS.map((value) => ({
+  const protocolOptions = PROVIDER_PROTOCOLS.map((value) => ({
     value,
     label: t(PROTOCOL_LABEL_KEYS[value]),
   }));

@@ -228,6 +228,8 @@ export const zh = {
     protocolOpenAi: 'OpenAI 兼容',
     protocolAnthropic: 'Anthropic',
     protocolOpenAiResponses: 'OpenAI Responses',
+    // 服务卡左列清单项 meta 行的全局默认徽标（activeProviderId 指向此服务时）。
+    defaultBadge: '默认',
     baseUrl: 'Base URL',
     baseUrlPlaceholderOpenAi: 'https://api.example.com/v1',
     baseUrlPlaceholderAnthropic: 'https://api.anthropic.com',

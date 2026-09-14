@@ -6,7 +6,7 @@
  * 不静默扩大存储值域。
  */
 
-import type { ConfigDto, LanguageSetting, ProviderDto, ThemeSetting } from '../../api/types';
+import type { ConfigDto, LanguageSetting, ProviderApi, ProviderDto, ThemeSetting } from '../../api/types';
 import { RHYTHM_MAX_MS, RHYTHM_MIN_MS } from '../../engine';
 
 /** 打字节奏允许范围（FR-009：10–160 ms/字；与 infra/config.rs 双重兜底）。
@@ -63,6 +63,22 @@ export interface ProviderValidity {
   /** models 非空，且每项 trim 后非空（空串项只可能是非法输入，就地标错）。 */
   models: boolean;
 }
+
+/** 三协议档位单一事实源（wire 值 = bindings 的 ProviderApi；Task-01 三协议）。
+ *  服务卡左列 meta 与详情下拉共用：协议扩档时 tsc 强制补齐此表与各文案映射。 */
+export const PROVIDER_PROTOCOLS: readonly ProviderApi[] = [
+  'openai',
+  'anthropic',
+  'openai_responses',
+];
+
+/** 协议档位 → 行标签 i18n key（与 PROVIDER_PROTOCOLS 同源成对维护）。 */
+export const PROTOCOL_LABEL_KEYS: Record<ProviderApi, string> = {
+  openai: 'settings.protocolOpenAi',
+  anthropic: 'settings.protocolAnthropic',
+  openai_responses: 'settings.protocolOpenAiResponses',
+};
+
 
 export function validateProvider(provider: ProviderDto): ProviderValidity {
   return {

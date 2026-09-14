@@ -45,6 +45,8 @@ export type {
   LlmCallStatusDto,
   /** 命令错误（可判别结构；IPC 命令统一返回）。 */
   IpcError,
+  /** Provider 的 API 兼容协议（2026-09-14 三协议；wire 值 snake_case）。 */
+  ProviderApi,
 } from './generated/bindings';
 
 /** 界面偏好档位（FR-009；config.json 键 ui_theme / ui_language） */

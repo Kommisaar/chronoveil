@@ -330,7 +330,7 @@ mod tests {
         ));
 
         // 名称非空白同经 validate 闸（空名 / 纯空白 → Conflict）：与导入 parse
-        // 层 EmptyName（character_io::parse_card_json）、前端 canSave（
+        // 层 EmptyName（character_card_file::parse_card_json）、前端 canSave（
         // useEditorForm）同一约束的三道闸；正常名 create / update 已由本测试
         // 前段覆盖，不受影响。
         for bad in ["", "   "] {

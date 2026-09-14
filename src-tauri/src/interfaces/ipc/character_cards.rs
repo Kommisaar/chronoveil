@@ -1,6 +1,6 @@
 //! 角色卡单卡导出/导入域（Task-04）：对话框 + 文件读写属 interface 关注点。
 //!
-//! JSON 构建/解析/校验纯函数在 services::character_io；本模块只负责：原生「保存 /
+//! JSON 构建/解析/校验纯函数在 services::character_card_file；本模块只负责：原生「保存 /
 //! 打开文件」对话框（tauri-plugin-dialog 的 Rust 侧 blocking API，不经前端 IPC
 //! 权限）、磁盘读写、把服务层错误映射为 IpcError。blocking API 不得在主线程调用
 //!（会与事件循环互锁），故两条命令均标 `#[tauri::command(async)]` 交给异步运行时线程。
@@ -9,7 +9,7 @@ use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::domain::ports::StoragePort;
-use crate::services::character_io;
+use crate::services::character_card_file;
 use crate::state::AppState;
 
 use super::character_inputs::CharacterInput;
@@ -17,7 +17,7 @@ use super::characters::{create_character_impl, CharacterSummary};
 use super::error::IpcError;
 
 /// 卡文件导入错误 → IpcError：全部是「所选文件非法入参」，统一归入 Conflict。
-fn map_card_import_error(e: character_io::CardImportError) -> IpcError {
+fn map_card_import_error(e: character_card_file::CardImportError) -> IpcError {
     IpcError::Conflict { message: e.to_string() }
 }
 
@@ -34,8 +34,8 @@ fn picked_file_path(picked: tauri_plugin_dialog::FilePath) -> Result<std::path::
 fn export_character_data(app: &AppState, id: i64) -> Result<(String, String), IpcError> {
     let character = app.storage.get_character(id)?;
     Ok((
-        character_io::card_file_name(&character.name),
-        character_io::build_card_json(&character),
+        character_card_file::card_file_name(&character.name),
+        character_card_file::build_card_json(&character),
     ))
 }
 
@@ -62,10 +62,10 @@ pub fn export_character(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-/// 导入数据段（对话框后的纯数据部分，可测）：解析校验（services::character_io）
+/// 导入数据段（对话框后的纯数据部分，可测）：解析校验（services::character_card_file）
 /// 后经既有 create_character 路径建新卡——不复用旧 id、允许重名，直接落库。
 fn import_character_data(app: &AppState, text: &str) -> Result<CharacterSummary, IpcError> {
-    let payload = character_io::parse_card_json(text).map_err(map_card_import_error)?;
+    let payload = character_card_file::parse_card_json(text).map_err(map_card_import_error)?;
     create_character_impl(app, CharacterInput::from(payload))
 }
 

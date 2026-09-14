@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::services::character_io;
+use crate::services::character_card_file;
 
 /// 动效时长可覆写范围（ms）。与 TS 引擎常量互指（同一约束两端）：
 /// `src/engine/anims/index.ts` 的 `DUR_MIN_MS` / `DUR_MAX_MS`（默认 450 = 模板值）。
@@ -51,7 +51,7 @@ pub struct CharacterInput {
 impl CharacterInput {
     /// create / update 共用入参闸：名称非空白 + 演出参数范围（违规报
     /// Conflict，不静默钳制——对齐 config.validate 快速失败风格）。名称
-    /// 非空白与导入 parse 层 EmptyName（`character_io::parse_card_json`）、
+    /// 非空白与导入 parse 层 EmptyName（`character_card_file::parse_card_json`）、
     /// 前端 canSave（`useEditorForm.ts`）是同一约束的三道闸，口径取齐；
     /// 前端控件域与引擎钳制同源，正常路径到不了这里。
     pub fn validate(&self) -> Result<(), String> {
@@ -76,9 +76,9 @@ impl CharacterInput {
     }
 }
 
-impl From<character_io::CharacterCardPayload> for CharacterInput {
+impl From<character_card_file::CharacterCardPayload> for CharacterInput {
     /// 卡文件负载（Task-04 导入）→ create 负载：同形十二字段直移，不复用旧 id。
-    fn from(p: character_io::CharacterCardPayload) -> Self {
+    fn from(p: character_card_file::CharacterCardPayload) -> Self {
         Self {
             name: p.name,
             avatar: p.avatar,

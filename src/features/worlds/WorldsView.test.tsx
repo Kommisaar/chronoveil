@@ -24,13 +24,21 @@ function inputOf(label: string): HTMLInputElement {
 
 afterEach(cleanup);
 
-it('渲染现有世界卡网格：卡面出名称 + 历法摘要（null 卡显示「默认数字历」）', async () => {
+it('渲染现有世界图版卡网格：名称 + 历法徽章 + 世界观摘录/空态占位', async () => {
   renderView();
   expect(await screen.findByText('空白舞台')).toBeTruthy();
-  // null 历法卡的摘要行显示「默认数字历」
+  // null 历法卡的徽章显示「默认数字历」
   expect(screen.getAllByText('默认数字历').length).toBeGreaterThanOrEqual(1);
   // 带历法卡显示历法名（七曜和历，种子与 calendarPresets seven 预设一致）
   expect(await screen.findByText('七曜和历')).toBeTruthy();
+  // 图版卡世界观摘录（gallery 档身份主角，excerptOf 64 字档）：雾灯航线
+  // 种子 worldbook 44 字 ≤ 64，摘录即全文无省略号
+  expect(
+    screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
+  ).toBeTruthy();
+  // 空 worldbook 卡（空白舞台）显示空态占位：图版卡有正文区，占位是行动
+  // 邀请（与海报卡「空则不渲染」的拍板差异，见 WorldPlateCard 文件头）
+  expect(screen.getByText('还没有世界观')).toBeTruthy();
 });
 
 // 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
@@ -43,10 +51,15 @@ it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 u
   const segments = [...group.querySelectorAll('[role="radio"]')];
   expect(segments).toHaveLength(3);
 
-  fireEvent.click(segments.find((r) => r.textContent === '名册')!);
-  expect(useUiStore.getState().cardDirection).toBe('ledger');
-  // 还原共享 store：shared 组 isolate:false，模块级 store 跨用例/跨文件驻留
-  useUiStore.setState({ cardDirection: 'gallery' });
+  try {
+    fireEvent.click(segments.find((r) => r.textContent === '名册')!);
+    expect(useUiStore.getState().cardDirection).toBe('ledger');
+  } finally {
+    // 还原共享 store 必须在 finally（Task-01 reviewer 转入）：shared 组
+    // isolate:false，模块级 store 跨用例/跨文件驻留——断言失败时 'ledger'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
 });
 
 it('新建 = 先落库再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {

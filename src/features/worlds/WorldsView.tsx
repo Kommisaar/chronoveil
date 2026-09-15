@@ -1,10 +1,13 @@
 /**
  * 世界页（0017 世界卡特性）：与角色页同款的列表三态 + 卡网格 + 编辑器形态。
- * 卡面为档案卡（2026-09-15 用户定稿，单一形态）：顶部世界色粗带 + 名称 +
- * 历法·更新日期——世界卡无海报 / 强调色 / 演出参数，不做电影海报视觉。
+ * 卡面口径（2026-09-15 晚间用户批准重设计定稿）：gallery 档用 WorldPlateCard
+ * 横版「图版卡」（上图下文，卡面承载身份——世界观摘录是主角，历法/日期退居
+ * 次位；竖=角色域、横=世界域，对齐角色页海报墙的视觉分量），替代同日早前
+ * 的档案卡定稿；ledger/stage 档暂仍渲染旧档案卡（三方向对比期的过渡形态，
+ * 由后续任务 T4/T5 分别接管，拍板后败者裁撤）。
  *
- * - 世界色（色带与历法色点）按 id 取模恒定（worldGradientOf，地志调色板
- *   与角色靛紫系拉开域别）；同世界跨处配色漂移不可接受（同角色页规则）；
+ * - 世界色按 id 取模恒定（worldGradientOf，地志调色板与角色靛紫系拉开域
+ *   别）；同世界跨处配色漂移不可接受（同角色页规则）；
  * - 悬停无位移（仅底色变化）：lift 的 translateY/scale 在宽扁信息卡上观感
  *   浮动（用户反馈），与 WorldPickGrid worldCard 同款静停；入场动画仍与
  *   角色卡同款（card-enter-pop 弹簧 + useRevealOnScroll 视口揭示错峰）；
@@ -13,15 +16,16 @@
  * - 编辑器（WorldEditorDialog）与角色编辑器同档（2026-09-15 用户定稿升档
  *   「世界观是世界的灵魂」，旧「标准模态简单档」口径作废）：左世界色画布
  *   + 右三张分组卡（基础信息 / 世界观 / 历法五选），非模态 + 毛玻璃背板 +
- *   从档案卡 FLIP 长出，可见性与挂载分离（editorOpen 置 false 走退场动画，
- *   onClosed 才卸载）；改动经表单钩子防抖自动落库；
+ *   从卡面 FLIP 长出（两档卡面都挂 data-editor-trigger），可见性与挂载
+ *   分离（editorOpen 置 false 走退场动画，onClosed 才卸载）；改动经表单
+ *   钩子防抖自动落库；
  * - 删除走 ConfirmDialog 确认：世界软删（ADR-009），已建会话内的世界快照
  *   （world_instances，D1 冻结语义）不受影响——文案明示该语义；
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
  * - 工具栏卡面风格切换器（三方向对比期基建）：与角色页共用全局
- *   cardDirection 档位，对比期本页无视觉分支（切换只改 store 值），拍板
- *   胜出方向后随败者裁撤。
+ *   cardDirection 档位——gallery 落图版卡网格（本任务），ledger/stage 暂仍
+ *   档案卡（过渡形态，T4/T5 接管），拍板胜出方向后随败者裁撤。
  */
 import {
   Button,
@@ -45,6 +49,7 @@ import { usePageContainerStyles } from '../../components/usePageContainerStyles'
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
 import { WorldEditorDialog } from './WorldEditorDialog';
+import { WorldPlateCard } from './WorldPlateCard';
 import { worldGradientOf } from './worldGradient';
 
 const useStyles = makeStyles({
@@ -75,6 +80,14 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 图版卡网格（gallery 档）：横版卡比档案卡宽一档（260px），承载世界观
+  // 摘录两行 clamp 的正文区
+  plateGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gap: '16px',
+  },
+  // 档案卡网格（ledger/stage 过渡档，T4/T5 接管后随败者裁撤）
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
@@ -87,8 +100,9 @@ const useStyles = makeStyles({
     minWidth: '0px',
   },
 
-  // —— 档案卡：原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的
-  //    interactive 语义栈，裸 button + Griffel 类即测试契约「点击进编辑」） ——
+  // —— 档案卡（ledger/stage 过渡档样式，gallery 已换 WorldPlateCard）：
+  //    原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的 interactive
+  //    语义栈，裸 button + Griffel 类即测试契约「点击进编辑」） ——
   card: {
     display: 'flex',
     flexDirection: 'column',
@@ -177,8 +191,8 @@ export function WorldsView() {
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
-  // 卡面方向档位（三方向对比期基建，与角色页共用）：本任务只改 store 值，
-  // 视觉分支由后续任务接入
+  // 卡面方向档位（三方向对比期基建，与角色页共用）：gallery 落图版卡，
+  // ledger/stage 暂仍档案卡（过渡，T4/T5 接管）
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -198,8 +212,10 @@ export function WorldsView() {
   const [deleting, setDeleting] = useState(false);
 
   // 视口揭示（同角色页海报墙）：首屏立即成批、折叠线以下滚入才播，批内按
-  // 清单浮现统一档错峰；resetKey 恒 'worlds'（无形态切换，仅列表清空重挂时重播）。
-  const { reveal, register } = useRevealOnScroll(worlds.length, 'worlds');
+  // 清单浮现统一档错峰。resetKey 携带卡面方向：gallery ↔ ledger/stage 切换
+  // 会重挂网格 DOM（useRevealOnScroll 文件头的设计场景），揭示状态须随之
+  // 重置——否则新元素无人观察，折叠线以下从未滚入过的卡切档后永久透明。
+  const { reveal, register } = useRevealOnScroll(worlds.length, cardDirection);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -348,49 +364,66 @@ export function WorldsView() {
                 {loadError}
               </Text>
             ) : null}
-            <div className={styles.grid}>
-              {sorted.map((world, index) => {
-                const revealDelay = reveal[index];
-                return (
-                  <button
+            {cardDirection === 'gallery' ? (
+              <div className={styles.plateGrid}>
+                {sorted.map((world, index) => (
+                  <WorldPlateCard
                     key={world.id}
-                    type="button"
-                    ref={register(index)}
-                    // FLIP 共享元素过渡锚点：编辑器 getTriggerRect 按世界 id
-                    // 现测本卡矩形（后续图版卡继承同一属性约定）
-                    data-editor-trigger={world.id}
-                    className={mergeClasses(
-                      styles.card,
-                      revealDelay === undefined ? styles.preReveal : styles.enterPop,
-                    )}
-                    style={
-                      revealDelay === undefined
-                        ? undefined
-                        : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties)
-                    }
-                    onClick={() => openEditor(world)}
-                  >
-                    {/* 世界色粗带：每世界恒定（worldGradientOf，见文件头） */}
-                    <span className={styles.band} style={{ backgroundImage: worldGradientOf(world.id) }} aria-hidden />
-                    <span className={styles.body}>
-                      <span className={styles.name}>{world.name}</span>
-                      <span className={styles.meta}>
-                        {/* 历法色点：取 id+1 错位色（同角色卡 dot 先例） */}
-                        <span
-                          className={styles.dot}
-                          style={{ backgroundImage: worldGradientOf(world.id + 1) }}
-                          aria-hidden
-                        />
-                        {/* null 历法 → 「默认数字历」；有历法无名 → 空串 */}
-                        <span>{world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}</span>
-                        <span aria-hidden>·</span>
-                        <span>{new Date(world.updatedAt).toLocaleDateString()}</span>
+                    world={world}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                  />
+                ))}
+              </div>
+            ) : (
+              // ledger/stage 过渡档：暂仍旧档案卡网格（后续任务 T4/T5 分别
+              // 接管改版，拍板后败者随档案卡代码一并裁撤）
+              <div className={styles.grid}>
+                {sorted.map((world, index) => {
+                  const revealDelay = reveal[index];
+                  return (
+                    <button
+                      key={world.id}
+                      type="button"
+                      ref={register(index)}
+                      // FLIP 共享元素过渡锚点：编辑器 getTriggerRect 按世界 id
+                      // 现测本卡矩形（与 WorldPlateCard 同一属性约定）
+                      data-editor-trigger={world.id}
+                      className={mergeClasses(
+                        styles.card,
+                        revealDelay === undefined ? styles.preReveal : styles.enterPop,
+                      )}
+                      style={
+                        revealDelay === undefined
+                          ? undefined
+                          : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties)
+                      }
+                      onClick={() => openEditor(world)}
+                    >
+                      {/* 世界色粗带：每世界恒定（worldGradientOf，见文件头） */}
+                      <span className={styles.band} style={{ backgroundImage: worldGradientOf(world.id) }} aria-hidden />
+                      <span className={styles.body}>
+                        <span className={styles.name}>{world.name}</span>
+                        <span className={styles.meta}>
+                          {/* 历法色点：取 id+1 错位色（同角色卡 dot 先例） */}
+                          <span
+                            className={styles.dot}
+                            style={{ backgroundImage: worldGradientOf(world.id + 1) }}
+                            aria-hidden
+                          />
+                          {/* null 历法 → 「默认数字历」；有历法无名 → 空串 */}
+                          <span>{world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}</span>
+                          <span aria-hidden>·</span>
+                          <span>{new Date(world.updatedAt).toLocaleDateString()}</span>
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -8,6 +8,8 @@
 // - 交互与测试契约：点击进编辑；修改即保存（2026-09-13 用户定稿），无
 //   脏守卫与丢弃确认；本视图仅服务编辑既有卡，新建 = 先以默认名落库再
 //   进编辑器（handleNew）。
+// - 工具栏卡面风格切换器（三方向对比期基建）：读写全局 cardDirection 档位，
+//   对比期本页无视觉分支（切换只改 store 值），拍板胜出方向后随败者裁撤。
 import {
   Button,
   Text,
@@ -30,9 +32,11 @@ import {
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
+import { useUiStore } from '../../stores/ui';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 import type { AnimDefaults } from './editor/useEditorForm';
 import { CharacterPosterCard } from './CharacterPosterCard';
@@ -90,6 +94,12 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 卡面风格切换器定宽：SegmentedControl 轨道自带 width:100%，工具栏 flex 行
+  // 内不约束会撑满整行（同 WorldEditorDialog.worldbookMode 先例）
+  cardStyleSwitch: {
+    width: '168px',
+    minWidth: '0px',
+  },
 });
 
 function describeError(e: unknown): string {
@@ -100,6 +110,10 @@ export function CharactersView() {
   const styles = useStyles();
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
+
+  // 卡面方向档位（三方向对比期基建）：本任务只改 store 值，视觉分支由后续任务接入
+  const cardDirection = useUiStore((s) => s.cardDirection);
+  const setCardDirection = useUiStore((s) => s.setCardDirection);
 
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   // 列表在途标记（A1 三态收编）：true 且列表为空时出 loading 占位，堵住
@@ -280,6 +294,19 @@ export function CharactersView() {
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('characters.title')}</Title1>
           <div className={styles.toolbarRight}>
+            <SegmentedControl
+              className={styles.cardStyleSwitch}
+              ariaLabel={t('cardStyle.label')}
+              value={cardDirection}
+              // SegmentedControl 回调给宽化 string（组件按通用选项值设计），
+              // 收窄回 CardDirection；不可达兜底分支按初值 gallery（选项集即三方向全集）
+              onChange={(v) => setCardDirection(v === 'ledger' || v === 'stage' ? v : 'gallery')}
+              options={[
+                { value: 'gallery', label: t('cardStyle.gallery') },
+                { value: 'ledger', label: t('cardStyle.ledger') },
+                { value: 'stage', label: t('cardStyle.stage') },
+              ]}
+            />
             <Button icon={<ArrowUploadRegular />} onClick={() => void handleImport()}>
               {t('characters.import')}
             </Button>

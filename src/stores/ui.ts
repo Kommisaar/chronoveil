@@ -4,6 +4,9 @@ import type { LanguageSetting, SessionSummary, ThemeSetting } from '../api/types
 
 export type View = 'chat' | 'characters' | 'worlds' | 'settings';
 
+/** 卡面视觉方向（角色页/世界页三方向对比期）：gallery 陈列馆 / ledger 名册 / stage 舞台。 */
+export type CardDirection = 'gallery' | 'ledger' | 'stage';
+
 /** 会话清单排序约定（FR-007）：updated_at 倒序，落 store 前统一保证。 */
 const byRecencyDesc = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;
 
@@ -51,6 +54,16 @@ interface UiState {
   theme: ThemeSetting;
   /** 界面语言档位（FR-009） */
   language: LanguageSetting;
+  /**
+   * 卡面方向偏好（三方向对比期基建，2026-09-15 用户拍板「都做做看」）：角色页
+   * 与世界页共用同一档位，两页工具栏切换器同源读写（对比期视觉分支尚未接入，
+   * 切换只改本值）。会话级状态不落盘——本 store 无 persist 中间件，重启回
+   * 'gallery' 默认档。
+   * TODO(对比期)：未完成原因——三方向卡面尚未实现，无法裁撤；移除条件——
+   * 对比期结束用户拍板胜出方向后，败者方向与两页切换器一并裁撤（本字段
+   * 收编为胜出方向的常量或彻底移除）。
+   */
+  cardDirection: CardDirection;
   setView: (view: View) => void;
   selectSession: (id: number) => void;
   /**
@@ -76,6 +89,7 @@ interface UiState {
   closeNewSession: () => void;
   setTheme: (theme: ThemeSetting) => void;
   setLanguage: (language: LanguageSetting) => void;
+  setCardDirection: (direction: CardDirection) => void;
 }
 
 /** 应用级 UI 路由状态（视图切换 + 当前会话 + 会话清单 + 界面偏好）；多路生成实例表在阶段 4 扩展（FR-007）。 */
@@ -90,6 +104,7 @@ export const useUiStore = create<UiState>()((set, get) => ({
   newSessionOpen: false,
   theme: 'system',
   language: 'system',
+  cardDirection: 'gallery',
   setView: (view) => set({ view }),
   selectSession: (id) => set({ activeSessionId: id, view: 'chat' }),
   refreshSessions: async () => {
@@ -133,4 +148,5 @@ export const useUiStore = create<UiState>()((set, get) => ({
   closeNewSession: () => set({ newSessionOpen: false }),
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
+  setCardDirection: (direction) => set({ cardDirection: direction }),
 }));

@@ -73,7 +73,7 @@ describe('CharactersView 三态（A1 收编）', () => {
     mocks.listCharacters.mockReturnValue(new Promise(() => {}));
     renderView();
     expect(await screen.findByText('加载中…')).toBeTruthy();
-    expect(screen.queryByText('还没有角色，点击「新建角色」创建一张角色卡')).toBeNull();
+    expect(screen.queryByText('还没有角色。新建一位，或导入一张角色卡开始。')).toBeNull();
     expect(screen.queryByText('林深')).toBeNull();
   });
 
@@ -96,7 +96,7 @@ describe('CharactersView 三态（A1 收编）', () => {
     mocks.listCharacters.mockResolvedValue([]);
     renderView();
     expect(
-      await screen.findByText('还没有角色，点击「新建角色」创建一张角色卡'),
+      await screen.findByText('还没有角色。新建一位，或导入一张角色卡开始。'),
     ).toBeTruthy();
     expect(screen.queryByText('加载中…')).toBeNull();
   });

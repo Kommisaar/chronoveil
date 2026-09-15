@@ -141,13 +141,22 @@ export const en = {
       forkFailed: 'Fork failed',
     },
   },
+  // Card-direction switch (three-way comparison scaffolding): one shared
+  // preference for the Characters and Worlds toolbars (store: useUiStore.
+  // cardDirection); removed together with the switchers once a direction wins.
+  cardStyle: {
+    label: 'Card style',
+    gallery: 'Gallery',
+    ledger: 'Ledger',
+    stage: 'Stage',
+  },
   worlds: {
     title: 'Worlds',
     new: 'New world',
     loading: 'Loading…',
     loadFailed: 'Failed to load worlds',
     retry: 'Retry',
-    empty: 'No worlds yet — click "New world" to create a card',
+    empty: 'No worlds yet. Create one to set the geography and rules of your stage.',
     calendarNone: 'Numeric default',
     editTitle: 'Edit world',
     sectionBasic: 'Basics',
@@ -156,6 +165,8 @@ export const en = {
     nameRequired: 'Name is required',
     worldbook: 'Worldbook',
     worldbookPlaceholder: 'What is this world like? Geography, rules, atmosphere…',
+    // Fallback when a card's worldbook excerpt is empty (see src/lib/excerpt.ts)
+    worldbookEmpty: 'No worldbook yet',
     worldbookViewLabel: 'Worldbook view',
     modePreview: 'Preview',
     modeEdit: 'Edit',
@@ -184,7 +195,7 @@ export const en = {
     new: 'New character',
     renderStyle: 'Animation style',
     sessionCount: '{{count}} sessions',
-    empty: 'No characters yet — click "New character" to create a card',
+    empty: 'No characters yet. Create one, or import a character card to begin.',
     loading: 'Loading…',
     loadFailed: 'Failed to load characters',
     retry: 'Retry',
@@ -209,6 +220,8 @@ export const en = {
     nameRequired: 'Name is required',
     persona: 'Persona',
     personaPlaceholder: 'Who is this character? Voice, background, boundaries…',
+    // Fallback when a card's persona excerpt is empty (see src/lib/excerpt.ts)
+    personaEmpty: 'No persona yet',
     // 人设块独立视图切换（2026-09-15 自整卡编辑会话拆出）
     personaViewLabel: 'Persona view',
     personaModePreview: 'Preview',

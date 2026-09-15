@@ -137,13 +137,21 @@ export const zh = {
       forkFailed: '分叉失败',
     },
   },
+  // 卡面风格切换（三方向对比期基建）：角色页与世界页工具栏共用同一档位
+  // （store：useUiStore.cardDirection），对比期结束拍板后随切换器一并裁撤。
+  cardStyle: {
+    label: '卡面风格',
+    gallery: '陈列馆',
+    ledger: '名册',
+    stage: '舞台',
+  },
   worlds: {
     title: '世界',
     new: '新建世界',
     loading: '加载中…',
     loadFailed: '世界清单加载失败',
     retry: '重试',
-    empty: '还没有世界，点击「新建世界」创建一张世界卡',
+    empty: '还没有世界。新建一个，为舞台写下地理与规则。',
     // 卡面历法摘要行：null = 默认数字历（无月名日名）
     calendarNone: '默认数字历',
     editTitle: '编辑世界',
@@ -153,6 +161,8 @@ export const zh = {
     nameRequired: '名称必填',
     worldbook: '世界观',
     worldbookPlaceholder: '这个世界是什么样的？地理、规则、氛围……',
+    // 卡面世界观摘录为空时的兜底文案（摘录见 src/lib/excerpt.ts）
+    worldbookEmpty: '还没有世界观',
     // 世界观块视图切换（同人设/系统提示词块的预览|编辑形态）
     worldbookViewLabel: '世界观视图',
     modePreview: '预览',
@@ -184,7 +194,7 @@ export const zh = {
     cardMenu: '卡片菜单',
     renderStyle: '动画样式',
     sessionCount: '{{count}} 个会话',
-    empty: '还没有角色，点击「新建角色」创建一张角色卡',
+    empty: '还没有角色。新建一位，或导入一张角色卡开始。',
     loading: '加载中…',
     loadFailed: '角色列表加载失败',
     retry: '重试',
@@ -205,6 +215,8 @@ export const zh = {
     nameRequired: '名称必填',
     persona: '人设',
     personaPlaceholder: '这个角色是谁？说话习惯、背景、底线……',
+    // 卡面人设摘录为空时的兜底文案（摘录见 src/lib/excerpt.ts）
+    personaEmpty: '还没有人设',
     // 人设块独立视图切换（2026-09-15 自整卡编辑会话拆出）
     personaViewLabel: '人设视图',
     personaModePreview: '预览',

@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { sessions } from '../../api/mock/data';
 import '../../i18n';
+import { useUiStore } from '../../stores/ui';
 import { CharactersView } from './CharactersView';
 
 // 本文件渲染重（卡片网格 + 18 项下拉全量渲染），全量并行负载下 jsdom 单用例
@@ -49,6 +50,22 @@ it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
   expect(
     suy.compareDocumentPosition(lin) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+});
+
+// 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
+// 原生 button，天然可键盘操作），点「名册」落全局档位。
+it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 useUiStore.cardDirection', async () => {
+  renderView();
+  await screen.findByText('苏鸢');
+
+  const group = screen.getByRole('radiogroup', { name: '卡面风格' });
+  const segments = [...group.querySelectorAll('[role="radio"]')];
+  expect(segments).toHaveLength(3);
+
+  fireEvent.click(segments.find((r) => r.textContent === '名册')!);
+  expect(useUiStore.getState().cardDirection).toBe('ledger');
+  // 还原共享 store：shared 组 isolate:false，模块级 store 跨用例/跨文件驻留
+  useUiStore.setState({ cardDirection: 'gallery' });
 });
 
 it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {

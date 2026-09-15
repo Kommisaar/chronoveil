@@ -7,6 +7,7 @@ import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import '../../i18n';
+import { useUiStore } from '../../stores/ui';
 import { WorldsView } from './WorldsView';
 
 function renderView() {
@@ -30,6 +31,22 @@ it('渲染现有世界卡网格：卡面出名称 + 历法摘要（null 卡显�
   expect(screen.getAllByText('默认数字历').length).toBeGreaterThanOrEqual(1);
   // 带历法卡显示历法名（七曜和历，种子与 calendarPresets seven 预设一致）
   expect(await screen.findByText('七曜和历')).toBeTruthy();
+});
+
+// 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
+// 原生 button，天然可键盘操作），点「名册」落全局档位（与角色页共用同一 store）。
+it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 useUiStore.cardDirection', async () => {
+  renderView();
+  await screen.findByText('空白舞台');
+
+  const group = screen.getByRole('radiogroup', { name: '卡面风格' });
+  const segments = [...group.querySelectorAll('[role="radio"]')];
+  expect(segments).toHaveLength(3);
+
+  fireEvent.click(segments.find((r) => r.textContent === '名册')!);
+  expect(useUiStore.getState().cardDirection).toBe('ledger');
+  // 还原共享 store：shared 组 isolate:false，模块级 store 跨用例/跨文件驻留
+  useUiStore.setState({ cardDirection: 'gallery' });
 });
 
 it('新建 = 先落库再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {

@@ -16,6 +16,9 @@
  *   （world_instances，D1 冻结语义）不受影响——文案明示该语义；
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
+ * - 工具栏卡面风格切换器（三方向对比期基建）：与角色页共用全局
+ *   cardDirection 档位，对比期本页无视觉分支（切换只改 store 值），拍板
+ *   胜出方向后随败者裁撤。
  */
 import {
   Button,
@@ -33,9 +36,11 @@ import { createWorld, deleteWorld, listWorlds, updateWorld } from '../../api/com
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
+import { useUiStore } from '../../stores/ui';
 import { WorldEditorDialog } from './WorldEditorDialog';
 import { worldGradientOf } from './worldGradient';
 
@@ -71,6 +76,12 @@ const useStyles = makeStyles({
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
     gap: '16px',
+  },
+  // 卡面风格切换器定宽：SegmentedControl 轨道自带 width:100%，工具栏 flex 行
+  // 内不约束会撑满整行（同本文件 WorldEditorDialog.worldbookMode 先例）
+  cardStyleSwitch: {
+    width: '168px',
+    minWidth: '0px',
   },
 
   // —— 档案卡：原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的
@@ -162,6 +173,11 @@ export function WorldsView() {
   const styles = useStyles();
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
+
+  // 卡面方向档位（三方向对比期基建，与角色页共用）：本任务只改 store 值，
+  // 视觉分支由后续任务接入
+  const cardDirection = useUiStore((s) => s.cardDirection);
+  const setCardDirection = useUiStore((s) => s.setCardDirection);
 
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   // 列表在途标记（三态收编，同 CharactersView）：true 且列表为空时出
@@ -262,6 +278,19 @@ export function WorldsView() {
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('worlds.title')}</Title1>
           <div className={styles.toolbarRight}>
+            <SegmentedControl
+              className={styles.cardStyleSwitch}
+              ariaLabel={t('cardStyle.label')}
+              value={cardDirection}
+              // SegmentedControl 回调给宽化 string（组件按通用选项值设计），
+              // 收窄回 CardDirection；不可达兜底分支按初值 gallery（选项集即三方向全集）
+              onChange={(v) => setCardDirection(v === 'ledger' || v === 'stage' ? v : 'gallery')}
+              options={[
+                { value: 'gallery', label: t('cardStyle.gallery') },
+                { value: 'ledger', label: t('cardStyle.ledger') },
+                { value: 'stage', label: t('cardStyle.stage') },
+              ]}
+            />
             <Button appearance="primary" disabled={creating} onClick={() => void handleNew()}>
               {t('worlds.new')}
             </Button>

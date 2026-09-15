@@ -92,6 +92,36 @@ it('名册档：单列名册行承载世界名/历法徽章/世界观摘录，�
   }
 });
 
+// 舞台档（Task-05）：满幅深底卡（WorldFullBleedCard）上屏——世界名/历法
+// 徽章/世界观摘录全部常显（世界舞台卡无 hover 揭示，揭示是角色 stage 卡的
+// 专属语言），空 worldbook 渲染占位，点卡进编辑。只读用例，排「编辑」用例
+// 改历法之前（口径同名册档用例）。
+it('舞台档：满幅深底卡承载世界名/历法徽章/世界观摘录与空态占位，点卡进编辑', async () => {
+  useUiStore.setState({ cardDirection: 'stage' });
+  try {
+    renderView();
+    expect(await screen.findByText('雾灯航线')).toBeTruthy();
+    // 历法徽章：带历法卡显历法名；null 历法卡显「默认数字历」
+    expect(screen.getByText('七曜和历')).toBeTruthy();
+    expect(screen.getByText('默认数字历')).toBeTruthy();
+    // 世界观摘录（excerptOf 64 字档，种子 44 字全文无省略号）；空 worldbook
+    // 卡（空白舞台）渲染空态占位
+    expect(
+      screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
+    ).toBeTruthy();
+    expect(screen.getByText('还没有世界观')).toBeTruthy();
+    // 点卡进编辑
+    fireEvent.click(screen.getByText('雾灯航线'));
+    expect(
+      await screen.findByRole('heading', { name: '编辑世界' }, { timeout: 3000 }),
+    ).toBeTruthy();
+  } finally {
+    // 还原共享 store 必须在 finally（口径同名册档用例）：断言失败时 'stage'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
+});
+
 it('新建 = 先落库再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
   renderView();
   await screen.findByText('空白舞台');

@@ -328,6 +328,28 @@ const POSTER_CARD_TEXT: readonly { line: number; style: string; context: string 
 const POSTER_ICON_SCRIM_FLOOR = 0.62;
 
 /**
+ * 世界满幅卡文字用点（2026-09-15 新增，stage 档，Task-05）：
+ * WorldFullBleedCard（世界页满幅深底卡）的文字直落 worldGradientOf 世界色
+ * 渐变，文字区容器挂 rgba(0,0,0,WORLD_BLEED_SCRIM_ALPHA) 黑实底、次级文字
+ * 走 WORLD_BLEED_META_TEXT_ALPHA 半透明白——与 CharacterPosterCard 的
+ * POSTER_SCRIM_ALPHA / POSTER_META_TEXT_ALPHA、CharacterStageCard 的
+ * STAGE_SCRIM_ALPHA / STAGE_META_TEXT_ALPHA 同值同档互指（四处同约束，
+ * 改值须同步）。
+ *
+ * 配对数学（最坏合成推导，与 POSTER_CARD_TEXT 同构）：世界色板当前恒深色
+ * （worldGradientOf 无 accent 直出路径），但守卫仍按与海报卡相同的最坏口径
+ * 断言（纯白底）——色板将来引入浅色/用户可选色时下限不破：
+ * - 最坏背景 = 纯白 × (1 − 0.62) 黑实底 → 合成灰 = ceil(255 × 0.38) = 97
+ *   （取整方向保守）；
+ * - 主文字（OnBrand token，双主题 #ffffff）：对比 ≈6.19:1 ≥ 4.5；
+ * - 次文字（半透明白按合成像素计）：0.8 合成 = floor(255×0.8+97×0.2) = 223
+ *   → ≈4.65:1 ≥ 4.5。
+ */
+const WORLD_BLEED_TEXT_SCRIM_FLOOR = 0.62;
+const WORLD_BLEED_TEXT_META_ALPHA = 0.8;
+const WORLD_FULL_BLEED_CARD_FILE = 'src/features/worlds/WorldFullBleedCard.tsx';
+
+/**
  * 豁免清单（当前为空：基准 a0a00c0 实测全部可配对组合双主题 ≥4.5）。
  * 键格式：`文件:行 样式类×背景token×主题`；每项注释附实测比值与待修说明。
  * 断言口径：比值 <4.5 且不在本清单 = 失败；在清单但实测已达标 = 失败（防陈旧豁免）。
@@ -489,6 +511,80 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       if (secondary < WCAG_AA) {
         failures.push(
           `海报卡次文字（${POSTER_TEXT_META_ALPHA} 合成） × 最坏合成 ${themeName} = ${secondary.toFixed(2)}:1 < ${WCAG_AA}`,
+        );
+      }
+    }
+    expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('世界满幅卡文字用点：源文件仍持压暗实底与次级文字常量，互指注释完整，主/次文字 × 最坏合成背景双主题 ≥4.5', () => {
+    // 完整性锚（静态清单惯例，形态同 POSTER_CARD_TEXT 组）：常量声明与实底
+    // 挂载模板串仍在（值改动需同步 WORLD_BLEED_TEXT_SCRIM_FLOOR /
+    // WORLD_BLEED_TEXT_META_ALPHA）
+    const source = readSource(WORLD_FULL_BLEED_CARD_FILE);
+    expect(
+      source,
+      `文字区实底常量被移除或改值（需同步 WORLD_BLEED_TEXT_SCRIM_FLOOR）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain(`WORLD_BLEED_SCRIM_ALPHA = ${WORLD_BLEED_TEXT_SCRIM_FLOOR}`);
+    expect(
+      source,
+      `文字区实底未挂 WORLD_BLEED_SCRIM_ALPHA（下限失效）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain('rgba(0, 0, 0, ${WORLD_BLEED_SCRIM_ALPHA})');
+    expect(
+      source,
+      `次级文字常量被移除或改值（需同步 WORLD_BLEED_TEXT_META_ALPHA）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain(`WORLD_BLEED_META_TEXT_ALPHA = ${WORLD_BLEED_TEXT_META_ALPHA}`);
+    expect(
+      source,
+      `次级文字未经 WORLD_BLEED_META_TEXT_ALPHA 出色（直改字面量绕过常量锚）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain('rgba(255, 255, 255, ${WORLD_BLEED_META_TEXT_ALPHA})');
+    expect(
+      source,
+      `世界名未走 OnBrand token（与断言的配对前景脱钩）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain('colorNeutralForegroundOnBrand');
+
+    // 互指完整性（跨文件常量互指铁律）：同约束四处的互指注释须构成完整的
+    // 环——本文件互指海报卡/舞台卡同名常量，CharacterStageCard 反向互指回
+    // 本文件；注释被删即失败（改值/改名时互指是同步线索）
+    expect(
+      source,
+      `互指注释缺失（须指向 CharacterPosterCard 的 POSTER_SCRIM_ALPHA）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain('POSTER_SCRIM_ALPHA');
+    expect(
+      source,
+      `互指注释缺失（须指向 CharacterStageCard 的 STAGE_SCRIM_ALPHA）：${WORLD_FULL_BLEED_CARD_FILE}`,
+    ).toContain('STAGE_SCRIM_ALPHA');
+    const stageSource = readSource('src/features/characters/CharacterStageCard.tsx');
+    expect(
+      stageSource,
+      'CharacterStageCard 反向互指缺失（须指向 WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA）',
+    ).toContain('WORLD_BLEED_SCRIM_ALPHA');
+
+    // 最坏合成背景：纯白 × (1 − 0.62) 黑实底，通道向上取整保守（与
+    // POSTER_CARD_TEXT 组同构推导）
+    const channel = Math.ceil(255 * (1 - WORLD_BLEED_TEXT_SCRIM_FLOOR));
+    const worst: [number, number, number] = [channel, channel, channel];
+    // 次级文字合成像素：半透明白叠最坏背景，通道向下取整保守
+    const metaChannel = Math.floor(
+      255 * WORLD_BLEED_TEXT_META_ALPHA + channel * (1 - WORLD_BLEED_TEXT_META_ALPHA),
+    );
+    const metaComposite: [number, number, number] = [metaChannel, metaChannel, metaChannel];
+    const failures: string[] = [];
+    for (const [themeName, theme] of Object.entries(THEMES)) {
+      const fgHex: string | undefined = theme['colorNeutralForegroundOnBrand'];
+      if (typeof fgHex !== 'string' || fgHex === '') {
+        throw new Error(`主题缺 token 值：colorNeutralForegroundOnBrand（${themeName}）`);
+      }
+      const fg = parseHexColor(fgHex);
+      if (fg === null) throw new Error(`token 值非 #rrggbb：colorNeutralForegroundOnBrand=${fgHex}`);
+      const primary = contrastRatio(fg, worst);
+      const secondary = contrastRatio(metaComposite, worst);
+      if (primary < WCAG_AA) {
+        failures.push(`世界满幅卡主文字 × 最坏合成 ${themeName} = ${primary.toFixed(2)}:1 < ${WCAG_AA}`);
+      }
+      if (secondary < WCAG_AA) {
+        failures.push(
+          `世界满幅卡次文字（${WORLD_BLEED_TEXT_META_ALPHA} 合成） × 最坏合成 ${themeName} = ${secondary.toFixed(2)}:1 < ${WCAG_AA}`,
         );
       }
     }

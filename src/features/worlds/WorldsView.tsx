@@ -4,8 +4,9 @@
  * 横版「图版卡」（上图下文，卡面承载身份——世界观摘录是主角，历法/日期退居
  * 次位；竖=角色域、横=世界域，对齐角色页海报墙的视觉分量），替代同日早前
  * 的档案卡定稿；ledger 档落单列名册行（WorldLedgerRow，Task-04，与角色页
- * CharacterLedgerRow 同族）；stage 档暂仍旧档案卡（三方向对比期的过渡形态，
- * 由后续任务 T5 接管，拍板后败者裁撤）。
+ * CharacterLedgerRow 同族）；stage 档落满幅深底卡（WorldFullBleedCard，
+ * Task-05：整卡世界色深底白字 + 页头青绿环境光晕），旧档案卡随 stage 接管
+ * 无消费方而裁撤（拍板后败者随代码一并裁撤）。
  *
  * - 世界色按 id 取模恒定（worldGradientOf，地志调色板与角色靛紫系拉开域
  *   别）；同世界跨处配色漂移不可接受（同角色页规则）；
@@ -17,7 +18,7 @@
  * - 编辑器（WorldEditorDialog）与角色编辑器同档（2026-09-15 用户定稿升档
  *   「世界观是世界的灵魂」，旧「标准模态简单档」口径作废）：左世界色画布
  *   + 右三张分组卡（基础信息 / 世界观 / 历法五选），非模态 + 毛玻璃背板 +
- *   从卡面 FLIP 长出（两档卡面都挂 data-editor-trigger），可见性与挂载
+ *   从卡面 FLIP 长出（各档卡面都挂 data-editor-trigger），可见性与挂载
  *   分离（editorOpen 置 false 走退场动画，onClosed 才卸载）；改动经表单
  *   钩子防抖自动落库；
  * - 删除走 ConfirmDialog 确认：世界软删（ADR-009），已建会话内的世界快照
@@ -26,34 +27,31 @@
  *   在手时的重取失败保留红字 + 网格。
  * - 工具栏卡面风格切换器（三方向对比期基建）：与角色页共用全局
  *   cardDirection 档位——gallery 落图版卡网格，ledger 落单列名册行
- *   （Task-04），stage 暂仍档案卡（过渡形态，T5 接管），拍板胜出方向后随
- *   败者裁撤。
+ *   （Task-04），stage 落满幅深底卡网格 + 环境光晕（Task-05），拍板胜出
+ *   方向后随败者裁撤。
  */
 import {
   Button,
   Text,
   Title1,
   makeStyles,
-  mergeClasses,
   tokens,
 } from '@fluentui/react-components';
 import { useCallback, useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorldInput, WorldSummary } from '../../api/types';
 import { createWorld, deleteWorld, listWorlds, updateWorld } from '../../api/commands';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
-import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
 import { WorldEditorDialog } from './WorldEditorDialog';
+import { WorldFullBleedCard } from './WorldFullBleedCard';
 import { WorldLedgerRow } from './WorldLedgerRow';
 import { WorldPlateCard } from './WorldPlateCard';
-import { worldGradientOf } from './worldGradient';
 
 const useStyles = makeStyles({
   content: {
@@ -62,6 +60,21 @@ const useStyles = makeStyles({
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
+  },
+  // 页头环境光晕（stage 档氛围层）：fixed 静态装饰，radial-gradient 从顶部
+  // 青绿到透明。取色理由：#1f6d6f 是 worldGradient.ts「深青海」色对的亮端
+  // ——世界域色板本身（地志调，与角色页靛紫光晕拉开域别），不引 Fluent
+  // brand token（brand 是交互控件语义色，氛围层要的是域色不是控件色）；
+  // 低不透明度装饰、不承载任何文字（无对比度约束），aria-hidden +
+  // pointer-events none，zIndex 0 压在内容层（relative z1）之下。仅
+  // cardDirection === 'stage' 时挂载（条件渲染非显隐）
+  ambientGlow: {
+    position: 'fixed',
+    inset: '0px',
+    pointerEvents: 'none',
+    zIndex: 0,
+    backgroundImage:
+      'radial-gradient(ellipse 80% 45% at 50% 0%, rgba(31, 109, 111, 0.18) 0%, rgba(31, 109, 111, 0) 70%)',
   },
   toolbar: {
     display: 'flex',
@@ -83,18 +96,20 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 图版卡网格（gallery 档）：横版卡比档案卡宽一档（260px），承载世界观
-  // 摘录两行 clamp 的正文区
+  // 图版卡网格（gallery 档）：横版卡承载世界观摘录两行 clamp 的正文区，
+  // 列宽 260px（舞台档满幅卡 300px 再疏朗一档，见 stageGrid）
   plateGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '16px',
   },
-  // 档案卡网格（stage 过渡档，T5 接管后随败者裁撤）
-  grid: {
+  // 满幅深底卡网格（stage 档，Task-05）：主角大卡——列宽定档比图版墙
+  //（260px）疏朗一档（300px 起步，同窗宽列数更少、单卡更大），行距放宽
+  // 到 20px；卡面高度由 WorldFullBleedCard 的 minHeight 280 自持
+  stageGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-    gap: '16px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: '20px',
   },
   // 名册容器（ledger 档，Task-04）：单列限宽 880 居中（对齐 settings 族阅读
   // 宽度，与角色页 ledgerList 同口径）——名册是阅读型列表不是卡片墙；行间
@@ -110,83 +125,6 @@ const useStyles = makeStyles({
   cardStyleSwitch: {
     width: '168px',
     minWidth: '0px',
-  },
-
-  // —— 档案卡（stage 过渡档样式，gallery 已换 WorldPlateCard、ledger 已换
-  //    WorldLedgerRow）：
-  //    原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的 interactive
-  //    语义栈，裸 button + Griffel 类即测试契约「点击进编辑」） ——
-  card: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    padding: '0px',
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-    // 原生 button 自带 user agent 字色/居中/表单字体，全部收编到主题
-    color: tokens.colorNeutralForeground1,
-    textAlign: 'left',
-    fontFamily: 'inherit',
-    fontSize: 'inherit',
-    cursor: 'pointer',
-    // 悬停无位移（定稿，见文件头）：仅底色轻变，不 lift
-    ':hover': {
-      backgroundColor: tokens.colorNeutralBackground1Hover,
-    },
-    ':active': {
-      backgroundColor: tokens.colorNeutralBackground1Pressed,
-    },
-  },
-  band: {
-    height: '6px',
-    flexShrink: 0,
-    borderRadius: '5px 5px 0px 0px',
-  },
-  body: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    padding: '12px 16px 14px',
-  },
-  name: {
-    fontSize: tokens.fontSizeBase400,
-    fontWeight: tokens.fontWeightSemibold,
-    maxWidth: '100%',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  meta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalXS,
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
-    minWidth: 0,
-  },
-  dot: {
-    width: '8px',
-    height: '8px',
-    borderRadius: tokens.borderRadiusCircular,
-    flexShrink: 0,
-  },
-
-  // —— 入场动画（与角色卡同款；keyframes 在 app.css；reduced-motion 门控在
-  //    @media 内）。揭示前占位：滚入视口前以透明等待；揭示后换动画类，
-  //    backwards fill 在批内延迟期接手维持 from 态，动画止于自然态。 ——
-  preReveal: {
-    opacity: 0,
-  },
-  enterPop: {
-    '@media (prefers-reduced-motion: no-preference)': {
-      animationName: 'card-enter-pop',
-      // 弹簧入场档（POP_IN_MS）与曲线 SPRING_CURVE 均出自 src/components/motion.ts
-      animationDuration: `${POP_IN_MS}ms`,
-      animationTimingFunction: SPRING_CURVE,
-      animationFillMode: 'backwards',
-      animationDelay: 'var(--enter-delay, 0ms)',
-    },
   },
 });
 
@@ -205,7 +143,7 @@ export function WorldsView() {
   const { t } = useTranslation();
 
   // 卡面方向档位（三方向对比期基建，与角色页共用）：gallery 落图版卡，
-  // ledger 落名册行（Task-04），stage 暂仍档案卡（过渡，T5 接管）
+  // ledger 落名册行（Task-04），stage 落满幅深底卡 + 环境光晕（Task-05）
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -308,7 +246,7 @@ export function WorldsView() {
 
   const closeEditor = useCallback(() => setEditorOpen(false), []);
 
-  /** 共享元素过渡用：当前编辑目标对应的触发元素（档案卡）矩形。
+  /** 共享元素过渡用：当前编辑目标对应的触发元素（当前档位卡面）矩形。
       关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
       自行退化为纯淡出（同 CharactersView 形态）。 */
   const getTriggerRect = useCallback(() => {
@@ -323,6 +261,9 @@ export function WorldsView() {
 
   return (
     <div className={page}>
+      {/* stage 档氛围层：页头青绿环境光晕（fixed 装饰，仅 stage 档挂载，
+          条件渲染非 CSS 显隐——切档即卸载，不残留绘制面） */}
+      {cardDirection === 'stage' ? <div className={styles.ambientGlow} aria-hidden /> : null}
       <div className={styles.content}>
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('worlds.title')}</Title1>
@@ -405,50 +346,19 @@ export function WorldsView() {
                 ))}
               </div>
             ) : (
-              // stage 过渡档：暂仍旧档案卡网格（后续任务 T5 接管改版，拍板后
-              // 败者随档案卡代码一并裁撤）
-              <div className={styles.grid}>
-                {sorted.map((world, index) => {
-                  const revealDelay = reveal[index];
-                  return (
-                    <button
-                      key={world.id}
-                      type="button"
-                      ref={register(index)}
-                      // FLIP 共享元素过渡锚点：编辑器 getTriggerRect 按世界 id
-                      // 现测本卡矩形（与 WorldPlateCard 同一属性约定）
-                      data-editor-trigger={world.id}
-                      className={mergeClasses(
-                        styles.card,
-                        revealDelay === undefined ? styles.preReveal : styles.enterPop,
-                      )}
-                      style={
-                        revealDelay === undefined
-                          ? undefined
-                          : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties)
-                      }
-                      onClick={() => openEditor(world)}
-                    >
-                      {/* 世界色粗带：每世界恒定（worldGradientOf，见文件头） */}
-                      <span className={styles.band} style={{ backgroundImage: worldGradientOf(world.id) }} aria-hidden />
-                      <span className={styles.body}>
-                        <span className={styles.name}>{world.name}</span>
-                        <span className={styles.meta}>
-                          {/* 历法色点：取 id+1 错位色（同角色卡 dot 先例） */}
-                          <span
-                            className={styles.dot}
-                            style={{ backgroundImage: worldGradientOf(world.id + 1) }}
-                            aria-hidden
-                          />
-                          {/* null 历法 → 「默认数字历」；有历法无名 → 空串 */}
-                          <span>{world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}</span>
-                          <span aria-hidden>·</span>
-                          <span>{new Date(world.updatedAt).toLocaleDateString()}</span>
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+              // stage 档（Task-05）：满幅深底卡——整卡世界色深底白字，内容
+              // 全部常显（环境光晕层见页头条件渲染）
+              <div className={styles.stageGrid}>
+                {sorted.map((world, index) => (
+                  <WorldFullBleedCard
+                    key={world.id}
+                    world={world}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                  />
+                ))}
               </div>
             )}
           </>

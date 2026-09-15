@@ -4,13 +4,15 @@
 //   渲染与卡内交互独立在 CharacterPosterCard，本视图管数据流与对话框接线；
 // - 入场动画定稿弹性（card-enter-pop）：视口内触发（useRevealOnScroll），
 //   首屏手动判交立即成批、折叠线以下滚入才播，批内 60ms 错峰；
-// - 氛围层：fixed 环境光晕（靛紫，呼应应用图标），仅本视图挂载期间存在；
+// - 氛围层：fixed 环境光晕（靛紫，呼应应用图标），仅 stage 档挂载
+//   （cardDirection 条件渲染，非 CSS 显隐），纯装饰不承载文字；
 // - 交互与测试契约：点击进编辑；修改即保存（2026-09-13 用户定稿），无
 //   脏守卫与丢弃确认；本视图仅服务编辑既有卡，新建 = 先以默认名落库再
 //   进编辑器（handleNew）。
 // - 工具栏卡面风格切换器（三方向对比期基建）：读写全局 cardDirection 档位；
-//   ledger 档落单列名册（CharacterLedgerRow，Task-04），gallery/stage 暂落
-//   海报墙（stage 由 T5 接管），拍板胜出方向后随败者裁撤。
+//   gallery 档落海报墙（CharacterPosterCard）、ledger 档落单列名册
+//   （CharacterLedgerRow，Task-04）、stage 档落舞台卡网格（CharacterStageCard，
+//   Task-05，满幅色面主角大卡 + 页头环境光晕），拍板胜出方向后随败者裁撤。
 import {
   Button,
   Text,
@@ -42,6 +44,7 @@ import { CharacterEditorDialog } from './CharacterEditorDialog';
 import type { AnimDefaults } from './editor/useEditorForm';
 import { CharacterLedgerRow } from './CharacterLedgerRow';
 import { CharacterPosterCard } from './CharacterPosterCard';
+import { CharacterStageCard } from './CharacterStageCard';
 
 /** 新建卡的默认负载：先落库再进编辑器（修改即保存），后续编辑自动保存到该卡。 */
 function newCharacterInput(name: string): CharacterInput {
@@ -66,9 +69,27 @@ function newCharacterInput(name: string): CharacterInput {
 
 const useStyles = makeStyles({
   content: {
+    // relative + zIndex 1：压在环境光晕层（fixed z0，stage 档挂载）之上，
+    // 卡片与工具栏永远在光晕前（WorldsView.content 同款口径）
+    position: 'relative',
+    zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
+  },
+  // 页头环境光晕（stage 档氛围层）：fixed 静态装饰，radial-gradient 从顶部
+  // 靛紫到透明。取色理由：#6b46b8 是 posterGradient.ts 靛紫色对的亮端——
+  // 角色域色板本身（与应用图标同源），不引 Fluent brand token（brand 是
+  // 交互控件语义色，氛围层要的是域色不是控件色）；低不透明度装饰、不承载
+  // 任何文字（无对比度约束），aria-hidden + pointer-events none，zIndex 0
+  // 压在内容层之下。仅 cardDirection === 'stage' 时挂载（条件渲染非显隐）
+  ambientGlow: {
+    position: 'fixed',
+    inset: '0px',
+    pointerEvents: 'none',
+    zIndex: 0,
+    backgroundImage:
+      'radial-gradient(ellipse 80% 45% at 50% 0%, rgba(107, 70, 184, 0.16) 0%, rgba(107, 70, 184, 0) 70%)',
   },
   toolbar: {
     display: 'flex',
@@ -89,6 +110,14 @@ const useStyles = makeStyles({
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
     gap: '16px',
+  },
+  // 舞台卡网格（stage 档）：主角大卡——列宽定档比海报墙（200px）疏朗一档
+  //（280px 起步，同窗宽列数更少、单卡更大），行距放宽到 20px；卡面高度由
+  // CharacterStageCard 的 minHeight 340 自持
+  gridStage: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '20px',
   },
   // 名册容器（ledger 档）：单列限宽 880 居中（对齐 settings 族阅读宽度，
   // usePageContainerStyles 的 settings 档内容宽上限同为 880）——名册是阅读
@@ -122,8 +151,8 @@ export function CharactersView() {
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
-  // 卡面方向档位（三方向对比期基建）：ledger 落名册行，gallery/stage 暂落
-  // 海报墙（stage 由 T5 接管）
+  // 卡面方向档位（三方向对比期基建）：gallery 落海报墙，ledger 落名册行，
+  // stage 落舞台卡网格 + 环境光晕（Task-05）
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -305,6 +334,9 @@ export function CharactersView() {
 
   return (
     <div className={page}>
+      {/* stage 档氛围层：页头靛紫环境光晕（fixed 装饰，仅 stage 档挂载，
+          条件渲染非 CSS 显隐——切档即卸载，不残留绘制面） */}
+      {cardDirection === 'stage' ? <div className={styles.ambientGlow} aria-hidden /> : null}
       <div className={styles.content}>
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('characters.title')}</Title1>
@@ -383,8 +415,23 @@ export function CharactersView() {
                   />
                 ))}
               </div>
+            ) : cardDirection === 'stage' ? (
+              // 舞台档（Task-05）：满幅色面主角大卡——静息态名字 + 会话数，
+              // hover/focus 揭示称号与人设摘录（环境光晕层见页头条件渲染）
+              <div className={styles.gridStage}>
+                {sorted.map((character, index) => (
+                  <CharacterStageCard
+                    key={character.id}
+                    character={character}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                  />
+                ))}
+              </div>
             ) : (
-              // gallery/stage 档：海报墙（stage 由 T5 接管）
+              // gallery 档：海报墙
               <div className={styles.gridPoster}>
                 {sorted.map((character, index) => (
                   <CharacterPosterCard

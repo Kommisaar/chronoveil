@@ -110,6 +110,36 @@ it('名册档：单列名册行承载名字/称号/人设摘录与元信息，�
   }
 });
 
+// 舞台档（Task-05）：切 stage 后满幅色面舞台卡上屏——静息态名字 + 会话数，
+// 称号/人设摘录常驻 DOM（opacity 揭示不影响测试可达），点卡进编辑。只读
+// 用例，排破坏性用例之前（口径同名册档用例）。
+it('舞台档：舞台卡静息态承载名字/会话数，称号与人设常驻 DOM，点卡进编辑', async () => {
+  useUiStore.setState({ cardDirection: 'stage' });
+  try {
+    renderView();
+    // 林深种子带 titles + markdown persona（断言素材同名册档用例）；会话数
+    // 是 0 而非种子静态值 1：mock listCharacters 实时统计 is_user 扮演位会话
+    // 数（backend.ts），林深从未作扮演位，静态 sessionCount 被覆写
+    const nameText = await screen.findByText('林深');
+    const card = nameText.closest('button');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain('「守夜人 · 旧书店主」');
+    expect(card?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
+    expect(card?.textContent).toContain('0 个会话');
+    // 舞台卡不带导出菜单（设计拍板：纯净展示面；导出经 gallery/ledger 可达）
+    expect(screen.queryByRole('button', { name: '卡片菜单' })).toBeNull();
+    // 点卡进编辑
+    fireEvent.click(nameText);
+    expect(
+      await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
+    ).toBeTruthy();
+  } finally {
+    // 还原共享 store 必须在 finally（口径同名册档用例）：断言失败时 'stage'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
+});
+
 it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
   renderView();
   await screen.findByText('苏鸢');

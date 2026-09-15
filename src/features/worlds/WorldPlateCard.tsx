@@ -180,7 +180,9 @@ export function WorldPlateCard({ world, index, revealDelay, register, onOpen }: 
       <span className={styles.body}>
         <span className={styles.name}>{world.name}</span>
         <span className={styles.meta}>
-          {/* 历法徽章：null 历法 → 「默认数字历」；有历法无名 → 空串 */}
+          {/* 历法徽章：null 历法 → 「默认数字历」；有历法无名 → 空串（防御
+              性兜底，现网历法必有名——四预设 + 会话快照，开放空名历法时需
+              复访改为不渲染徽章） */}
           <span className={styles.calendarBadge}>
             {world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}
           </span>

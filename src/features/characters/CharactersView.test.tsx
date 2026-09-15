@@ -98,6 +98,18 @@ it('名册档：单列名册行承载名字/称号/人设摘录与元信息，�
     expect(row?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
     expect(row?.textContent).toContain('动画样式 · ink');
     expect(row?.textContent).toContain('0 个会话');
+    // 行内 ⋯ 菜单导出（T4 reviewer LOW 补名册路径直接断言）：菜单项
+    // stopPropagation 不冒泡回行 button，导出不打开编辑器——与 gallery 导出
+    // 用例同契约，此前名册行这一处修复无直接回归断言
+    const menuTrigger = screen.getAllByRole('button', { name: '卡片菜单' })[0];
+    expect(menuTrigger).toBeTruthy();
+    fireEvent.click(menuTrigger!);
+    fireEvent.click(await screen.findByRole('menuitem', { name: '导出角色卡' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: '导出角色卡' })).toBeNull();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '编辑角色' })).toBeNull();
     // 点行（名字在行 button 内，点击冒泡）进编辑
     fireEvent.click(screen.getByText('林深'));
     expect(
@@ -228,9 +240,14 @@ it('删除：软删 + 确认对话框（文案明示历史保留），卡片消�
   expect(screen.getByText(/历史会话与消息保留，角色从列表隐藏/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '删除' }));
 
-  await waitFor(() => {
-    expect(screen.queryByText('林深')).toBeNull();
-  });
+  // 超时上限 5000ms（2026-09-15 T9 加固）：全量负载下本断言默认 1000ms 曾
+  // 五轮偶发超时（单文件恒过——共享 worker 高负载的基线固有时序脆弱）
+  await waitFor(
+    () => {
+      expect(screen.queryByText('林深')).toBeNull();
+    },
+    { timeout: 5000 },
+  );
   // 软删不级联（ADR-009 / OQ-002）：会话仍在，聊天侧仍可查看
   expect(sessions.filter((s) => (s.instances ?? []).some((i) => i.characterId === 2)).length).toBe(sessionsBefore);
 });

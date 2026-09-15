@@ -3,7 +3,8 @@
  *
  * 渐变 + 首字水印 + 名字 + 称号 + 出场风格，随表单输入实时更新，与海报墙
  * 语言统一（渐变规则同 posterGradientOf；称号行 2026-09-15 卡面升级随墙内
- * 同步，墙内墙外一致）。纯预览，对读屏隐藏（aria-hidden）防与右栏表单重复。
+ * 同步——墙内墙外「文本形态」一致：整串「」+「·」连接；字号/色档/截断随
+ * 各自容器分档，非逐位同构）。纯预览，对读屏隐藏（aria-hidden）防与右栏表单重复。
  */
 import { Text, makeStyles, tokens } from '@fluentui/react-components';
 

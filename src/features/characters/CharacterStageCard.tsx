@@ -46,7 +46,8 @@ import { posterGradientOf } from './posterGradient';
  * accent 渐变」的实底下限，最坏合成数学相同：accent 原色直出可为纯白，
  * 纯白 × (1 − 0.62) 黑实底 → 灰 ceil(255×0.38)=97 → 白字对比 ≈6.19:1 ≥
  * AA 4.5:1。同约束还存在于 WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA
- * （其守卫断言组见 src/components/contrastGuard.test.ts）；改值须三处同步。
+ * （守卫断言组见 src/components/contrastGuard.test.ts，含本常量的 stage 侧
+ * 数值锚）；改值须四处同步（含守卫）。
  */
 const STAGE_SCRIM_ALPHA = 0.62;
 
@@ -55,7 +56,8 @@ const STAGE_SCRIM_ALPHA = 0.62;
  * CharacterPosterCard 的 POSTER_META_TEXT_ALPHA（0.8）同值同语义互指——
  * 半透明白按「合成像素 × 背景」计对比：0.8 合成 = 223 → ≈4.65:1 ≥ 4.5
  * （0.66 档 ≈3.74:1 不达标）。同约束同见于 WorldFullBleedCard 的
- * WORLD_BLEED_META_TEXT_ALPHA；改值须三处同步。
+ * WORLD_BLEED_META_TEXT_ALPHA（守卫含本常量的 stage 侧数值锚）；改值须
+ * 四处同步（含守卫）。
  */
 const STAGE_META_TEXT_ALPHA = 0.8;
 

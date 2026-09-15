@@ -201,7 +201,8 @@ export function WorldFullBleedCard({ world, index, revealDelay, register, onOpen
       <span className={styles.content}>
         <span className={styles.name}>{world.name}</span>
         <span className={styles.meta}>
-          {/* null 历法 → 「默认数字历」；有历法无名 → 空串（同图版卡口径） */}
+          {/* null 历法 → 「默认数字历」；有历法无名 → 空串（防御性兜底，
+              复访条件见图版卡徽章注释） */}
           <span className={styles.calendarBadge}>
             {world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}
           </span>

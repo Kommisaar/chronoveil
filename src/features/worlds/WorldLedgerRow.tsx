@@ -181,7 +181,8 @@ export function WorldLedgerRow({ world, index, revealDelay, register, onOpen }: 
       <span className={styles.info}>
         <span className={styles.nameLine}>
           <span className={styles.name}>{world.name}</span>
-          {/* 历法徽章：null 历法 → 「默认数字历」；有历法无名 → 空串 */}
+          {/* 历法徽章：null 历法 → 「默认数字历」；有历法无名 → 空串（防御
+              性兜底，现网历法必有名，复访条件见图版卡徽章注释） */}
           <span className={styles.calendarBadge}>
             {world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}
           </span>

@@ -487,7 +487,9 @@ it('展开详情：请求消息按 role 分色渲染（role 标签 + 内容）�
 
   // 展开行 #1（对话）：#4 也是对话徽标，按钟面 14:23:05 唯一定位
   fireEvent.click(screen.getByRole('button', { name: /14:23:05/ }));
-  await screen.findByText('请求消息');
+  // 超时上限 5000ms（2026-09-15 T9 加固）：默认 1000ms 在全量负载下曾被
+  // 冲破（负载 1438ms vs 单文件 352ms，delta 外负载偶发实锤），提上限防误报
+  await screen.findByText('请求消息', {}, { timeout: 5000 });
   // 请求消息：每条带 role 标签 + 内容（system / user 各一条）
   expect(screen.getByText('system')).toBeTruthy();
   expect(screen.getByText('你是叙事主持人。')).toBeTruthy();

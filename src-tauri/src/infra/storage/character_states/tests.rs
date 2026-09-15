@@ -4,7 +4,7 @@
 use super::*;
 use crate::domain::models::{NewCharacter, NewCharacterInstance, NewScene, NewSession, RosterPick};
 use crate::domain::ports::StoragePort;
-use crate::infra::storage::{test_support::temp_storage, Storage};
+use crate::infra::storage::{test_support::{seed_world, temp_storage}, Storage};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -32,6 +32,7 @@ fn setup(tag: &str) -> (Storage, PathBuf, i64, i64, i64) {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap()
         .id;
@@ -216,6 +217,7 @@ fn list_by_session_filters_and_covers_scopes() {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap()
         .id;

@@ -20,6 +20,10 @@ export type {
   CharacterStateScope,
   /** 新建角色卡入参（含 avatar；FR-006）。 */
   CharacterInput,
+  /** 世界卡摘要（2026-09-15 世界卡定稿；列表即编辑数据源，口径同 CharacterSummary）。 */
+  WorldSummary,
+  /** 世界卡写侧入参（创建与整卡更新共用形态；calendar null = 内置默认历）。 */
+  WorldInput,
   /** 会话日历 wire DTO（FR-014 开局向导；camelCase 仅 wire，存储 JSON 由 Rust 产出）。 */
   CalendarConfigDto,
   /** 开局包入参（FR-014；null = 降级路径）。 */

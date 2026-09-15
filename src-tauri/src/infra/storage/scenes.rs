@@ -139,7 +139,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{MessageRole, NewCharacter, NewMessage, NewSession};
     use crate::domain::ports::StoragePort;
-    use crate::infra::storage::{test_support::temp_storage, Storage};
+    use crate::infra::storage::{test_support::{seed_world, temp_storage}, Storage};
     use rusqlite::Connection;
     use std::path::PathBuf;
 
@@ -165,6 +165,7 @@ mod tests {
         let session_id = storage
             .create_session(&NewSession { roster: test_roster(&storage, user_card, char_id), title: String::new(), opening: None,
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap()
             .id;
@@ -215,6 +216,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap();
         let _ = storage.insert_message(&NewMessage::new(other.id, MessageRole::User, "hi"));
@@ -269,6 +271,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap()
             .id;

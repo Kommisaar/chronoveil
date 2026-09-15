@@ -84,10 +84,6 @@ pub struct Session {
     pub id: i64,
     /// 标题，缺省取首条用户消息截断。
     pub title: String,
-    /// 会话日历快照（FR-013）：建会话时由开局包显式指定（None = 内置默认历），
-    /// 落库后归属本会话行——角色卡不持有历法（2026-09-13 产品裁剪），会话行是
-    /// 会话历法唯一归属。
-    pub calendar_config: Option<String>,
     /// 分叉溯源（方案 §2 第 3 步「时间线分叉」）：非 NULL = 本会话是「从此分叉」
     /// 产生的新时间线，值 = 源会话 id。逻辑指向，不设外键——源会话软删不阻断新线
     /// （迁移 0011 注）。普通建会话为 NULL。
@@ -174,13 +170,53 @@ pub struct UpdateCharacter {
     pub titles: Vec<String>,
 }
 
-/// 开局包（FR-014）：建会话可选携带的「显式日历 + 开场锚」。
-/// 命令层（interfaces/ipc.rs）把 wire DTO 校验后折叠成本结构；存储层
-/// （infra/storage/sessions.rs）在同一事务内落会话行 + 开场场景行。
+// ---------------------------------------------------------------------------
+// 世界卡（2026-09-15 世界卡定稿）：与角色卡平级的世界观资产——舞台预设库
+// ---------------------------------------------------------------------------
+
+/// 世界卡：可复用的世界观设定（世界观正文 + 历法预设）。消费方式 = 建会话时
+/// 实例化为 [`WorldInstance`]（快照冻结，改卡不回写）；角色卡回答「谁在演」，
+/// 世界卡回答「舞台是什么」。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct World {
+    pub id: i64,
+    pub name: String,
+    /// 世界观正文（markdown-lite，同人设）：装配注入 system 世界段（人设段
+    /// 之前）；空白整段省略。
+    pub worldbook: String,
+    /// 历法预设（FR-013 语义随 0017 收编至世界）：存储形态 = Rust serde 产出
+    /// 的 snake_case JSON（wire camelCase 不入库，与角色 titles 同口径的
+    /// 「wire 与存储两种形态」约束）；None = 内置默认历。
+    pub calendar_config: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    /// 软删除墓碑（ADR-009）。
+    pub deleted_at: Option<i64>,
+}
+
+/// 新建世界卡入参。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewWorld {
+    pub name: String,
+    pub worldbook: String,
+    pub calendar_config: Option<String>,
+}
+
+/// 更新世界卡入参：整卡覆盖（编辑表单全量提交）；calendar_config 传 None 即
+/// 回落默认历。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateWorld {
+    pub name: String,
+    pub worldbook: String,
+    pub calendar_config: Option<String>,
+}
+
+/// 开局包（FR-014；2026-09-15 历法收编世界后收敛）：建会话可选携带的纯剧情位
+/// 开场锚。历法不再单独入参——选中世界即定历法（世界实例化快照）；要给某场戏
+/// 换历法，建会后编辑世界实例（后续接线）。命令层把 wire DTO 校验后折叠成本
+/// 结构；存储层（infra/storage/sessions.rs）在同一事务内落会话行 + 开场场景行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpeningSeed {
-    /// 显式指定会话日历（FR-014）；None = 内置默认历。
-    pub calendar: Option<crate::domain::fiction_time::CalendarConfig>,
     /// 开场锚：起始「第 N 天」（None = 1）。
     pub fic_day: Option<i64>,
     /// 开场锚：时段六值之一（None = 「夜」）。
@@ -204,6 +240,10 @@ pub struct RosterPick {
 /// （N ≥ 1，存储层校验；本切片只落建会话时选定的阵容，运行中加人属第 3 步后能力）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewSession {
+    /// 世界卡 id（2026-09-15 起必选）：事务内实例化为会话恰一世界实例（快照
+    /// name/worldbook/calendar_config，改卡不回写）；卡不存在 / 已软删 → NotFound
+    /// 整体回滚。
+    pub world_id: i64,
     /// 阵容：逐卡实例化为会话内角色实例（快照 name/persona/render_style，D1）。
     pub roster: Vec<RosterPick>,
     /// 标题，可空串（缺省由调用方取首条用户消息截断后经 update_session_title 回填）。
@@ -404,6 +444,34 @@ pub struct NewCharacterInstance {
     pub persona: String,
     pub render_style: String,
     pub is_user: bool,
+}
+
+/// 会话内世界实例（2026-09-15 世界卡定稿）：[`World`] 的一次性快照——恰一
+/// （迁移 0017 部分唯一索引库级保证）；name / worldbook / calendar_config 值
+/// 拷贝，改卡不回写（D1 冻结语义同 [`CharacterInstance`]）。**会话历法唯一
+/// 归属**（0017 自 sessions 移入）：生成 / 结算 / 装配的历法 parse 源。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldInstance {
+    pub id: i64,
+    pub session_id: i64,
+    /// 溯源：实例化时的世界卡 id（卡只软删不物删，指向恒有效）。
+    pub world_id: i64,
+    pub name: String,
+    pub worldbook: String,
+    pub calendar_config: Option<String>,
+    pub created_at: i64,
+    /// 软删除墓碑（ADR-009）。
+    pub deleted_at: Option<i64>,
+}
+
+/// 新建世界实例入参（建会话事务内实例化专用；会话内编辑属后续接线）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewWorldInstance {
+    pub session_id: i64,
+    pub world_id: i64,
+    pub name: String,
+    pub worldbook: String,
+    pub calendar_config: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

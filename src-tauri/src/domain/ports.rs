@@ -11,7 +11,8 @@ use crate::domain::error::StorageError;
 use crate::domain::llm_call::{LlmCall, NewLlmCall};
 use crate::domain::models::{
     Character, CharacterInstance, CharacterState, Message, NewCharacter, NewCharacterInstance,
-    NewCharacterState, NewMessage, NewScene, NewSession, Scene, Session, UpdateCharacter,
+    NewCharacterState, NewMessage, NewScene, NewSession, NewWorld, Scene, Session,
+    UpdateCharacter, UpdateWorld, World, WorldInstance,
 };
 
 /// 消息归属半开区间 `(after_message_id, upto_message_id]`（FR-011）：区间内的在世消息
@@ -178,4 +179,25 @@ pub trait StoragePort: Send + Sync {
     /// 会话内轨迹，按 id 倒序（最新在前），`limit` 截断。无会话轨迹（session_id
     /// = NULL，历史起草调用遗留形态）不进任何会话查询。
     fn list_llm_calls(&self, session_id: i64, limit: u32) -> Result<Vec<LlmCall>, StorageError>;
+
+    // ---- worlds / world_instances（2026-09-15 世界卡定稿）----
+    /// 新建世界卡（世界观正文 + 历法预设，舞台资产库）。
+    fn create_world(&self, new: &NewWorld) -> Result<World, StorageError>;
+    /// 在世世界卡，按创建顺序。
+    fn list_worlds(&self) -> Result<Vec<World>, StorageError>;
+    /// 按 id 取在世世界卡；不存在或已软删报 NotFound（建会话实例化路径复用校验）。
+    fn get_world(&self, id: i64) -> Result<World, StorageError>;
+    /// 整卡覆盖更新；目标在世才生效。
+    fn update_world(&self, id: i64, update: &UpdateWorld) -> Result<(), StorageError>;
+    /// 软删世界卡（置墓碑）；已实例化的会话世界不受影响（快照冻结）。
+    fn soft_delete_world(&self, id: i64) -> Result<(), StorageError>;
+    /// ADR-009 墓碑还原原语。
+    fn restore_world(&self, id: i64) -> Result<(), StorageError>;
+    /// 会话的在世世界实例（恰一，建会话事务保证存在）：世界观正文与历法的
+    /// 唯一读源（历法唯一归属自 sessions 移入，迁移 0017）。生成 / 结算 / 装配
+    /// 消费；写入路径在 create_session 事务与分叉拷贝内部，无独立写入端口。
+    fn world_instance_by_session(
+        &self,
+        session_id: i64,
+    ) -> Result<Option<WorldInstance>, StorageError>;
 }

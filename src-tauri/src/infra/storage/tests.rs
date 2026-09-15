@@ -1,7 +1,7 @@
 //! `storage` 门面级测试（自 storage.rs 外置，源文件 500 行上限）：
 //! 迁移幂等与 schema 形态、外键约束、端口实现断言、commit_settlement 结算
 //! 单事务（成功落库 / 首边界 / 任一支路失败整体回滚）。
-use super::test_support::{cleanup, temp_storage};
+use super::test_support::{cleanup, seed_world, temp_storage};
 use super::*;
 use crate::domain::models::{NewCharacter, NewSession, RosterPick};
 use rusqlite::Connection;
@@ -29,7 +29,7 @@ fn reopen_same_db_is_idempotent() {
     };
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
         "schema_version 各版本只记录一次"
     );
 
@@ -129,6 +129,7 @@ fn foreign_keys_enforced() {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap_err();
     assert!(
@@ -205,6 +206,7 @@ fn settlement_fixture(tag: &str) -> (Storage, PathBuf, i64, i64, i64, i64) {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap()
         .id;

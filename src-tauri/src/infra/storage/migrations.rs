@@ -57,6 +57,10 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // 角色称号集合（2026-09-15）：titles 单列 JSON 字符串数组（真集合形态，
     // 与 scenes.present 同族；写侧恒落 "[]"，读侧 NULL 视作空数组）
     (16, include_str!("../../../migrations/0016_character_titles.sql")),
+    // 世界卡与其实例（2026-09-15 世界卡定稿）：worlds 新表 + world_instances 新表
+    // （恰一，partial unique）+ sessions 裁撤 calendar_config（历法唯一归属移至
+    // 世界实例——时间规则是世界的属性，0012 裁撤角色卡历法后的正确归宿）
+    (17, include_str!("../../../migrations/0017_world_cards.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

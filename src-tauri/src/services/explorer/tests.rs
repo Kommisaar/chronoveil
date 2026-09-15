@@ -9,7 +9,7 @@ use super::*;
 use crate::domain::models::{CharacterInstance, MessageRole, NewCharacter, NewMessage, NewSession, RosterPick};
 use crate::infra::llm::mock::{json_raw_body, status_head, MockServer};
 use crate::infra::llm::{cancel_channel, LlmConfig, RetryPolicy};
-use crate::infra::storage::test_support::temp_storage;
+use crate::infra::storage::test_support::{seed_world, temp_storage};
 use crate::infra::storage::Storage;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -124,6 +124,7 @@ fn storage_with_session(tag: &str) -> (Arc<Storage>, i64, Vec<CharacterInstance>
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap()
         .id;

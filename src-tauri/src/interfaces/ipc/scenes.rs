@@ -184,7 +184,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewCharacterState, NewScene, NewSession, RosterPick};
     use crate::interfaces::ipc::sessions::delete_session_impl;
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
 
     #[test]
     fn scene_dto_serializes_camel_case_without_session_or_tombstone() {
@@ -263,6 +263,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
         let state = app
@@ -311,6 +312,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
 

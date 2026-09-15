@@ -1,4 +1,4 @@
-import type { CharacterSummary, ChatMessage, SessionSummary } from '../types';
+import type { CharacterSummary, ChatMessage, SessionSummary, WorldSummary } from '../types';
 
 /** mock 数据：纯浏览器开发用（ADR-010）；结构与 SQLite 各表对应（data_model）。
  *  会话按多角色阵容制形态（character_instances 表 + messages.instance_id 存储，
@@ -210,6 +210,33 @@ export const characters: CharacterSummary[] = [
     animPunctPause: null,
     updatedAt: now - 60 * 24 * 60 * min,
     sessionCount: 1,
+  },
+];
+
+// 种子世界（2026-09-15 世界卡定稿）：两张——「空白舞台」（默认历 / 空世界观，
+// 兜底选卡）与「雾灯航线」（七曜和历 + 世界观示范）。七曜历字面与
+// src/components/calendarPresets.ts 的 seven 预设一致（api 层不可反向 import
+// components，按「跨文件常量互指」纪律注释对齐）。
+export const SEED_WORLDS: WorldSummary[] = [
+  {
+    id: 1,
+    name: '空白舞台',
+    worldbook: '',
+    calendar: null,
+    updatedAt: now - 3 * 24 * 60 * min,
+  },
+  {
+    id: 2,
+    name: '雾灯航线',
+    worldbook: '永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。',
+    calendar: {
+      name: '七曜和历',
+      months: ['睦月', '如月', '弥生', '卯月', '皋月', '水无月', '文月', '叶月', '长月', '神无月', '霜月', '师走'],
+      daysPerMonth: 30,
+      dayNames: ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日'],
+      festivals: { 315: '七五三', 360: '大晦日' },
+    },
+    updatedAt: now - 5 * 24 * 60 * min,
   },
 ];
 

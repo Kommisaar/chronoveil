@@ -55,7 +55,7 @@ mod tests {
     use super::*;
     use crate::domain::models;
     use crate::domain::ports::{AttachRange, SettlementWrite, StoragePort};
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
 
     use crate::interfaces::ipc::sessions::SessionInstanceDto;
 
@@ -73,6 +73,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(app),
         })
             .unwrap()
     }
@@ -80,7 +81,7 @@ mod tests {
     /// 源世界夹具：建会话（开场锚行 idx 0 无条件 seed）→ 插 2 条消息并结算归属
     /// 锚场（同拍开出 idx 1 新场，FR-011 边界快照模型）→ 再插 2 条未归属消息
     /// （属于进行中的 idx 1 场）。返回（源会话，[用户位, LLM 位] 实例 id）。
-    fn seed_world(app: &AppState) -> (models::Session, [i64; 2]) {
+    fn seed_source(app: &AppState) -> (models::Session, [i64; 2]) {
         let session = seed_session(app, "雨夜来电");
         let instances = app.storage.list_instances(session.id).unwrap();
         let user = instances.iter().find(|i| i.is_user).unwrap().id;
@@ -165,7 +166,7 @@ mod tests {
     #[test]
     fn fork_session_wires_storage_fork_and_echoes_new_session_summary() {
         let (app, dir) = temp_state("fork_wired");
-        let (source, [user, llm]) = seed_world(&app);
+        let (source, [user, llm]) = seed_source(&app);
 
         let created = fork_session_impl(&app, source.id, 0, "雨夜来电（分叉）").unwrap();
         // 摘要 = 新会话行真值：溯源两字段回显、标题直通（IPC 层传入值原样落库回显）。
@@ -218,13 +219,13 @@ mod tests {
         assert!(matches!(err, IpcError::NotFound { entity, id } if entity == "session" && id == 999));
 
         // 已软删等价不可见（ADR-009）→ NotFound(session)。
-        let (session, _) = seed_world(&app);
+        let (session, _) = seed_source(&app);
         app.storage.soft_delete_session(session.id).unwrap();
         let err = fork_session_impl(&app, session.id, 0, "分叉").unwrap_err();
         assert!(matches!(err, IpcError::NotFound { entity, .. } if entity == "session"));
 
         // 在世会话但锚点号越界（世界只有 idx 0/1 两场）→ NotFound(scene)。
-        let (live, _) = seed_world(&app);
+        let (live, _) = seed_source(&app);
         let err = fork_session_impl(&app, live.id, 9, "越界锚点").unwrap_err();
         assert!(matches!(err, IpcError::NotFound { entity, id } if entity == "scene" && id == 9));
         // 失败不产生新会话（在世源会话仅本测试的世界，两条源线一条已删）。

@@ -21,6 +21,7 @@ fn assemble_base(
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     })
 }
 
@@ -199,6 +200,7 @@ fn system_prompt_leads_system_message() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "用中文写短句，保持冷峻克制的文风。",
+        world: None,
     });
     let system = &messages[0].content;
     assert!(
@@ -224,11 +226,48 @@ fn blank_system_prompt_omitted() {
             dossier: None,
             near_scenes: context::SETTLED_SCENES_IN_NEAR,
             system_prompt: blank,
+            world: None,
         });
         let system = &messages[0].content;
         assert!(
             system.starts_with("雨夜电话亭的守夜人。"),
             "空白（{blank:?}）省略全局指令段，人设段打头：{system}"
+        );
+    }
+}
+
+/// 世界段（2026-09-15 世界卡定稿）：有值时注入为第 2 段——全局系统提示词
+/// 之后、人设段之前（先立舞台再上演员）；None / 空白整段省略。
+#[test]
+fn world_section_between_global_prompt_and_persona() {
+    let roster = solo_roster("雨夜电话亭的守夜人。");
+    let history = vec![message(1, MessageRole::User, "在吗？")];
+    let base = AssembleInputs {
+        instances: &roster,
+        scenes: &[],
+        history: &history,
+        calendar: &DEFAULT_CALENDAR,
+        states: &[],
+        dossier: None,
+        near_scenes: context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: "用中文写短句。",
+        world: Some("永夜的港都，灯是唯一的历法。"),
+    };
+    let messages = assemble(&base);
+    let system = &messages[0].content;
+    assert!(
+        system.starts_with(
+            "用中文写短句。\n\n永夜的港都，灯是唯一的历法。\n\n雨夜电话亭的守夜人。"
+        ),
+        "全局指令 → 世界段 → 人设段，段间空行分隔：{system}"
+    );
+    // None / 纯空白：整段省略，回到「全局指令 → 人设」的六段形态。
+    for absent in [None, Some(""), Some("   ")] {
+        let messages = assemble(&AssembleInputs { world: absent, ..base });
+        let system = &messages[0].content;
+        assert!(
+            system.starts_with("用中文写短句。\n\n雨夜电话亭的守夜人。"),
+            "世界（{absent:?}）省略段：{system}"
         );
     }
 }
@@ -351,6 +390,7 @@ fn assemble_near_scenes_parameter_changes_window() {
             dossier: None,
             near_scenes,
             system_prompt: "",
+            world: None,
         });
         let chat: Vec<String> =
             messages[1..].iter().map(|m| m.content.clone()).collect();
@@ -547,6 +587,7 @@ fn blank_persona_system_combines_time_chronicle_and_states() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
 
     assert_eq!(messages[0].role, ChatRole::System);
@@ -612,6 +653,7 @@ fn time_line_prefers_cached_date_label() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
 
     let system = &messages[0].content;
@@ -641,6 +683,7 @@ fn time_line_computes_from_calendar_when_cache_missing() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert_eq!(
         messages[0].content,
@@ -667,6 +710,7 @@ fn time_line_falls_back_to_numeric_without_skin_or_cache() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert_eq!(
         messages[0].content,
@@ -694,6 +738,7 @@ fn time_line_omitted_without_scene_or_ledger() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert_eq!(
         messages[0].content, "人设\n\n用户扮演的角色：旅人",
@@ -716,6 +761,7 @@ fn time_line_omitted_without_scene_or_ledger() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert!(
         !messages[0].content.contains("当前时间"),
@@ -748,6 +794,7 @@ fn state_snapshot_omits_empty_group_or_whole_section() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert_eq!(
         messages[0].content,
@@ -766,6 +813,7 @@ fn state_snapshot_omits_empty_group_or_whole_section() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     assert_eq!(
         messages[0].content,
@@ -854,6 +902,7 @@ fn dossier_renders_between_chronicle_and_states() {
         dossier: Some("场0：两人曾在钟楼下分食一块饼，并把信物埋在树下。"),
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
 
     let system = &messages[0].content;
@@ -891,6 +940,7 @@ fn blank_or_missing_dossier_omits_section() {
             dossier,
             near_scenes: context::SETTLED_SCENES_IN_NEAR,
             system_prompt: "",
+            world: None,
         });
         let system = &messages[0].content;
         assert!(!system.contains("【相关回忆】"), "无卷宗不产生空段：{system}");
@@ -1210,6 +1260,7 @@ fn state_snapshot_groups_by_instance_when_multiple_owners() {
         dossier: None,
         near_scenes: context::SETTLED_SCENES_IN_NEAR,
         system_prompt: "",
+        world: None,
     });
     let system = &messages[0].content;
     // roster 序（苏鸢 → 阿烬 → 旅人）分组，空组（阿烬 · 关系）省略。

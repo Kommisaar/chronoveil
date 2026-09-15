@@ -26,6 +26,8 @@ import type {
   SessionOpeningInput,
   SessionRosterMember,
   SessionSummary,
+  WorldInput,
+  WorldSummary,
 } from './types';
 
 async function unwrap<T>(promise: Promise<Result<T, IpcError>>): Promise<T> {
@@ -41,20 +43,23 @@ export async function listSessions(): Promise<SessionSummary[]> {
 }
 
 /**
- * 新建会话（FR-007 / FR-014 开局向导，多角色阵容制）：`members` = 会话阵容
- * （恰好一个用户扮演位，D2），后端逐卡实例化快照（D1）并经返回值 / 列表回显
- * instances；`title` 缺省（null）由后端取首条用户消息截断回填（FR-007），向导
- * 本切片不收集标题恒传 null；`opening` 缺省或 null = 降级路径——后端同样无条件
- * seed 默认锚开场行（day=1 / part=夜 / 日历走会话快照，§7-6）。
+ * 新建会话（FR-007 / FR-014 开局向导，多角色阵容制）：`worldId` = 必选世界卡
+ * （0017 起会话必有世界，后端事务内实例化为恰一世界实例，历法 / 世界观随会话
+ * 冻结）；`members` = 会话阵容（恰好一个用户扮演位，D2），后端逐卡实例化快照
+ * （D1）并经返回值 / 列表回显 instances；`title` 缺省（null）由后端取首条用户
+ * 消息截断回填（FR-007），向导本切片不收集标题恒传 null；`opening` 缺省或
+ * null = 降级路径——后端同样无条件 seed 默认锚开场行（day=1 / part=夜 / 日历走
+ * 世界实例快照，§7-6）。
  */
 export async function createSession(
+  worldId: number,
   members: SessionRosterMember[],
   title: string | null,
   opening?: SessionOpeningInput | null,
 ): Promise<SessionSummary> {
   return isTauri
-    ? unwrap(commands.createSession(members, title, opening ?? null))
-    : mock.createSession(members, title, opening);
+    ? unwrap(commands.createSession(worldId, members, title, opening ?? null))
+    : mock.createSession(worldId, members, title, opening);
 }
 
 export async function deleteSession(sessionId: number): Promise<void> {
@@ -183,6 +188,32 @@ export async function deleteCharacter(id: number): Promise<void> {
     return;
   }
   return mock.deleteCharacter(id);
+}
+
+// ---- 世界卡（2026-09-15 世界卡定稿：世界观资产 CRUD）----
+
+export async function listWorlds(): Promise<WorldSummary[]> {
+  return isTauri ? unwrap(commands.listWorlds()) : mock.listWorlds();
+}
+
+export async function createWorld(input: WorldInput): Promise<WorldSummary> {
+  return isTauri ? unwrap(commands.createWorld(input)) : mock.createWorld(input);
+}
+
+export async function updateWorld(id: number, input: WorldInput): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.updateWorld(id, input));
+    return;
+  }
+  return mock.updateWorld(id, input);
+}
+
+export async function deleteWorld(id: number): Promise<void> {
+  if (isTauri) {
+    await unwrap(commands.deleteWorld(id));
+    return;
+  }
+  return mock.deleteWorld(id);
 }
 
 // ---- 角色卡导入/导出（Task-04；对话框由 Rust 侧原生弹出）----

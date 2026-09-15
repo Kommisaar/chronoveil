@@ -1,7 +1,8 @@
 //! 时间线分叉（方案《多角色与时间线-最终》§2 第 3 步）：在锚点场景上「从此分叉」，
 //! 生成一个新会话，从锚点重走自己的时间线。本模块是多表编排（sessions /
-//! character_instances / scenes / messages / character_state 一次性拷贝），事务边界
-//! 在 `super`（storage.rs 端口实现）绑成单事务——任一步失败整体回滚，不留半条新线。
+//! world_instances / character_instances / scenes / messages / character_state
+//! 一次性拷贝），事务边界在 `super`（storage.rs 端口实现）绑成单事务——任一步失败
+//! 整体回滚，不留半条新线。
 //!
 //! 拷贝契约（正确性核心）：
 //! - **拷贝彻底，禁止引用式偷懒**：锚点前的全部在世行按值逐字段复制、session_id
@@ -46,7 +47,7 @@ use rusqlite::{params, Connection};
 use crate::domain::error::StorageError;
 use crate::domain::models::{NewCharacterState, Session};
 
-use super::{character_states, messages, now, scenes, sessions};
+use super::{character_states, messages, now, scenes, sessions, world_instances};
 
 /// 从源会话的锚点场景分叉出新会话（单事务由调用方绑定）。
 ///
@@ -64,10 +65,9 @@ pub(crate) fn fork(
     anchor_scene_idx: i64,
     new_title: &str,
 ) -> Result<Session, StorageError> {
-    // 源会话在世校验（软删等价不可见）+ 日历快照读取：分叉线继承源会话快照
-    // （FR-013：快照复制后各自演进；分叉继承的是时间线而非阵容选卡时刻，
-    // 故快照宿主取源会话行，不回查角色卡）。
-    let source = sessions::get(conn, source_session_id)?;
+    // 源会话在世校验（软删等价不可见）：分叉线继承源会话的世界与时间线，而非
+    // 回查世界卡 / 角色卡（快照复制后各自演进，FR-013 语义随 0017 移入世界实例）。
+    sessions::get(conn, source_session_id)?;
 
     // 锚点校验：必须是源会话内在世场景（号 → 行的存在性以此给出，墓碑锚无意义）。
     let anchor_exists: Option<i64> = conn
@@ -97,20 +97,39 @@ pub(crate) fn fork(
 
     let ts = now();
 
-    // 1) 新会话行：标题由调用方传入；分叉锚两列在此落值（迁移 0011）。
+    // 1) 新会话行：标题由调用方传入；分叉锚两列在此落值（迁移 0011；历法列已随
+    //    0017 裁撤，历法随世界实例走 1b）。
     conn.execute(
-        "INSERT INTO sessions (title, calendar_config, created_at, updated_at, \
+        "INSERT INTO sessions (title, created_at, updated_at, \
              forked_from_session_id, fork_anchor_scene_idx) \
-         VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
-        params![
-            new_title,
-            source.calendar_config,
-            ts,
-            source_session_id,
-            anchor_scene_idx
-        ],
+         VALUES (?1, ?2, ?2, ?3, ?4)",
+        params![new_title, ts, source_session_id, anchor_scene_idx],
     )?;
     let new_session_id = conn.last_insert_rowid();
+
+    // 1b) 世界实例拷贝（2026-09-15 世界卡定稿）：历法唯一归属随行携带（0017），
+    //     新线继续源线的历法与世界观数据。源无在世世界实例 = 数据损坏级别
+    //     （建会话事务保证存在），显式上抛不吞。溯源 world_id 原样保留（快照
+    //     冻结语义），created_at 保留源值。
+    let source_world = world_instances::by_session(conn, source_session_id)?.ok_or_else(|| {
+        StorageError::Backend(format!(
+            "分叉源会话 #{source_session_id} 没有在世世界实例（建会话事务保证存在，缺失即数据损坏）"
+        ))
+    })?;
+    conn.execute(
+        "INSERT INTO world_instances (session_id, world_id, name, worldbook, \
+             calendar_config, created_at, deleted_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            new_session_id,
+            source_world.world_id,
+            source_world.name,
+            source_world.worldbook,
+            source_world.calendar_config,
+            source_world.created_at,
+            source_world.deleted_at,
+        ],
+    )?;
 
     // 2) 实例全员拷贝（含墓碑位）：D4 离场实例的早期消息仍挂在它名下，新线消息
     //    拷贝有外键（messages.instance_id → character_instances.id），漏拷墓碑位
@@ -275,7 +294,6 @@ pub(crate) fn fork(
     Ok(Session {
         id: new_session_id,
         title: new_title.to_string(),
-        calendar_config: source.calendar_config,
         created_at: ts,
         updated_at: ts,
         deleted_at: None,

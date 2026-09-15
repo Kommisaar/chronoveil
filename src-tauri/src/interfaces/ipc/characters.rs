@@ -194,7 +194,7 @@ pub fn delete_character(state: State<'_, AppState>, id: i64) -> Result<(), IpcEr
 mod tests {
     use super::*;
     use crate::domain::models::{NewSession, RosterPick};
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state, upd_input};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state, upd_input};
 
     #[test]
     fn character_summary_serializes_camel_case_with_persona_and_model_overrides() {
@@ -291,6 +291,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
         app.storage
@@ -300,6 +301,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
         let other = create_character_impl(

@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   deleteSession: vi.fn(),
   listCharacters: vi.fn(),
+  listWorlds: vi.fn(),
+  createWorld: vi.fn(),
   listSessions: vi.fn(),
 }));
 
@@ -24,6 +26,8 @@ vi.mock('../../api/commands', () => ({
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
   listCharacters: mocks.listCharacters,
+  listWorlds: mocks.listWorlds,
+  createWorld: mocks.createWorld,
   listSessions: mocks.listSessions,
 }));
 
@@ -72,6 +76,7 @@ function renderSidebar() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.listCharacters.mockResolvedValue([]);
+  mocks.listWorlds.mockResolvedValue([]);
   mocks.listSessions.mockResolvedValue([PLAIN, FORKED, FORKED_FROM_MISSING]);
   useUiStore.setState({
     activeSessionId: 1,

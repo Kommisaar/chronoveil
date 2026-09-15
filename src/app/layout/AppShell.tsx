@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { CharactersView } from '../../features/characters/CharactersView';
 import { ChatView } from '../../features/chat/ChatView';
 import { SettingsView } from '../../features/settings/SettingsView';
+import { WorldsView } from '../../features/worlds/WorldsView';
 import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 import { useUiStore } from '../../stores/ui';
 import { ActivityBar } from './ActivityBar';
@@ -78,6 +79,7 @@ export function AppShell() {
       <main className={styles.content}>
         {view === 'chat' && <ChatView />}
         {view === 'characters' && <CharactersView />}
+        {view === 'worlds' && <WorldsView />}
         {view === 'settings' && <SettingsView />}
       </main>
     </div>

@@ -29,7 +29,12 @@ import { characters, messagesBySession, sessions } from './data';
 // `import * as mock from './mock/backend'` 命令面完整，调用方零改动。
 import { getConfig } from './config';
 
+// 世界域 mock 同口径分驻 ./worlds（2026-09-15 世界卡定稿）；会话世界实例的
+// 建会话 / 分叉接线见下方 createSession / forkSession。
+import { attachSessionWorld, copySessionWorld, worldOf } from './worlds';
+
 export { DEFAULT_CONFIG, getConfig, saveConfig } from './config';
+export { createWorld, deleteWorld, listWorlds, updateWorld } from './worlds';
 
 let nextSessionId = Math.max(...sessions.map((s) => s.id)) + 1;
 let nextCharacterId = Math.max(...characters.map((c) => c.id)) + 1;
@@ -40,7 +45,7 @@ let nextMessageId =
 
 /** 与 Rust NotFound 等价（ADR-009：不存在 / 已软删对调用方等价）；entity 取 storage 层常量。 */
 function notFound(
-  entity: 'session' | 'character' | 'scene' | 'character_state',
+  entity: 'session' | 'character' | 'scene' | 'character_state' | 'world',
   id: number,
 ): ApiError {
   return new ApiError({ kind: 'notFound', entity, id });
@@ -87,6 +92,7 @@ export async function listSessions(): Promise<SessionSummary[]> {
 const FIC_PARTS: readonly string[] = ['清晨', '上午', '午后', '黄昏', '夜', '深夜'];
 
 export async function createSession(
+  worldId: number,
   members: SessionRosterMember[],
   title: string | null,
   opening?: SessionOpeningInput | null,
@@ -107,8 +113,10 @@ export async function createSession(
       throw notFound('character', member.characterId);
     }
   }
-  // 开局入参校验对齐 Rust create_session_impl（FR-014）：时段六值、起始日 ≥ 1、
-  // 显式日历需满足命名皮肤可用性（对齐 fiction_time::validate）。
+  // 必选世界（0017 起会话必有世界）：不存在 / 已软删 → NotFound，先于任何落库。
+  worldOf(worldId);
+  // 开局入参校验对齐 Rust create_session_impl（FR-014；历法已收编世界，开局包
+  // 只余时段六值与起始日 ≥ 1 两项）。
   if (opening) {
     if (opening.ficPart !== null && !FIC_PARTS.includes(opening.ficPart)) {
       throw new ApiError({
@@ -118,16 +126,6 @@ export async function createSession(
     }
     if (opening.ficDay !== null && opening.ficDay < 1) {
       throw new ApiError({ kind: 'conflict', message: `开局「第 ${opening.ficDay} 天」需 ≥ 1` });
-    }
-    const calendar = opening.calendar;
-    if (
-      calendar !== null &&
-      !(calendar.daysPerMonth > 0 && (calendar.months.length > 0 || calendar.dayNames.length > 0))
-    ) {
-      throw new ApiError({
-        kind: 'conflict',
-        message: '开局日历需每月天数 > 0 且月名 / 日名至少其一非空',
-      });
     }
   }
   // 逐卡实例化快照（D1）：name / renderStyle 值拷贝自卡、改卡不回写；character_id
@@ -158,6 +156,8 @@ export async function createSession(
     forkAnchorSceneIdx: null,
   };
   sessions.push(session);
+  // 世界实例化（恰一，D1 快照）：历法 / 世界观随会话冻结，fork 继承。
+  attachSessionWorld(session.id, worldId);
   return session;
 }
 
@@ -202,6 +202,8 @@ export async function forkSession(
     forkAnchorSceneIdx: anchorSceneIdx,
   };
   sessions.push(created);
+  // 世界实例随线值拷贝（对齐 session_fork 1b 步：历法与世界观数据继承源线）。
+  copySessionWorld(sessionId, created.id);
   messagesBySession[created.id] = (messagesBySession[sessionId] ?? []).map((message) => ({
     ...message,
     id: nextMessageId++,

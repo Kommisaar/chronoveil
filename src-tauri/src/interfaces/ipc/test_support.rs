@@ -33,6 +33,19 @@ pub(super) fn sample_character(app: &AppState, name: &str) -> models::Character 
         .unwrap()
 }
 
+/// 建一张默认世界卡（默认历 / 空世界观）返回 id：NewSession 必选 world_id
+/// （迁移 0017 起会话必有世界）后的会话夹具公共前置。
+pub(super) fn seed_world(app: &AppState) -> i64 {
+    app.storage
+        .create_world(&models::NewWorld {
+            name: "测试世界".into(),
+            worldbook: String::new(),
+            calendar_config: None,
+        })
+        .unwrap()
+        .id
+}
+
 /// 由基准负载派生更新入参（create / update 共用同一负载形态，整卡覆盖）。
 pub(super) fn upd_input(name: &str, base: &CharacterInput) -> CharacterInput {
     CharacterInput {

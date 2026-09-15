@@ -1,10 +1,11 @@
 //! sessions 表的行为验收测试（自 sessions.rs 外置，源文件 500 行上限）：
-//! 阵容实例化 / 会话日历 / 开场锚行事务性 / CRUD 与排序；新用例在此追加。
+//! 阵容实例化 / 世界实例化（历法收编 0017）/ 开场锚行事务性 / CRUD 与排序；
+//! 新用例在此追加。
 use super::*;
 use crate::domain::fiction_time;
-use crate::domain::models::{MessageRole, NewCharacter, OpeningSeed, RosterPick};
+use crate::domain::models::{MessageRole, NewCharacter, NewWorld, OpeningSeed, RosterPick};
 use crate::domain::ports::StoragePort;
-use crate::infra::storage::test_support::{cleanup, temp_storage};
+use crate::infra::storage::test_support::{cleanup, seed_world, temp_storage};
 use crate::infra::storage::Storage;
 use rusqlite::Connection;
 use std::thread::sleep;
@@ -34,6 +35,7 @@ fn make_session(storage: &crate::infra::storage::Storage, title: &str) -> i64 {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(storage),
         })
         .unwrap()
         .id
@@ -55,31 +57,46 @@ fn char_fixture(tag: &str) -> (Storage, std::path::PathBuf, i64, i64) {
     (storage, dir, user_card, llm_card)
 }
 
-/// 显式开局：向导指定的日历 / 锚 / 场景字段逐一落库——日历直接落存储（snake_case
-/// 存储 JSON）、锚行 idx=0、date_label 经 date_label 派生、present = 全部实例 id。
+/// 显式开局（历法收编 0017）：世界卡携历法预设，建会话快照进世界实例（snake_case
+/// 存储 JSON）、锚行 idx=0、date_label 经世界历法派生、present = 全部实例 id。
 #[test]
-fn opening_seeds_explicit_calendar_and_anchor_scene() {
+fn opening_seeds_world_calendar_and_anchor_scene() {
     let (storage, dir, user_card, llm_card) = char_fixture("opening_explicit");
     let preset = fiction_time::presets::fantasy();
+    let world = storage
+        .create_world(&NewWorld {
+            name: "旧都灯节".into(),
+            worldbook: "永夜的港都，灯是唯一的历法。".into(),
+            calendar_config: Some(
+                serde_json::to_string(&preset).expect("领域历法序列化"),
+            ),
+        })
+        .unwrap();
     let session = storage
         .create_session(&NewSession {
+            world_id: world.id,
             roster: roster(user_card, llm_card),
             title: String::new(),
             opening: Some(OpeningSeed {
-                calendar: Some(preset.clone()),
                 fic_day: Some(45),
                 fic_part: Some("夜".into()),
                 location: Some("旧都 · 灯市".into()),
                 time_note: Some("灯节点亮的那一刻".into()),
             }),
-        
             default_render_style: "type".to_string(),
         })
         .unwrap();
 
-    // 日历显式指定直接落库（JSON 为 Rust 序列化产物）。
-    let stored = session.calendar_config.as_deref().unwrap();
-    assert_eq!(fiction_time::parse(Some(stored)), preset, "显式日历原样落库");
+    // 世界实例快照：历法随卡落库（JSON 为 Rust 序列化产物），溯源记卡 id。
+    let world_instance = storage
+        .world_instance_by_session(session.id)
+        .unwrap()
+        .expect("会话恰一世界实例");
+    assert_eq!(world_instance.world_id, world.id, "实例记模板溯源");
+    assert_eq!(world_instance.name, "旧都灯节");
+    assert_eq!(world_instance.worldbook, "永夜的港都，灯是唯一的历法。");
+    let stored = world_instance.calendar_config.as_deref().unwrap();
+    assert_eq!(fiction_time::parse(Some(stored)), preset, "世界历法原样落库");
     assert!(stored.contains("days_per_month"), "存储 JSON 为 snake_case：{stored}");
 
     let scene = storage.latest_scene(session.id).unwrap().unwrap();
@@ -89,7 +106,7 @@ fn opening_seeds_explicit_calendar_and_anchor_scene() {
     assert_eq!(
         scene.date_label.as_deref(),
         Some("白蜡月·潮汐日·夜（灯节）"),
-        "date_label 与结算共用 date_label 派生（日名按年内日序取模）"
+        "date_label 与结算共用 date_label 派生（世界历法，日名按年内日序取模）"
     );
     assert_eq!(scene.location.as_deref(), Some("旧都 · 灯市"));
     assert_eq!(scene.time_note.as_deref(), Some("灯节点亮的那一刻"));
@@ -107,25 +124,77 @@ fn opening_seeds_explicit_calendar_and_anchor_scene() {
     cleanup(&dir);
 }
 
-/// 降级路径（opening = None）也无条件 seed 默认锚行：day=1 / part=夜；日历取
-/// 内置默认历（角色卡不持有历法，会话行是唯一归属），date_label 为数字形式
-/// （§7-6：从第一拍有账可记）。
+/// 世界实例化冻结（D1 语义）：建会话后改世界卡（改名 / 改世界观 / 换历法），
+/// 已建会话的世界实例分毫不动——历法唯一归属读实例，不回查卡。
+#[test]
+fn world_instantiation_freezes_card_snapshot() {
+    let (storage, dir, user_card, llm_card) = char_fixture("world_freeze");
+    let preset = fiction_time::presets::modern();
+    let world = storage
+        .create_world(&NewWorld {
+            name: "旧名".into(),
+            worldbook: "旧世界观。".into(),
+            calendar_config: Some(serde_json::to_string(&preset).unwrap()),
+        })
+        .unwrap();
+    let session = storage
+        .create_session(&NewSession {
+            world_id: world.id,
+            roster: roster(user_card, llm_card),
+            title: String::new(),
+            opening: None,
+            default_render_style: "type".to_string(),
+        })
+        .unwrap();
+    // 卡后改：整卡覆盖（名字 / 世界观 / 历法全换）。
+    storage
+        .update_world(
+            world.id,
+            &crate::domain::models::UpdateWorld {
+                name: "新名".into(),
+                worldbook: "新世界观。".into(),
+                calendar_config: None,
+            },
+        )
+        .unwrap();
+    let world_instance = storage
+        .world_instance_by_session(session.id)
+        .unwrap()
+        .expect("实例仍在");
+    assert_eq!(world_instance.name, "旧名", "改名不回写实例");
+    assert_eq!(world_instance.worldbook, "旧世界观。", "改世界观不回写实例");
+    assert_eq!(
+        fiction_time::parse(world_instance.calendar_config.as_deref()),
+        preset,
+        "换历法不回写实例（快照冻结）"
+    );
+    drop(storage);
+    cleanup(&dir);
+}
+
+/// 降级路径（opening = None）也无条件 seed 默认锚行：day=1 / part=夜；历法取
+/// 世界实例快照（默认历卡 = None），date_label 为数字形式（§7-6：从第一拍有账可记）。
 #[test]
 fn degraded_path_still_seeds_default_anchor() {
     let (storage, dir, user_card, llm_card) = char_fixture("opening_degraded");
 
     let session = storage
         .create_session(&NewSession {
+            world_id: seed_world(&storage),
             roster: roster(user_card, llm_card),
             title: String::new(),
             opening: None,
-        
             default_render_style: "type".to_string(),
         })
         .unwrap();
     assert_eq!(
-        session.calendar_config, None,
-        "降级路径无显式日历 = 内置默认历"
+        storage
+            .world_instance_by_session(session.id)
+            .unwrap()
+            .expect("恰一世界实例")
+            .calendar_config,
+        None,
+        "默认历世界卡 = 无历法 JSON，parse 走内置默认历"
     );
     let scene = storage.latest_scene(session.id).unwrap().unwrap();
     assert_eq!(scene.idx, 0);
@@ -142,42 +211,57 @@ fn degraded_path_still_seeds_default_anchor() {
     cleanup(&dir);
 }
 
-/// 事务原子性：阵容含不存在的卡 → 会话行 / 实例 / 开场锚行都不留痕迹；
-/// 错误为逐卡 NotFound（实例化路径的真实语义，不再是无名外键冲突）。
+/// 事务原子性：阵容含不存在的卡 / 世界卡不存在 → 会话行 / 世界实例 / 角色实例 /
+/// 开场锚行都不留痕迹；错误为逐卡 NotFound（实例化路径的真实语义，不再是无名
+/// 外键冲突）。
 #[test]
 fn opening_rolls_back_session_and_scene_together() {
     let (storage, dir, user_card, _llm_card) = char_fixture("opening_rollback");
     let err = storage
         .create_session(&NewSession {
+            world_id: seed_world(&storage),
             roster: roster(user_card, 999_999),
             title: String::new(),
             opening: Some(OpeningSeed {
-                calendar: Some(fiction_time::presets::modern()),
                 fic_day: None,
                 fic_part: None,
                 location: None,
                 time_note: None,
             }),
-        
             default_render_style: "type".to_string(),
         })
         .unwrap_err();
     assert!(matches!(err, StorageError::NotFound { .. }), "实际：{err:?}");
 
-    // scenes / sessions / character_instances 表全库无行（会话行未落 → 后续全部回滚）。
+    // scenes / sessions / character_instances / world_instances 表全库无行
+    //（会话行未落 → 后续全部回滚）。
     let conn = Connection::open(dir.join("test.db")).unwrap();
-    let scenes: i64 = conn
-        .query_row("SELECT COUNT(*) FROM scenes", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(scenes, 0, "开场锚行随会话行一并回滚");
-    let sessions: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(sessions, 0, "会话行回滚");
-    let instances: i64 = conn
-        .query_row("SELECT COUNT(*) FROM character_instances", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(instances, 0, "实例随会话一并回滚");
+    for (table, label) in [
+        ("scenes", "开场锚行"),
+        ("sessions", "会话行"),
+        ("character_instances", "角色实例"),
+        ("world_instances", "世界实例"),
+    ] {
+        let n: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "{label}随会话一并回滚");
+    }
+    drop(storage);
+    cleanup(&dir);
+
+    // 世界卡不存在 / 已软删同样 NotFound 整体回滚（会话必有世界）。
+    let (storage, dir, user_card, llm_card) = char_fixture("opening_rollback_world");
+    let err = storage
+        .create_session(&NewSession {
+            world_id: 999_999,
+            roster: roster(user_card, llm_card),
+            title: String::new(),
+            opening: None,
+            default_render_style: "type".to_string(),
+        })
+        .unwrap_err();
+    assert!(matches!(err, StorageError::NotFound { .. }), "实际：{err:?}");
     drop(storage);
     cleanup(&dir);
 }
@@ -210,6 +294,7 @@ fn create_session_rejects_invalid_rosters() {
         let err = storage
             .create_session(&NewSession { roster: picks, title: String::new(), opening: None,
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap_err();
         assert!(matches!(err, StorageError::Conflict(_)), "{name} 应被拒绝：{err:?}");
@@ -243,6 +328,7 @@ fn create_session_instantiates_full_roster() {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap();
 

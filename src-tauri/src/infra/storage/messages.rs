@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewCharacter, NewSession, RosterPick};
     use crate::domain::ports::StoragePort;
-    use crate::infra::storage::test_support::temp_storage;
+    use crate::infra::storage::test_support::{seed_world, temp_storage};
     use std::thread::sleep;
     use std::time::Duration;
 
@@ -203,6 +203,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(storage),
         })
             .unwrap()
             .id

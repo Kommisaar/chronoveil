@@ -3,26 +3,27 @@
 use rusqlite::{params, Connection, Row};
 
 use crate::domain::error::StorageError;
-use crate::domain::models::{NewCharacterInstance, NewScene, NewSession, Session};
+use crate::domain::models::{NewCharacterInstance, NewScene, NewSession, NewWorldInstance, Session};
 
-use super::{instances, now, scenes, characters};
+use super::{characters, instances, now, scenes, world_instances, worlds};
 
 pub(crate) const ENTITY: &str = "session";
 
-const COLS: &str = "id, title, calendar_config, created_at, updated_at, deleted_at, \
+// 历法列已裁撤（迁移 0017 收编世界实例）：sessions 行只剩标题 / 时间戳 / 墓碑 /
+// 分叉元信息，会话历法唯一归属在 world_instances.calendar_config。
+const COLS: &str = "id, title, created_at, updated_at, deleted_at, \
                     forked_from_session_id, fork_anchor_scene_idx";
 
 fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
         id: row.get(0)?,
         title: row.get(1)?,
-        calendar_config: row.get(2)?,
-        created_at: row.get(3)?,
-        updated_at: row.get(4)?,
-        deleted_at: row.get(5)?,
+        created_at: row.get(2)?,
+        updated_at: row.get(3)?,
+        deleted_at: row.get(4)?,
         // 分叉元信息（迁移 0011）：普通建会话恒 NULL，只有分叉写入路径落值。
-        forked_from_session_id: row.get(6)?,
-        fork_anchor_scene_idx: row.get(7)?,
+        forked_from_session_id: row.get(5)?,
+        fork_anchor_scene_idx: row.get(6)?,
     })
 }
 
@@ -35,8 +36,9 @@ fn row_to_session(row: &Row<'_>) -> rusqlite::Result<Session> {
 ///   （N ≥ 1，D3 逐拍生成的调用主体；v1.5 简化：多 LLM 位按 roster 序单次生成，
 ///   逐拍独立调用属第 2 步后能力）；动态人物（character_id = NULL 的实例）不经此
 ///   路径（D6 走导演裁决，第 3 步后接线）。
-/// - 日历：向导显式指定优先（由 Rust 序列化 domain `CalendarConfig` 得 snake_case
-///   存储 JSON，wire camelCase 不会入库），否则用户位卡快照兜底（FR-013）；
+/// - 世界（2026-09-15 世界卡定稿）：必选世界卡实例化为会话恰一世界实例（快照
+///   name / worldbook / calendar_config，改卡不回写）；历法唯一归属随迁实例
+///   （迁移 0017），开场锚 date_label 按实例历法派生。
 /// - 开场锚行（scenes idx-0）**无条件 seed**（§7-6）：显式开局与降级路径（opening =
 ///   None）都落「第 1 天 · 夜」缺省锚（§7-3），保证 latest_scene 从第一拍就存在；
 ///   `fic_day` / `fic_part` 缺省取 1 / 夜，`date_label` 落库前经
@@ -55,24 +57,29 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
     let ts = now();
     let tx = conn.unchecked_transaction()?;
 
-    // 会话日历（FR-013）：开局包显式指定，未指定 = 内置默认历。角色卡不持有
-    // 历法（2026-09-13 产品裁剪），会话行是历法唯一归属。
-    let explicit = new.opening.as_ref().and_then(|o| o.calendar.as_ref());
-    let (calendar_config, calendar) = match explicit {
-        Some(cal) => {
-            let json = serde_json::to_string(cal)
-                .map_err(|e| StorageError::Backend(format!("会话日历序列化失败：{e}")))?;
-            (Some(json), cal.clone())
-        }
-        None => (None, crate::domain::fiction_time::parse(None)),
-    };
+    // 必选世界卡（2026-09-15）：不存在 / 已软删 → NotFound，整体回滚（会话必有世界）。
+    let world = worlds::get(&tx, new.world_id)?;
+    // 实例历法 = 卡历法预设快照（None = 内置默认历）；开场锚与后续生成 / 结算
+    // 都按此 parse，sessions 行不再持历法（迁移 0017）。
+    let calendar = crate::domain::fiction_time::parse(world.calendar_config.as_deref());
 
     tx.execute(
-        "INSERT INTO sessions (title, calendar_config, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?3)",
-        params![new.title, calendar_config, ts],
+        "INSERT INTO sessions (title, created_at, updated_at) VALUES (?1, ?2, ?2)",
+        params![new.title, ts],
     )?;
     let session_id = tx.last_insert_rowid();
+
+    // 世界实例化（恰一）：快照值拷贝 + 溯源，与阵容实例化同一事务同一冻结语义。
+    world_instances::insert(
+        &tx,
+        &NewWorldInstance {
+            session_id,
+            world_id: world.id,
+            name: world.name.clone(),
+            worldbook: world.worldbook.clone(),
+            calendar_config: world.calendar_config.clone(),
+        },
+    )?;
 
     // 逐卡实例化（D1）：快照拷贝 + 溯源；卡不存在 / 已软删 → NotFound，整体回滚。
     // render_style 为 NULL（跟随全局，0014）的卡按 default_render_style 回落——
@@ -123,7 +130,6 @@ pub(crate) fn insert(conn: &Connection, new: &NewSession) -> Result<Session, Sto
     Ok(Session {
         id: session_id,
         title: new.title.clone(),
-        calendar_config,
         created_at: ts,
         updated_at: ts,
         deleted_at: None,

@@ -14,6 +14,8 @@ mod migrations;
 mod scenes;
 mod session_fork;
 mod sessions;
+mod world_instances;
+mod worlds;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -24,8 +26,8 @@ use crate::domain::error::StorageError;
 use crate::domain::llm_call::{LlmCall, NewLlmCall};
 use crate::domain::models::{
     Character, CharacterInstance, CharacterState, Message, MessageRole, NewCharacter,
-    NewCharacterInstance, NewCharacterState, NewMessage, NewScene, NewSession, Scene, Session,
-    UpdateCharacter,
+    NewCharacterInstance, NewCharacterState, NewMessage, NewScene, NewSession, NewWorld, Scene,
+    Session, UpdateCharacter, UpdateWorld, World, WorldInstance,
 };
 use crate::domain::ports::{SettlementWrite, StoragePort};
 
@@ -367,6 +369,44 @@ impl StoragePort for Storage {
     fn list_llm_calls(&self, session_id: i64, limit: u32) -> Result<Vec<LlmCall>, StorageError> {
         self.with_conn(|conn| llm_calls::list_by_session(conn, session_id, limit))
     }
+
+    // ---- worlds（2026-09-15 世界卡定稿：世界观资产 CRUD）----
+    fn create_world(&self, new: &NewWorld) -> Result<World, StorageError> {
+        self.with_conn(|conn| worlds::insert(conn, new))
+    }
+
+    fn list_worlds(&self) -> Result<Vec<World>, StorageError> {
+        self.with_conn(worlds::list)
+    }
+
+    fn get_world(&self, id: i64) -> Result<World, StorageError> {
+        self.with_conn(|conn| worlds::get(conn, id))
+    }
+
+    fn update_world(&self, id: i64, update: &UpdateWorld) -> Result<(), StorageError> {
+        self.with_conn(|conn| worlds::update(conn, id, update))
+    }
+
+    fn soft_delete_world(&self, id: i64) -> Result<(), StorageError> {
+        self.with_conn(|conn| worlds::soft_delete(conn, id, now()))
+    }
+
+    // ADR-009 墓碑还原原语；世界回收站 UI 接线前无生产调用方（仅测试消费）。
+    #[allow(dead_code)]
+    fn restore_world(&self, id: i64) -> Result<(), StorageError> {
+        self.with_conn(|conn| worlds::restore(conn, id))
+    }
+
+    // ---- world_instances（会话内世界实例：恰一）----
+    // 写入路径 = create_session 事务内部（sessions::insert 直调 world_instances::insert）
+    // 与分叉拷贝（session_fork），无独立端口写入；本读端口供生成 / 结算 / 装配取
+    // 世界观正文与历法（历法唯一归属，迁移 0017）。
+    fn world_instance_by_session(
+        &self,
+        session_id: i64,
+    ) -> Result<Option<WorldInstance>, StorageError> {
+        self.with_conn(|conn| world_instances::by_session(conn, session_id))
+    }
 }
 
 #[cfg(test)]
@@ -375,6 +415,22 @@ pub(crate) mod test_support {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::Storage;
+
+    /// 测试夹具：建一张默认世界卡（默认历 / 空世界观），返回 id。NewSession 必选
+    /// world_id（迁移 0017 起会话必有世界）后的会话夹具公共前置，storage 与 ipc
+    /// 两层测试共用。
+    pub(crate) fn seed_world(storage: &Storage) -> i64 {
+        use crate::domain::models::NewWorld;
+        use crate::domain::ports::StoragePort;
+        storage
+            .create_world(&NewWorld {
+                name: "测试世界".to_string(),
+                worldbook: String::new(),
+                calendar_config: None,
+            })
+            .unwrap()
+            .id
+    }
 
     static COUNTER: AtomicU32 = AtomicU32::new(0);
 

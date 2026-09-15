@@ -21,7 +21,7 @@ use crate::domain::error::StorageError;
 use crate::domain::fiction_time;
 use crate::domain::llm_call::LlmCallKind;
 use crate::domain::models::{
-    CharacterInstance, CharacterState, Message, NewCharacterState, NewScene, Scene, Session,
+    CharacterInstance, CharacterState, Message, NewCharacterState, NewScene, Scene, WorldInstance,
 };
 // 外置测试（director/tests.rs）经 `use super::*` 以此指认 scope 枚举；本体已不直接
 // 使用（CharacterStateScope 属 verdict.rs），故 cfg(test) 限定，避免非测试构建的
@@ -301,16 +301,30 @@ fn build_write(
     }
 }
 
-/// 结算输入的库侧收集结果：会话 / 实例阵容 / 消息史 / 状态集 / 最后场景。
-type GatheredInput = (Session, Vec<CharacterInstance>, Vec<Message>, Vec<CharacterState>, Option<Scene>);
+/// 结算输入的库侧收集结果：世界实例 / 实例阵容 / 消息史 / 状态集 / 最后场景。
+/// 世界实例取代会话行成为历法半（0017 收编）：date_label 的派生源。
+type GatheredInput =
+    (WorldInstance, Vec<CharacterInstance>, Vec<Message>, Vec<CharacterState>, Option<Scene>);
 
 fn gather_input(deps: &GenerationDeps, session_id: i64) -> Result<GatheredInput, StorageError> {
-    let session = deps.storage.get_session(session_id)?;
+    // 在世门禁（软删等价不可见）：会话行本身不再携带结算所需数据（历法已随
+    // 0017 移入世界实例），此处只验存在与在世。
+    deps.storage.get_session(session_id)?;
+    // 世界实例（恰一）：缺失 = 数据损坏级别（建会话事务保证存在），按读取失败
+    // 上抛——调用方放弃本轮结算（欠账由下次自愈，与本函数其余读取同处置）。
+    let world = deps
+        .storage
+        .world_instance_by_session(session_id)?
+        .ok_or_else(|| {
+            StorageError::Backend(format!(
+                "会话 #{session_id} 没有世界实例（建会话事务保证存在，缺失即数据损坏）"
+            ))
+        })?;
     let instances = deps.storage.list_instances(session_id)?;
     let history = deps.storage.list_messages(session_id)?;
     let states = deps.storage.list_character_states(session_id)?;
     let latest = deps.storage.latest_scene(session_id)?;
-    Ok((session, instances, history, states, latest))
+    Ok((world, instances, history, states, latest))
 }
 
 /// 一次结算编排（FR-011 / ADR-005）：由生成闭环在 assistant 落库成功后、done 放行前调用。
@@ -331,11 +345,11 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
         return;
     }
     let session_id = ticket.session_id;
-    let Ok((session, instances, history, states, latest)) = gather_input(deps, session_id) else {
+    let Ok((world, instances, history, states, latest)) = gather_input(deps, session_id) else {
         log::warn!("会话 #{session_id} 结算输入读取失败，本轮放弃（欠账由下次结算自愈）");
         return;
     };
-    let calendar = fiction_time::parse(session.calendar_config.as_deref());
+    let calendar = fiction_time::parse(world.calendar_config.as_deref());
     // §7-7 多角色化：在场名单 = 全部会话实例，roster 序 = 实例创建序（id ASC，
     // 与开场锚行 present 同序；list_instances 的用户位在前的展示序只属 UI 侧）。
     // 裁决的 present 恒回填名单（迁移 0009 起在场语义 = 实例）。

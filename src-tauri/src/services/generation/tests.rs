@@ -5,7 +5,7 @@ use crate::domain::models::{Character, NewCharacter, NewSession, RosterPick};
 use crate::infra::config::{Config as FileConfig, ProviderConfig};
 use crate::infra::llm::LlmConfig;
 use crate::infra::llm::mock::{delta_json, json_body, json_raw_body, status_head, MockServer, sse_data, sse_head};
-use crate::infra::storage::test_support::temp_storage;
+use crate::infra::storage::test_support::{seed_world, temp_storage};
 use crate::infra::storage::Storage;
 use std::io::Write;
 
@@ -369,6 +369,7 @@ fn setup(storage: &Storage) -> i64 {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(storage),
         })
         .unwrap()
         .id

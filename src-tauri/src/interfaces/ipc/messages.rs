@@ -99,7 +99,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewMessage, NewSession, RosterPick};
     use crate::domain::ports::StoragePort;
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
 
     #[test]
     fn chat_message_serializes_camel_case_and_interrupted() {
@@ -169,6 +169,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
         // roster 首位 = LLM 位 → 其实例 id = 1（说话人真值换挂）。

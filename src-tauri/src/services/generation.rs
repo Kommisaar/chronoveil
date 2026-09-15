@@ -211,7 +211,9 @@ async fn generate_once(
     let session_id = ticket.session_id;
     let message_id = ticket.message_id;
 
-    let session = deps.storage.get_session(session_id)?;
+    // 在世门禁（软删等价不可见）：会话行自 0017 起不再携带生成所需数据（历法在
+    // 世界实例），此处只验存在与在世。
+    deps.storage.get_session(session_id)?;
     // 多角色阵容（方案 §3 第 1 步）：装配人设 / 消息归属 / 探索器指认都以实例为准。
     // 会话必然带阵容（create_session 单事务实例化，恰一用户位 + ≥1 LLM 位），
     // 空阵容 = 数据损坏，按读取失败上报而非静默续跑。
@@ -228,7 +230,18 @@ async fn generate_once(
     // （FR-013，建会话时从用户位卡复制）。日历解析在此完成，装配本体保持纯函数
     // ——坏 JSON 由 parse 降级默认历（皮肤坏了退默认不阻塞主对话，与结算同语义）。
     let states = deps.storage.list_character_states(session_id)?;
-    let calendar = crate::domain::fiction_time::parse(session.calendar_config.as_deref());
+    // 世界实例（恰一，2026-09-15 世界卡定稿）：世界观正文（装配世界段）与历法
+    // （0017 起唯一归属）同一读源；缺失 = 数据损坏级别（建会话事务保证存在），
+    // 与空阵容同处置按读取失败上报（错误终态告知前端，本次生成作废）。
+    let world = deps
+        .storage
+        .world_instance_by_session(session_id)?
+        .ok_or_else(|| {
+            StorageError::Backend(format!(
+                "会话 #{session_id} 没有世界实例（建会话事务保证存在，缺失即数据损坏）"
+            ))
+        })?;
+    let calendar = crate::domain::fiction_time::parse(world.calendar_config.as_deref());
     // OQ-006 / FR-008「以相同上文重新发起生成」+ SEQ-001「重发 = 整条重来」：
     // 重新生成（含断流重试的整条替换语义）时，被替换的最后一条 assistant（旧整条
     // 或中断半条）不得进 prompt 上下文——按 id 剔除后再装配，使请求以 user 条结尾，
@@ -276,6 +289,7 @@ async fn generate_once(
         dossier: dossier.as_deref(),
         near_scenes: deps.near_scenes,
         system_prompt: deps.system_prompt.as_str(),
+        world: Some(world.worldbook.as_str()),
     });
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));

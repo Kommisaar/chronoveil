@@ -106,13 +106,13 @@ impl From<&fiction_time::CalendarConfig> for CalendarConfigDto {
     }
 }
 
-/// 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
-/// seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。
+/// 开局包入参（FR-014；2026-09-15 历法收编世界后收敛为纯剧情位）：`create_session`
+/// 入参之一；None = 降级路径——同样无条件 seed 默认锚开场行（day=1 / part=夜 /
+/// 日历走世界实例快照，§7-6）。历法不再单独入参：选中世界即定历法，要换历法
+/// 建会后编辑世界实例（后续接线）。
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionOpeningInput {
-    /// 显式会话日历；None = 跟随角色卡快照。
-    pub calendar: Option<CalendarConfigDto>,
     /// 起始「第 N 天」；None = 1。
     pub fic_day: Option<i64>,
     /// 时段（`fiction_time::PARTS` 六值之一）；None = 「夜」。
@@ -123,9 +123,8 @@ pub struct SessionOpeningInput {
     pub time_note: Option<String>,
 }
 
-/// 开局入参 → 领域 [`models::OpeningSeed`]（FR-014）：入口校验集中在此，非法入参
-/// 统一 [`IpcError::Conflict`]——时段六值、起始日 ≥ 1、显式日历需满足命名皮肤
-/// 可用性（对齐 `fiction_time::validate`，与 date_label 回退同一判定）。
+/// 开局入参 → 领域 [`models::OpeningSeed`]：入口校验集中在此，非法入参统一
+/// [`IpcError::Conflict`]——时段六值、起始日 ≥ 1。
 fn opening_seed_from(input: &SessionOpeningInput) -> Result<models::OpeningSeed, IpcError> {
     if let Some(part) = &input.fic_part {
         if !fiction_time::is_valid_part(part) {
@@ -139,20 +138,7 @@ fn opening_seed_from(input: &SessionOpeningInput) -> Result<models::OpeningSeed,
             return Err(IpcError::Conflict { message: format!("开局「第 {day} 天」需 ≥ 1") });
         }
     }
-    let calendar = match &input.calendar {
-        Some(dto) => {
-            let cal = fiction_time::CalendarConfig::from(dto);
-            if !fiction_time::validate(&cal) {
-                return Err(IpcError::Conflict {
-                    message: "开局日历需每月天数 > 0 且月名 / 日名至少其一非空".into(),
-                });
-            }
-            Some(cal)
-        }
-        None => None,
-    };
     Ok(models::OpeningSeed {
-        calendar,
         fic_day: input.fic_day,
         fic_part: input.fic_part.clone(),
         location: input.location.clone(),
@@ -209,16 +195,19 @@ pub struct RosterPickInput {
 
 fn create_session_impl(
     app: &AppState,
+    world_id: i64,
     roster: Vec<RosterPickInput>,
     title: Option<String>,
     opening: Option<&SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
-    // 阵容逐卡 NotFound 由存储层实例化路径上报（比外键冲突更精确，ADR-009 语义）。
+    // 世界卡与阵容逐卡 NotFound 由存储层实例化路径上报（比外键冲突更精确，
+    // ADR-009 语义）。
     let opening = opening.map(opening_seed_from).transpose()?;
     // 风格跟随全局（0014）：读当次 config 的 render_style 作为 NULL 卡的
     // 实例化回落值（快照仍冻结具体值，D1）。
     let default_render_style = app.config.load()?.render_style;
     let session = app.storage.create_session(&models::NewSession {
+        world_id,
         roster: roster
             .into_iter()
             .map(|pick| models::RosterPick { character_id: pick.character_id, is_user: pick.is_user })
@@ -234,11 +223,12 @@ fn create_session_impl(
 #[specta::specta]
 pub fn create_session(
     state: State<'_, AppState>,
+    world_id: i64,
     roster: Vec<RosterPickInput>,
     title: Option<String>,
     opening: Option<SessionOpeningInput>,
 ) -> Result<SessionSummary, IpcError> {
-    create_session_impl(&state, roster, title, opening.as_ref())
+    create_session_impl(&state, world_id, roster, title, opening.as_ref())
 }
 
 // 软删等价不可见的 NotFound 语义被相邻域（叙事账本 / 轨迹）测试复用为夹具收尾，

@@ -63,7 +63,7 @@ fn migration_0002_preserves_v1_data() {
     };
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
         "旧版本记录保留，新版本追加"
     );
 
@@ -109,15 +109,19 @@ fn migration_0002_preserves_v1_data() {
         !msg_cols.iter().any(|c| c == "character_id"),
         "messages.character_id 死列应已移除（迁移 0009）"
     );
-    // 0002 起会话带日历快照列；0012 裁撤角色卡历法——characters 列丢弃、
-    // sessions 列保留（会话行是会话历法唯一归属）。
+    // 历法列的两次迁移：0012 裁撤角色卡历法（characters 列丢弃）；0017 收编世界
+    //（sessions 列丢弃，会话历法唯一归属移 world_instances.calendar_config）。
     assert!(
-        column_names("sessions").iter().any(|c| c == "calendar_config"),
-        "sessions.calendar_config 缺失"
+        !column_names("sessions").iter().any(|c| c == "calendar_config"),
+        "sessions.calendar_config 应已由迁移 0017 丢弃（历法归属世界实例）"
     );
     assert!(
         !column_names("characters").iter().any(|c| c == "calendar_config"),
         "characters.calendar_config 应已由迁移 0012 丢弃"
+    );
+    assert!(
+        column_names("world_instances").iter().any(|c| c == "calendar_config"),
+        "world_instances.calendar_config 缺失（历法唯一归属，0017）"
     );
     let (msg_scene, msg_inst): (Option<i64>, Option<i64>) = conn
         .query_row(
@@ -127,17 +131,9 @@ fn migration_0002_preserves_v1_data() {
         )
         .unwrap();
     assert_eq!((msg_scene, msg_inst), (None, None), "旧行扩列为 NULL");
-    let old_cal: Option<String> = conn
-        .query_row(
-            "SELECT calendar_config FROM sessions WHERE id = 20",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(old_cal, None, "旧行 sessions.calendar_config 为 NULL（内置默认历）");
 
     // 新表在位且带墓碑列（ADR-009）
-    for table in ["scenes", "character_state"] {
+    for table in ["scenes", "character_state", "worlds", "world_instances"] {
         assert!(
             column_names(table).iter().any(|c| c == "deleted_at"),
             "{table}.deleted_at 缺失（ADR-009）"

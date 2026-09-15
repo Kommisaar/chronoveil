@@ -3,10 +3,12 @@
 // 相对时间 meta，点击切换当前会话）。选中态为与活动栏同款的共享指示条
 // （位移动画）+ 选中底色。
 // 会话管理（TASK-007 / FR-007 / ADR-009）：
-// - 新建：Fluent Dialog 三段式开局向导（FR-014 + 多角色第 1 步两步选人，表单
-//   内聚在 NewSessionDialog；开合状态在 ui store，与聊天空态直达钮同源——U5）：选扮演位 → 选 LLM 阵容 → 开局表单（历法五选 /
-//   起始锚 / 首场景可选字段，「直接开始」= opening 全空降级）→ createSession →
-//   store 全量重拉（updated_at 倒序进列表）→ 新会话成为当前会话（视图已在聊天）；
+// - 新建：Fluent Dialog 四段式开局向导（FR-014 + 多角色两步选人 + 0017 世界
+//   必选，表单内聚在 NewSessionDialog；开合状态在 ui store，与聊天空态直达钮
+//   同源——U5）：选世界（单选 + 内联建卡）→ 选扮演位 → 选 LLM 阵容 → 开局
+//   表单（起始锚 / 首场景可选字段，「直接开始」= opening 全空降级）→
+//   createSession(worldId, …) → store 全量重拉（updated_at 倒序进列表）→
+//   新会话成为当前会话（视图已在聊天）；
 // - 删除：条目删除钮 → Dialog 确认（文案明示「聊天记录软删除」，ADR-009）→
 //   deleteSession → store.removeSession（当前会话指向被删项时置空，回聊天
 //   空态）→ 全量重拉对齐；
@@ -42,12 +44,19 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { CSSProperties } from 'react';
-import { createSession, deleteSession, listCharacters } from '../../api/commands';
+import {
+  createSession,
+  createWorld,
+  deleteSession,
+  listCharacters,
+  listWorlds,
+} from '../../api/commands';
 import type {
   CharacterSummary,
   SessionOpeningInput,
   SessionRosterMember,
   SessionSummary,
+  WorldSummary,
 } from '../../api/types';
 import { streamHub } from '../../features/chat/streamHub';
 import { moveIndicator } from '../../components/indicatorMotion';
@@ -99,6 +108,8 @@ export function Sidebar() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed);
   const [characters, setCharacters] = useState<CharacterSummary[] | null>(null);
+  // 现役世界清单：新建向导第一步的选择列表（0017 会话必有世界）
+  const [worlds, setWorlds] = useState<WorldSummary[] | null>(null);
   // 新建会话对话框开合在 ui store（U5）：与聊天空态直达钮同源，本组件只消费
   const newSessionOpen = useUiStore((s) => s.newSessionOpen);
   const openNewSession = useUiStore((s) => s.openNewSession);
@@ -137,6 +148,13 @@ export function Sidebar() {
         // 拉取失败只影响新建列表与标题回退，不打断侧栏
         setCharacters([]);
       });
+  }, []);
+
+  // 现役世界清单：失败同角色清单处置（只影响向导第一步，不打断侧栏）
+  useEffect(() => {
+    void listWorlds()
+      .then(setWorlds)
+      .catch(() => setWorlds([]));
   }, []);
 
   // 轻提示自动消隐
@@ -226,18 +244,20 @@ export function Sidebar() {
     }
   };
 
-  // 新建会话（验收 1 / FR-014 开局向导两步选人）：createSession（阵容制 members，
-  // title 恒 null——向导本切片不收集标题，后端取首条用户消息截断回填；opening =
-  // null 即「直接开始」降级路径，后端同样 seed 默认锚开场行）→ 全量重拉
-  // （updated_at 倒序进列表）→ 成为当前会话（selectSession 同时保证视图切到聊天）
+  // 新建会话（验收 1 / FR-014 开局向导四段式）：createSession（worldId 必选 +
+  // 阵容制 members，title 恒 null——向导本切片不收集标题，后端取首条用户消息
+  // 截断回填；opening = null 即「直接开始」降级路径，后端同样 seed 默认锚开场
+  // 行，日历走世界快照）→ 全量重拉（updated_at 倒序进列表）→ 成为当前会话
+  // （selectSession 同时保证视图切到聊天）
   const createFromRoster = async (
+    worldId: number,
     members: SessionRosterMember[],
     opening: SessionOpeningInput | null,
   ): Promise<void> => {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createSession(members, null, opening);
+      const created = await createSession(worldId, members, null, opening);
       await refreshSessions();
       selectSession(created.id);
       closeNewSession();
@@ -246,6 +266,14 @@ export function Sidebar() {
     } finally {
       setCreating(false);
     }
+  };
+
+  // 向导内联建世界出口：落库后本地清单追加（对话框经返回值选中新建卡）；
+  // 失败 rejection 由对话框就地红字，不落侧栏提示（该操作语境在对话框内）
+  const createWorldInline = async (name: string): Promise<WorldSummary> => {
+    const created = await createWorld({ name, worldbook: '', calendar: null });
+    setWorlds((current) => (current === null ? [created] : [...current, created]));
+    return created;
   };
 
   // 入场错开序号：按 JSX 书写顺序（= DOM 序）逐项递增；仅渲染期使用
@@ -378,14 +406,19 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* 新建会话（FR-014 三段式开局向导）：选扮演位 → 选 LLM 阵容 → 开局表单；
-          表单与提交逻辑内聚在 NewSessionDialog（app 层），本组件只负责开关与建会话执行 */}
+      {/* 新建会话（FR-014 四段式开局向导）：选世界（含内联建卡）→ 选扮演位 →
+          选 LLM 阵容 → 开局表单；表单与提交逻辑内聚在 NewSessionDialog
+          （app 层），本组件只负责开关、世界/角色清单与建会话执行 */}
       <NewSessionDialog
         open={newSessionOpen}
         characters={characters}
+        worlds={worlds}
         creating={creating}
         onOpenChange={(open) => (open ? openNewSession() : closeNewSession())}
-        onCreate={(members, opening) => void createFromRoster(members, opening)}
+        onCreateWorld={(name) => createWorldInline(name)}
+        onCreate={(worldId, members, opening) =>
+          void createFromRoster(worldId, members, opening)
+        }
       />
 
       {/* 删除确认：文案明示「聊天记录软删除」（ADR-009）；开关与执行留在本组件 */}

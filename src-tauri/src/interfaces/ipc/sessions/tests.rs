@@ -1,7 +1,8 @@
 //! 本体（super）的单测：自 interfaces/ipc/sessions.rs 尾部的 `mod tests` 外置（500 行规范；测试代码逐字搬移，断言零改动）。
 
 use super::*;
-use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
+use crate::interfaces::ipc::worlds::{create_world_impl, WorldInput};
 
 // ---- wire 契约（camelCase 对应 types.ts；验收 2/4 的测试兜底）----
 
@@ -45,6 +46,7 @@ fn session_commands_cover_list_create_softdelete() {
     let (app, dir) = temp_state("sessions");
     let llm_card = sample_character(&app, "苏鸢");
     let user_card = sample_character(&app, "旅人");
+    let world = seed_world(&app);
     let roster = |user: i64, llm: i64| {
         vec![
             RosterPickInput { character_id: user, is_user: true },
@@ -52,10 +54,10 @@ fn session_commands_cover_list_create_softdelete() {
         ]
     };
 
-    let created = create_session_impl(&app, roster(user_card.id, llm_card.id), None, None).unwrap();
+    let created = create_session_impl(&app, world, roster(user_card.id, llm_card.id), None, None).unwrap();
     assert_eq!(created.title, "", "缺省标题为空串（首条用户消息后回填属 TASK-006）");
 
-    create_session_impl(&app, roster(user_card.id, llm_card.id), Some("旧书店".into()), None)
+    create_session_impl(&app, world, roster(user_card.id, llm_card.id), Some("旧书店".into()), None)
         .unwrap();
     let listed = list_sessions_impl(&app).unwrap();
     assert_eq!(listed.len(), 2);
@@ -67,9 +69,14 @@ fn session_commands_cover_list_create_softdelete() {
         delete_session_impl(&app, created.id),
         Err(IpcError::NotFound { .. })
     ));
-    // 阵容引用不存在的卡 → NotFound（实例化路径的逐卡语义，而非裸外键冲突）。
+    // 阵容引用不存在的卡 / 世界卡不存在 → NotFound（实例化路径的逐卡语义，
+    // 而非裸外键冲突）。
     assert!(matches!(
-        create_session_impl(&app, roster(user_card.id, 999_999), None, None),
+        create_session_impl(&app, world, roster(user_card.id, 999_999), None, None),
+        Err(IpcError::NotFound { .. })
+    ));
+    assert!(matches!(
+        create_session_impl(&app, 999_999, roster(user_card.id, llm_card.id), None, None),
         Err(IpcError::NotFound { .. })
     ));
     drop(app);
@@ -90,7 +97,7 @@ fn session_summary_echoes_roster_instances() {
     ];
 
     let created =
-        create_session_impl(&app, roster, Some("雨夜来电".into()), None).unwrap();
+        create_session_impl(&app, seed_world(&app), roster, Some("雨夜来电".into()), None).unwrap();
     // 回显 = 建会话入参的实例化快照；示例卡 render_style 均为缺省 "type"（models::NewCharacter）。
     assert_eq!(created.title, "雨夜来电", "title 保留在 wire（缺省空串由首条用户消息回填）");
     let echo: Vec<(&str, bool, Option<i64>, &str)> = created
@@ -154,13 +161,13 @@ fn session_summary_carries_fork_fields_from_row() {
     let source = app
         .storage
         .create_session(&models::NewSession {
+            world_id: seed_world(&app),
             roster: vec![
                 models::RosterPick { character_id: user_card.id, is_user: true },
                 models::RosterPick { character_id: llm_card.id, is_user: false },
             ],
             title: "雨夜来电".into(),
             opening: None,
-        
             default_render_style: "type".to_string(),
         })
         .unwrap();
@@ -177,8 +184,10 @@ fn session_summary_carries_fork_fields_from_row() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 开局 + 世界历法（0017 收编）：历法由世界卡携带，开局包只余纯剧情位；
+/// 世界实例持 snake_case 存储 JSON，锚行 date_label 按世界历法派生。
 #[test]
-fn create_session_with_opening_seeds_calendar_and_anchor() {
+fn create_session_with_world_calendar_and_opening_seeds_anchor() {
     let (app, dir) = temp_state("opening");
     let llm_card = sample_character(&app, "苏鸢");
     let user_card = sample_character(&app, "旅人");
@@ -186,24 +195,39 @@ fn create_session_with_opening_seeds_calendar_and_anchor() {
         RosterPickInput { character_id: user_card.id, is_user: true },
         RosterPickInput { character_id: llm_card.id, is_user: false },
     ];
+    // 世界卡携「旧都历」预设（wire DTO 经 create_world 命令落 snake_case 存储 JSON）。
+    let world = create_world_impl(
+        &app,
+        WorldInput {
+            name: "旧都".into(),
+            worldbook: String::new(),
+            calendar: Some(CalendarConfigDto {
+                name: Some("旧都历".into()),
+                months: vec!["霜月".into(), "白蜡月".into()],
+                days_per_month: 30,
+                day_names: vec!["晨露日".into(), "萤火日".into()],
+                festivals: Some(std::collections::BTreeMap::from([(45, "灯节".into())])),
+            }),
+        },
+    )
+    .unwrap();
 
     let opening = SessionOpeningInput {
-        calendar: Some(CalendarConfigDto {
-            name: Some("旧都历".into()),
-            months: vec!["霜月".into(), "白蜡月".into()],
-            days_per_month: 30,
-            day_names: vec!["晨露日".into(), "萤火日".into()],
-            festivals: Some(std::collections::BTreeMap::from([(45, "灯节".into())])),
-        }),
         fic_day: Some(45),
         fic_part: Some("夜".into()),
         location: Some("旧都 · 灯市".into()),
         time_note: None,
     };
-    let created = create_session_impl(&app, roster.clone(), None, Some(&opening)).unwrap();
+    let created = create_session_impl(&app, world.id, roster.clone(), None, Some(&opening)).unwrap();
 
-    // 会话日历 = 显式指定的 snake_case 存储 JSON（wire camelCase 不入库）。
-    let stored = app.storage.get_session(created.id).unwrap().calendar_config.unwrap();
+    // 世界实例持历法存储 JSON（wire camelCase 不入库）。
+    let stored = app
+        .storage
+        .world_instance_by_session(created.id)
+        .unwrap()
+        .unwrap()
+        .calendar_config
+        .unwrap();
     assert!(stored.contains("days_per_month"), "存储 JSON 为 snake_case：{stored}");
     assert!(!stored.contains("daysPerMonth"), "存储 JSON 不得混入 wire 键：{stored}");
     // 开场锚行：idx=0、锚位与派生 date_label、在场 = 会话角色。
@@ -216,55 +240,44 @@ fn create_session_with_opening_seeds_calendar_and_anchor() {
     // 在场 = 全部阵容实例（roster 输入序 = 实例创建序，多角色换挂语义）。
     assert_eq!(scene.present, vec![1, 2]);
 
-    // 降级路径（opening = None）：默认锚行（day=1 / part=夜）无条件存在。
-    let degraded = create_session_impl(&app, roster, None, None).unwrap();
+    // 降级路径（opening = None）：默认锚行（day=1 / part=夜）无条件存在；
+    // 默认历世界卡（无历法 JSON）→ date_label 数字形式。
+    let degraded = create_session_impl(&app, seed_world(&app), roster, None, None).unwrap();
     let scene = app.storage.latest_scene(degraded.id).unwrap().unwrap();
     assert_eq!((scene.idx, scene.fic_day, scene.fic_part.as_deref()), (0, Some(1), Some("夜")));
-    assert_eq!(scene.date_label.as_deref(), Some("第1日·夜"), "角色无日历 → 数字形式");
+    assert_eq!(scene.date_label.as_deref(), Some("第1日·夜"), "默认历卡 → 数字形式");
     drop(app);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// FR-014：开局入参校验（Conflict）——时段六值、起始日 ≥ 1、显式日历皮肤可用性。
+/// FR-014：开局入参校验（Conflict）——时段六值、起始日 ≥ 1（历法校验随收编
+/// 移驻 worlds.rs 的 WorldInput）。
 #[test]
 fn create_session_rejects_invalid_opening() {
     let (app, dir) = temp_state("opening_invalid");
     let llm_card = sample_character(&app, "苏鸢");
     let user_card = sample_character(&app, "旅人");
+    let world = seed_world(&app);
     let roster = vec![
         RosterPickInput { character_id: user_card.id, is_user: true },
         RosterPickInput { character_id: llm_card.id, is_user: false },
     ];
-
-    let mut opening = SessionOpeningInput {
-        calendar: None,
+    let bare = SessionOpeningInput {
         fic_day: None,
         fic_part: None,
         location: None,
         time_note: None,
     };
     // 时段不在六值内 → Conflict。
-    let bad_part = SessionOpeningInput { fic_part: Some("半夜三更".into()), ..opening.clone() };
+    let bad_part = SessionOpeningInput { fic_part: Some("半夜三更".into()), ..bare.clone() };
     assert!(matches!(
-        create_session_impl(&app, roster.clone(), None, Some(&bad_part)),
+        create_session_impl(&app, world, roster.clone(), None, Some(&bad_part)),
         Err(IpcError::Conflict { .. })
     ));
     // 起始日 < 1 → Conflict。
-    let bad_day = SessionOpeningInput { fic_day: Some(0), ..opening.clone() };
+    let bad_day = SessionOpeningInput { fic_day: Some(0), ..bare };
     assert!(matches!(
-        create_session_impl(&app, roster.clone(), None, Some(&bad_day)),
-        Err(IpcError::Conflict { .. })
-    ));
-    // 显式日历缺月长基准（days_per_month = 0）→ Conflict（对齐 has_skin）。
-    opening.calendar = Some(CalendarConfigDto {
-        name: Some("坏历".into()),
-        months: vec!["霜月".into()],
-        days_per_month: 0,
-        day_names: Vec::new(),
-        festivals: None,
-    });
-    assert!(matches!(
-        create_session_impl(&app, roster, None, Some(&opening)),
+        create_session_impl(&app, world, roster, None, Some(&bad_day)),
         Err(IpcError::Conflict { .. })
     ));
     // 校验失败零落库（连降级锚行也没有）。

@@ -58,25 +58,35 @@ fn setup(tag: &str) -> (Storage, PathBuf, i64, [i64; 3]) {
         })
         .unwrap()
         .id;
-    // 开局包显式指定历法：会话行持历法，分叉线应继承同一快照值。
-    let sid = storage
-        .create_session(&NewSession {
-            roster: roster(user_card, ai_card, jin_card),
-            title: "原本".into(),
-            opening: Some(OpeningSeed {
-                calendar: Some(crate::domain::fiction_time::CalendarConfig {
+    // 世界卡携历法预设（回声历）：实例化后历法唯一归属在世界实例，分叉线应
+    // 继承同一快照值。
+    let world = storage
+        .create_world(&crate::domain::models::NewWorld {
+            name: "回声港".into(),
+            worldbook: String::new(),
+            calendar_config: Some(
+                serde_json::to_string(&crate::domain::fiction_time::CalendarConfig {
                     name: Some("回声历".into()),
                     months: vec!["霜月".into()],
                     days_per_month: 30,
                     day_names: vec!["晨露日".into()],
                     festivals: Default::default(),
-                }),
+                })
+                .unwrap(),
+            ),
+        })
+        .unwrap();
+    let sid = storage
+        .create_session(&NewSession {
+            world_id: world.id,
+            roster: roster(user_card, ai_card, jin_card),
+            title: "原本".into(),
+            opening: Some(OpeningSeed {
                 fic_day: None,
                 fic_part: None,
                 location: None,
                 time_note: None,
             }),
-        
             default_render_style: "type".to_string(),
         })
         .unwrap()
@@ -281,11 +291,21 @@ fn fork_at_day3_copies_world_and_leaves_source_untouched() {
     // ---- 分叉：在第 3 场（idx 3）分叉 ----
     let forked: Session = storage.fork_session(sid, 3, "回声线").unwrap();
 
-    // 新会话元信息：标题透传调用方、分叉锚两列落值、日历 = 源会话快照值拷贝。
+    // 新会话元信息：标题透传调用方、分叉锚两列落值、世界实例（含历法）= 源快照
+    // 值拷贝（历法唯一归属 0017 起随世界实例走）。
     assert_eq!(forked.title, "回声线");
     assert_eq!(forked.forked_from_session_id, Some(sid));
     assert_eq!(forked.fork_anchor_scene_idx, Some(3));
-    assert_eq!(forked.calendar_config, before_session.calendar_config);
+    let source_world = storage.world_instance_by_session(sid).unwrap().unwrap();
+    let forked_world = storage
+        .world_instance_by_session(forked.id)
+        .unwrap()
+        .expect("分叉线继承世界实例");
+    assert_eq!(
+        (forked_world.world_id, forked_world.calendar_config.clone()),
+        (source_world.world_id, source_world.calendar_config.clone()),
+        "世界与历法快照随线值拷贝"
+    );
     let stored_forked = storage.get_session(forked.id).unwrap();
     assert_eq!(
         (

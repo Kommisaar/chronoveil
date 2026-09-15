@@ -99,7 +99,7 @@ pub(crate) fn list_by_session(
 mod tests {
     use super::*;
     use crate::domain::ports::StoragePort;
-    use crate::infra::storage::test_support::temp_storage;
+    use crate::infra::storage::test_support::{seed_world, temp_storage};
     use crate::infra::storage::Storage;
     use std::path::PathBuf;
 
@@ -135,6 +135,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap()
             .id;
@@ -208,6 +209,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
             .unwrap()
             .id;

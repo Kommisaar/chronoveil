@@ -445,7 +445,7 @@ use crate::domain::ports::StoragePort;
 use crate::infra::config::ModelSpec;
 use crate::infra::llm::mock::{json_body, MockServer};
 use crate::infra::llm::{EventSink, LlmEvent, RetryPolicy};
-use crate::infra::storage::test_support::temp_storage;
+use crate::infra::storage::test_support::{seed_world, temp_storage};
 use crate::infra::storage::Storage;
 use crate::services::generation::GenerationRegistry;
 use std::path::PathBuf;
@@ -500,6 +500,7 @@ fn settlement_setup(tag: &str) -> (Arc<Storage>, PathBuf, i64, i64, i64) {
             opening: None,
         
             default_render_style: "type".to_string(),
+            world_id: seed_world(&storage),
         })
         .unwrap()
         .id;

@@ -1,11 +1,11 @@
 /**
- * 内置四预设历法常量（FR-014，FR-014 二期起自开局向导下沉至此）：
+ * 内置四预设历法常量（FR-014）：
  * 单一事实源——下沉理由：预设原先是 app 层 NewSessionDialog 的模块内
  * 常量，feature 依赖 app 被 ADR-010 单向依赖守卫（no-app-from-lower）禁止，
- * 按「跨域复用下沉 components」的既有出路移到本层。原设计消费方之一的
- * 角色卡历法编辑（features/characters）已随 2026-09-13 历法裁撤移除，
- * 现行唯一生产消费方为 app/layout/NewSessionDialog；若二期历法编辑回归，
- * 届时再评估布局，仍只消费这一份。
+ * 按「跨域复用下沉 components」的既有出路移到本层。历史消费方：开局向导
+ * 与角色卡历法编辑（后者已随 0012 裁撤）；现行唯一生产消费方为
+ * features/worlds 的 WorldEditorDialog——0017 历法收编进世界卡，向导历法段
+ * 随之裁撤。
  *
  * 与 Rust `domain/fiction_time::presets` 一一对应；前端只构造 wire DTO
  * （camelCase），落库存储 JSON 由 Rust 序列化 domain 结构得 snake_case，
@@ -49,13 +49,13 @@ export const CALENDAR_PRESETS: Record<CalendarPresetId, CalendarConfigDto> = {
   },
 };
 
-/** 预设展示序与显示名 i18n key（复用开局向导既有 key，历法名单一事实源）。 */
+/** 预设展示序与显示名 i18n key（世界编辑器 worlds.* 域，历法名单一事实源）。 */
 export const CALENDAR_PRESET_OPTIONS: ReadonlyArray<{
   id: CalendarPresetId;
   labelKey: string;
 }> = [
-  { id: 'modern', labelKey: 'sessions.wizard.presetModern' },
-  { id: 'seven', labelKey: 'sessions.wizard.presetSeven' },
-  { id: 'ganzhi', labelKey: 'sessions.wizard.presetGanzhi' },
-  { id: 'fantasy', labelKey: 'sessions.wizard.presetFantasy' },
+  { id: 'modern', labelKey: 'worlds.presetModern' },
+  { id: 'seven', labelKey: 'worlds.presetSeven' },
+  { id: 'ganzhi', labelKey: 'worlds.presetGanzhi' },
+  { id: 'fantasy', labelKey: 'worlds.presetFantasy' },
 ];

@@ -7,6 +7,7 @@
 import { Tooltip, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
 import {
   Chat24Regular,
+  Globe24Regular,
   LineHorizontal3Regular,
   People24Regular,
   Settings24Regular,
@@ -103,6 +104,7 @@ function railTip(expanded: boolean, label: string, node: ReactElement): ReactNod
 const TOP_ITEMS: { view: View; Icon: ComponentType; labelKey: string }[] = [
   { view: 'chat', Icon: Chat24Regular, labelKey: 'nav.chat' },
   { view: 'characters', Icon: People24Regular, labelKey: 'nav.characters' },
+  { view: 'worlds', Icon: Globe24Regular, labelKey: 'nav.worlds' },
 ];
 
 export function ActivityBar() {

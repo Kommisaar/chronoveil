@@ -14,9 +14,9 @@ async listSessions() : Promise<Result<SessionSummary[], IpcError>> {
     else return { status: "error", error: e  as any };
 }
 },
-async createSession(roster: RosterPickInput[], title: string | null, opening: SessionOpeningInput | null) : Promise<Result<SessionSummary, IpcError>> {
+async createSession(worldId: number, roster: RosterPickInput[], title: string | null, opening: SessionOpeningInput | null) : Promise<Result<SessionSummary, IpcError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_session", { roster, title, opening }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_session", { worldId, roster, title, opening }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -135,6 +135,38 @@ async updateCharacter(id: number, input: CharacterInput) : Promise<Result<null, 
 async deleteCharacter(id: number) : Promise<Result<null, IpcError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_character", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listWorlds() : Promise<Result<WorldSummary[], IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_worlds") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createWorld(input: WorldInput) : Promise<Result<WorldSummary, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_world", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateWorld(id: number, input: WorldInput) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_world", { id, input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteWorld(id: number) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_world", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -611,14 +643,12 @@ characterId: number | null;
  */
 renderStyle: string }
 /**
- * 开局包入参（FR-014）：`create_session` 第三参；None = 降级路径——同样无条件
- * seed 默认锚开场行（day=1 / part=夜 / 日历走角色卡快照，§7-6）。
+ * 开局包入参（FR-014；2026-09-15 历法收编世界后收敛为纯剧情位）：`create_session`
+ * 入参之一；None = 降级路径——同样无条件 seed 默认锚开场行（day=1 / part=夜 /
+ * 日历走世界实例快照，§7-6）。历法不再单独入参：选中世界即定历法，要换历法
+ * 建会后编辑世界实例（后续接线）。
  */
 export type SessionOpeningInput = { 
-/**
- * 显式会话日历；None = 跟随角色卡快照。
- */
-calendar: CalendarConfigDto | null; 
 /**
  * 起始「第 N 天」；None = 1。
  */
@@ -691,6 +721,27 @@ export type StreamEvent =
  * 丢弃）。事件发射与落库同点完成且**以落库为准**（见 [`TauriCallSink`]）。
  */
 { type: "trace"; call: LlmCallDto }
+/**
+ * 世界卡写侧入参（创建与整卡更新共用形态，对齐 WorldInput ↔ NewWorld 字段面）。
+ */
+export type WorldInput = { name: string; worldbook: string; 
+/**
+ * None = 内置默认历。
+ */
+calendar: CalendarConfigDto | null }
+/**
+ * 世界卡摘要（世界页卡片 + 编辑表单全量预填，口径同 CharacterSummary——列表
+ * 即编辑数据源，避免预填再发单条查询）。
+ */
+export type WorldSummary = { id: number; name: string; 
+/**
+ * 世界观正文（markdown-lite，同人设）；空白 = 装配省略。
+ */
+worldbook: string; 
+/**
+ * 历法预设（wire DTO）；None = 内置默认历。
+ */
+calendar: CalendarConfigDto | null; updatedAt: number }
 
 /** tauri-specta globals **/
 

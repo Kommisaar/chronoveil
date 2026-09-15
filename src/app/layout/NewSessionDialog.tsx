@@ -1,25 +1,22 @@
 /**
- * 新建会话对话框（FR-007 / FR-014 开局向导，多角色第 1 步两步选人改造）：
- * 三段式——① 「你的角色」：从角色卡库单选 1 张 = 用户扮演位（D2 必选，不选
- * 不能下一步）；② 「LLM 阵容」：多选 ≥1 张卡作为 LLM 扮演位（D5 阵容无上限；
- * D2 允许与扮演位同卡——自己跟自己对话，UI 不禁止，扮演位卡上出「你的扮演位」
- * 记号）；③ 开局设置：历法五选（默认数字历 / 现代公历 / 七曜和历 / 干支历 /
- * 旧都历，选中预设显示静态样例行，不与 fiction_time::date_label 双写实时换算）、
- * 起始锚「第 N 天 · 时段」（六值下拉，缺省 夜）、首场景地点 / 时间原文（可选）。
+ * 新建会话对话框（FR-007 / FR-014 开局向导，0017 起四段式）：
+ * ① 「世界」：从世界卡库单选 1 张（会话必有世界，历法与世界观随卡 D1 快照
+ *    带入；不选不能下一步），支持内联建卡——填名即建（worldbook 空、默认
+ *    数字历，后续在世界页编辑）；② 「你的角色」：单选 1 张 = 用户扮演位
+ *    （D2 必选）；③ 「LLM 阵容」：多选 ≥1 张卡（D5 无上限；D2 允许与扮演位
+ *    同卡，扮演位卡上出「你的扮演位」记号）；④ 开局设置：起始锚「第 N 天 ·
+ *    时段」（六值下拉，缺省 夜）、首场景地点 / 时间原文（可选）——历法段已
+ *    随 0017 裁撤（历法归属世界卡）。
  *
- * 选人卡复用角色页海报卡视觉（与 CharactersView 同一事实源），适配为对话框
- * 内的可选中迷你卡（aria-pressed 表达选中态），网格视觉件抽在
- * CharacterPickGrid（两步共用）。提交语义：「直接开始」= 降级路径，opening
- * 传 null（后端同样
- * 无条件 seed 默认锚开场行，day=1 / part=夜 / 日历走会话快照）；「开局并开始」
- * 携带表单值。阵容提交为 members（用户位在前 + LLM 位按点选序），后端逐卡
- * 实例化快照（D1）。四内置预设常量与 Rust `domain/fiction_time::presets` 一一
- * 对应——前端只构造 wire DTO（camelCase），落库存储 JSON 由 Rust 序列化 domain
- * 结构得 snake_case，本组件永不手写存储 JSON。预设常量下沉
- * src/components/calendarPresets，本组件只消费。
+ * 选人卡复用角色页海报卡视觉（CharacterPickGrid，两步共用）；选世界区抽在
+ * WorldPickGrid（含内联建卡）。提交语义：「直接开始」=
+ * 降级路径，opening 传 null（后端同样无条件 seed 默认锚开场行，day=1 /
+ * part=夜 / 日历走世界快照）；「开局并开始」携带表单值。阵容提交为
+ * members（用户位在前 + LLM 位按点选序），后端逐卡实例化快照（D1）；
+ * worldId 随提交上送，后端事务内实例化世界快照。
  *
- * 本组件为 app 层内聚（本切片 UI 全在 app 层）；组件全用 Fluent v9 既有件，
- * 表单惯例对齐 CharacterEditorDialog（Text 标签 + aria-label）。
+ * 本组件为 app 层内聚；组件全用 Fluent v9 既有件，表单惯例对齐
+ * CharacterEditorDialog（Text 标签 + aria-label）。
  */
 import {
   Button,
@@ -32,29 +29,20 @@ import {
   Dropdown,
   Input,
   Option,
-  Radio,
-  RadioGroup,
   Text,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CharacterSummary, SessionOpeningInput, SessionRosterMember } from '../../api/types';
-import { CALENDAR_PRESETS, type CalendarPresetId } from '../../components/calendarPresets';
+import type {
+  CharacterSummary,
+  SessionOpeningInput,
+  SessionRosterMember,
+  WorldSummary,
+} from '../../api/types';
 import { CharacterPickGrid } from './CharacterPickGrid';
-
-/** 历法五选项键：default = 不指定（wire 传 null，会话落内置默认历）。 */
-type PresetKey = 'default' | CalendarPresetId;
-type ConcretePreset = CalendarPresetId;
-
-/** 选中预设的静态样例行（预设常量自带说明文本，i18n key）。 */
-const SAMPLE_KEYS: Record<ConcretePreset, string> = {
-  modern: 'sessions.wizard.sampleModern',
-  seven: 'sessions.wizard.sampleSeven',
-  ganzhi: 'sessions.wizard.sampleGanzhi',
-  fantasy: 'sessions.wizard.sampleFantasy',
-};
+import { WorldPickGrid } from './WorldPickGrid';
 
 /** 时段六值（BR-003）：value = 落库值（与 Rust fiction_time::PARTS 一致），
  *  labelKey = 显示文案（英文档位显示「原值 (译名)」，落库仍为原值）。 */
@@ -97,57 +85,65 @@ const useStyles = makeStyles({
   },
   dayInput: { width: '120px' },
   partDropdown: { minWidth: '160px' },
-  sample: {
-    color: tokens.colorNeutralForeground3,
-    whiteSpace: 'pre-wrap',
-  },
 });
 
 export interface NewSessionDialogProps {
   open: boolean;
   /** 现役角色清单（侧栏拉取后传入）；null = 加载中。 */
   characters: CharacterSummary[] | null;
+  /** 现役世界清单（侧栏拉取后传入）；null = 加载中。 */
+  worlds: WorldSummary[] | null;
   creating: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 提交建会话：members = 阵容（用户位在前，D2 恰好一扮演位）；
-   *  opening = null 为「直接开始」降级路径（FR-014 §7-6）。 */
-  onCreate: (members: SessionRosterMember[], opening: SessionOpeningInput | null) => void;
+  /** 内联建世界出口：父级落库并更新 worlds 清单，返回新世界（本组件选中它）。 */
+  onCreateWorld: (name: string) => Promise<WorldSummary>;
+  /** 提交建会话：worldId = 选中世界（第一步必选）；members = 阵容（用户位在
+   *  前，D2 恰好一扮演位）；opening = null 为「直接开始」降级路径。 */
+  onCreate: (
+    worldId: number,
+    members: SessionRosterMember[],
+    opening: SessionOpeningInput | null,
+  ) => void;
 }
 
-/** 新建会话三段式对话框（FR-014 开局向导 + 两步选人）。 */
+/** 新建会话四段式对话框（FR-014 开局向导：选世界 → 两步选人 → 开局表单）。 */
 export function NewSessionDialog(props: NewSessionDialogProps) {
-  const { open, characters, creating, onOpenChange, onCreate } = props;
+  const { open, characters, worlds, creating, onOpenChange, onCreateWorld, onCreate } = props;
   const styles = useStyles();
   const { t } = useTranslation();
 
-  const [stage, setStage] = useState<'pickUser' | 'pickRoster' | 'form'>('pickUser');
+  const [stage, setStage] = useState<'pickWorld' | 'pickUser' | 'pickRoster' | 'form'>('pickWorld');
+  const [worldId, setWorldId] = useState<number | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
   // LLM 阵容：点选序（Set 保序去重），可含扮演位同卡（D2）
   const [roster, setRoster] = useState<number[]>([]);
   // —— 开局表单（进入表单步时重置回缺省值，不残留上次草稿）——
-  const [preset, setPreset] = useState<PresetKey>('default');
   const [ficDay, setFicDay] = useState('1');
   const [ficPart, setFicPart] = useState('夜');
   const [location, setLocation] = useState('');
   const [timeNote, setTimeNote] = useState('');
 
-  // 每次打开回到第一步选人态（全部选择与表单草稿重置，不残留上次）
+  // 每次打开回到第一步选世界态（全部选择与表单草稿重置，不残留上次）
   useEffect(() => {
     if (open) {
-      setStage('pickUser');
+      setStage('pickWorld');
+      setWorldId(null);
       setUserId(null);
       setRoster([]);
     }
   }, [open]);
 
+  const advanceToUser = (): void => {
+    if (worldId !== null) setStage('pickUser');
+  };
+
   const advanceToRoster = (): void => {
     if (userId !== null) setStage('pickRoster');
   };
 
-  /** 进入表单步：重置开局草稿（从众原「选角即重置」语义，返回再进不残留）。 */
+  /** 进入表单步：重置开局草稿（返回再进不残留）。 */
   const advanceToForm = (): void => {
     if (roster.length === 0) return;
-    setPreset('default');
     setFicDay('1');
     setFicPart('夜');
     setLocation('');
@@ -171,7 +167,6 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
       return trimmed === '' ? null : trimmed;
     };
     return {
-      calendar: preset === 'default' ? null : CALENDAR_PRESETS[preset],
       ficDay: Number.isInteger(day) && day >= 1 ? day : null,
       ficPart,
       location: trim(location),
@@ -200,7 +195,19 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
         <DialogBody>
           <DialogTitle>{t('sessions.new')}</DialogTitle>
           <DialogContent>
-            {stage === 'pickUser' ? (
+            {stage === 'pickWorld' ? (
+              <>
+                <Text className={styles.stepTitle}>{t('sessions.wizard.stepWorld')}</Text>
+                <div className={styles.dialogHint}>{t('sessions.wizard.pickWorldHint')}</div>
+                <WorldPickGrid
+                  worlds={worlds}
+                  worldId={worldId}
+                  onWorldChange={setWorldId}
+                  creating={creating}
+                  onCreateWorld={onCreateWorld}
+                />
+              </>
+            ) : stage === 'pickUser' ? (
               <>
                 <Text className={styles.stepTitle}>{t('sessions.wizard.stepUser')}</Text>
                 <div className={styles.dialogHint}>{t('sessions.wizard.pickUserHint')}</div>
@@ -228,27 +235,9 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
               </>
             ) : (
               <div className={styles.form}>
-                <div className={styles.field}>
-                  <Text size={300} weight="semibold">
-                    {t('sessions.wizard.formTitle')}：{t('sessions.wizard.calendar')}
-                  </Text>
-                  <RadioGroup
-                    value={preset}
-                    onChange={(_, data) => setPreset(data.value as PresetKey)}
-                    aria-label={t('sessions.wizard.calendar')}
-                  >
-                    <Radio value="default" label={t('sessions.wizard.presetDefault')} />
-                    <Radio value="modern" label={t('sessions.wizard.presetModern')} />
-                    <Radio value="seven" label={t('sessions.wizard.presetSeven')} />
-                    <Radio value="ganzhi" label={t('sessions.wizard.presetGanzhi')} />
-                    <Radio value="fantasy" label={t('sessions.wizard.presetFantasy')} />
-                  </RadioGroup>
-                  <Text size={200} className={styles.sample}>
-                    {preset === 'default'
-                      ? t('sessions.wizard.sampleDefault')
-                      : t(SAMPLE_KEYS[preset as ConcretePreset])}
-                  </Text>
-                </div>
+                <Text size={300} weight="semibold">
+                  {t('sessions.wizard.formTitle')}
+                </Text>
                 <div className={styles.anchorRow}>
                   <div className={styles.field}>
                     <Text size={300} weight="semibold">
@@ -285,7 +274,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
                 <div className={styles.field}>
                   <Text size={300} weight="semibold">
                     {t('sessions.wizard.firstLocation')}
-                    <Text size={200} className={styles.sample}>
+                    <Text size={200} className={styles.dialogHint}>
                       {' '}
                       {t('sessions.wizard.optional')}
                     </Text>
@@ -299,7 +288,7 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
                 <div className={styles.field}>
                   <Text size={300} weight="semibold">
                     {t('sessions.wizard.firstTimeNote')}
-                    <Text size={200} className={styles.sample}>
+                    <Text size={200} className={styles.dialogHint}>
                       {' '}
                       {t('sessions.wizard.optional')}
                     </Text>
@@ -314,14 +303,28 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
             )}
           </DialogContent>
           <DialogActions>
-            {stage === 'pickUser' && (
+            {stage === 'pickWorld' && (
               <Button
                 appearance="primary"
-                disabled={creating || userId === null}
-                onClick={advanceToRoster}
+                disabled={creating || worldId === null}
+                onClick={advanceToUser}
               >
                 {t('sessions.wizard.next')}
               </Button>
+            )}
+            {stage === 'pickUser' && (
+              <>
+                <Button disabled={creating} onClick={() => setStage('pickWorld')}>
+                  {t('sessions.wizard.back')}
+                </Button>
+                <Button
+                  appearance="primary"
+                  disabled={creating || userId === null}
+                  onClick={advanceToRoster}
+                >
+                  {t('sessions.wizard.next')}
+                </Button>
+              </>
             )}
             {stage === 'pickRoster' && (
               <>
@@ -342,13 +345,20 @@ export function NewSessionDialog(props: NewSessionDialogProps) {
                 <Button disabled={creating} onClick={() => setStage('pickRoster')}>
                   {t('sessions.wizard.back')}
                 </Button>
-                <Button disabled={creating} onClick={() => onCreate(buildMembers(), null)}>
+                <Button
+                  disabled={creating || worldId === null}
+                  onClick={() => {
+                    if (worldId !== null) onCreate(worldId, buildMembers(), null);
+                  }}
+                >
                   {t('sessions.wizard.startDirectly')}
                 </Button>
                 <Button
                   appearance="primary"
-                  disabled={creating}
-                  onClick={() => onCreate(buildMembers(), buildOpening())}
+                  disabled={creating || worldId === null}
+                  onClick={() => {
+                    if (worldId !== null) onCreate(worldId, buildMembers(), buildOpening());
+                  }}
                 >
                   {t('sessions.wizard.startWithOpening')}
                 </Button>

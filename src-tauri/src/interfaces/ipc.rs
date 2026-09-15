@@ -35,6 +35,7 @@ mod llm_calls;
 mod messages;
 mod scenes;
 mod sessions;
+mod worlds;
 #[cfg(test)]
 mod test_support;
 
@@ -73,6 +74,8 @@ pub use characters::{
     create_character, delete_character, list_characters, update_character, CharacterSummary,
 };
 
+pub use worlds::{create_world, delete_world, list_worlds, update_world, WorldInput, WorldSummary};
+
 pub use character_inputs::CharacterInput;
 
 pub use character_cards::{export_character, import_character};
@@ -105,6 +108,10 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             characters::create_character,
             characters::update_character,
             characters::delete_character,
+            worlds::list_worlds,
+            worlds::create_world,
+            worlds::update_world,
+            worlds::delete_world,
             character_cards::export_character,
             character_cards::import_character,
             config::get_config,

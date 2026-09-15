@@ -163,7 +163,8 @@ pub mod presets {
     }
 }
 
-/// 会话 calendar_config JSON → [`CalendarConfig`]：None / 空白 → 默认历；
+/// 历法存储 JSON（0017 起归属世界实例快照）→ [`CalendarConfig`]：None / 空白 →
+/// 默认历；
 /// 坏 JSON → 默认历 + warn 日志降级。FR-013：日历是皮肤，坏了退默认不阻塞结算
 /// ——与 config.json 的快速失败语义刻意不同，这里降级无账实风险。
 pub fn parse(raw: Option<&str>) -> CalendarConfig {

@@ -207,7 +207,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewMessage, NewSession, RosterPick};
     use crate::interfaces::ipc::messages::MessageRole;
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
 
     // ---- 生成命令测试替身（不经 Tauri 运行时 / 事件通道）----
 
@@ -243,6 +243,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
 

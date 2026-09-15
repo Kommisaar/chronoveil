@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { listSessions } from '../api/commands';
 import type { LanguageSetting, SessionSummary, ThemeSetting } from '../api/types';
 
-export type View = 'chat' | 'characters' | 'settings';
+export type View = 'chat' | 'characters' | 'worlds' | 'settings';
 
 /** 会话清单排序约定（FR-007）：updated_at 倒序，落 store 前统一保证。 */
 const byRecencyDesc = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt;

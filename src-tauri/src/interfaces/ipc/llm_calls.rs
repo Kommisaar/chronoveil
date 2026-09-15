@@ -134,7 +134,7 @@ mod tests {
     use super::*;
     use crate::domain::models::{NewSession, RosterPick};
     use crate::interfaces::ipc::sessions::delete_session_impl;
-    use crate::interfaces::ipc::test_support::{sample_character, temp_state};
+    use crate::interfaces::ipc::test_support::{sample_character, seed_world, temp_state};
 
     #[test]
     fn llm_call_dto_serializes_camel_case() {
@@ -187,6 +187,7 @@ mod tests {
                 opening: None,
             
             default_render_style: "type".to_string(),
+            world_id: seed_world(&app),
         })
             .unwrap();
         // 空会话：在世但无轨迹 → 空数组（非 NotFound）。

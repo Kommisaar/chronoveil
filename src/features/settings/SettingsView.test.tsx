@@ -3,7 +3,7 @@
 // 跨用例共享 → 每个用例 beforeEach 重置基线）。覆盖：空态引导、providers
 // 新建/校验/添加模型即落盘（directorModel 保留）、api_key 掩码切换、激活
 // 删除拦截、非激活删除、默认模型二元组切换、删默认模型回落、主题/语言
-// 改动即时生效、非法草稿不落盘。
+// 改动即时生效、非法草稿不落盘、系统提示词预览/编辑切换与自动落盘。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -254,5 +254,28 @@ describe('SettingsView（TASK-009）', () => {
       expect((await getConfig()).nearScenes).toBe(5);
     }, AUTOSAVE_WAIT);
     await waitFor(() => expect(screen.queryByText(/近景场景数需为 1–6/)).toBeNull());
+  });
+
+  it('系统提示词：预览态空文本出占位提示，切编辑键入自动落盘，切回预览渲染文本', async () => {
+    renderSettings();
+    // 预览态：空文本 → markdown 盒的占位提示在场，无输入框
+    expect(
+      await screen.findByText('全局指令，如：用中文写短句，保持克制冷静的文风'),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText('系统提示词')).toBeNull();
+    // 切编辑：textarea 出现，键入自动落盘（修改即保存，与人设块同款视图切换）
+    fireEvent.click(screen.getByRole('radio', { name: '编辑' }));
+    const textarea = screen.getByLabelText('系统提示词') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '用中文写短句。' } });
+    await waitFor(async () => {
+      expect((await getConfig()).systemPrompt).toBe('用中文写短句。');
+    }, AUTOSAVE_WAIT);
+    // 切回预览：markdown 盒渲染键入文本，占位提示退场
+    fireEvent.click(screen.getByRole('radio', { name: '预览' }));
+    const box = document.querySelector('[data-markdown-preview]');
+    expect(box?.textContent).toContain('用中文写短句。');
+    expect(
+      screen.queryByText('全局指令，如：用中文写短句，保持克制冷静的文风'),
+    ).toBeNull();
   });
 });

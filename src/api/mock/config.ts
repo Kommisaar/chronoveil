@@ -24,6 +24,9 @@ export const DEFAULT_CONFIG: ConfigDto = {
   uiTheme: 'system',
   directorModel: null,
   nearScenes: 2, // ADR-004 默认近景窗口（config.near_scenes 缺键回落值）
+  // 全局系统提示词（2026-09-15）：空白 = 不注入（与 infra/config.rs serde
+  // 缺省空串同源）；自由文本不校验。
+  systemPrompt: '',
   // 采样温度默认 0.7（与 infra/config.rs DEFAULT_TEMPERATURE 同源，TS 侧单一
   // 事实源在 features/settings/preferences.ts 的 TEMPERATURE_MIN/MAX 互指注释）。
   temperature: 0.7,

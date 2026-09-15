@@ -290,6 +290,13 @@ export const zh = {
     nearScenes: '近景场景数',
     nearScenesDesc: '近景逐字携带的最近已结算场景数：越小越省 token，越大逐字上下文越完整',
     issueNearScenes: '近景场景数需为 1–6 之间的整数',
+    // 全局系统提示词（2026-09-15）：注入每次请求 system 消息最前段（人设之前）
+    systemPrompt: '系统提示词',
+    systemPromptDesc: '注入每次请求 system prompt 最前段的全局指令（先于人设）；留空不注入',
+    systemPromptViewLabel: '系统提示词视图',
+    systemPromptModePreview: '预览',
+    systemPromptModeEdit: '编辑',
+    systemPromptPlaceholder: '全局指令，如：用中文写短句，保持克制冷静的文风',
     issueProvider: '模型服务有未填完的必填项、非法 Base URL 或缺模型',
     issueName: '名称为必填',
     issueBaseUrlRequired: 'Base URL 为必填',

@@ -287,6 +287,14 @@ export const en = {
     nearScenes: 'Near-context scenes',
     nearScenesDesc: 'How many recently settled scenes are carried verbatim: lower saves tokens, higher keeps more verbatim context',
     issueNearScenes: 'Near-context scenes must be an integer between 1 and 6',
+    // Global system prompt (2026-09-15): injected as the leading section of every
+    // request's system message (before personas)
+    systemPrompt: 'System prompt',
+    systemPromptDesc: 'Global instructions injected at the front of every request\'s system prompt (before personas); empty = not injected',
+    systemPromptViewLabel: 'System prompt view',
+    systemPromptModePreview: 'Preview',
+    systemPromptModeEdit: 'Edit',
+    systemPromptPlaceholder: 'Global instructions, e.g. short sentences, restrained and calm tone',
     issueProvider: 'A model service has missing required fields, an invalid Base URL, or no models',
     issueName: 'Name is required',
     issueBaseUrlRequired: 'Base URL is required',

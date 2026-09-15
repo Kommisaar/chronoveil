@@ -13,7 +13,7 @@
  *
  * 人设块独立持有「预览|编辑」切换（2026-09-15 自整卡会话拆出，部分回退
  * 2026-09-13「同一会话」定稿）：默认预览态渲染 markdown（与聊天同语法
- * 语义，PersonaPreviewBox）；切编辑变多行输入框。多行文本没有 Enter 提交
+ * 语义，MarkdownPreviewBox）；切编辑变多行输入框。多行文本没有 Enter 提交
  * 语义，切回预览即「提交」——落库始终走修改即保存，切换不动数据。
  */
 import { Input, Text, Textarea, makeStyles, tokens } from '@fluentui/react-components';
@@ -21,8 +21,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
 import { SegmentedControl } from '../../../components/SegmentedControl';
+import { MarkdownPreviewBox } from '../../../components/MarkdownPreviewBox';
 import { AccentColorPicker } from './AccentColorPicker';
-import { PersonaPreviewBox } from './pieces';
 import { TitlesChips } from './TitlesChips';
 
 const useStyles = makeStyles({
@@ -200,7 +200,7 @@ export function IdentityField(props: IdentityFieldProps) {
             placeholder={t('characters.personaPlaceholder')}
           />
         ) : (
-          <PersonaPreviewBox text={persona} />
+          <MarkdownPreviewBox text={persona} hint={t('characters.personaPlaceholder')} />
         )}
       </div>
       {!canSave ? (

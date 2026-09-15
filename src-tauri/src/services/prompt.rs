@@ -1,23 +1,26 @@
 //! Prompt 装配（TASK-006 / FR-001 / FR-003 / FR-012 / ADR-004）：纯函数，可单测，不做 IO。
 //!
 //! ADR-004 场景对齐装配（§7.8 近景/远景，替换 ADR-002 条数滑窗）：
-//! - system = 常驻核心五段（各段空态自然省略；全空时不产生 system 回合）：
-//!   1. 人设段（多角色群像，方案 §2 第 1 步 / D1-D3）：每个 LLM 位实例的 persona
+//! - system = 常驻核心六段（各段空态自然省略；全空时不产生 system 回合）：
+//!   1. 全局系统提示词（config.json `system_prompt`，2026-09-15）：用户自定义
+//!      指令原文，置于所有领域段之前——全局框架指令先于人设 / 世界段（main
+//!      prompt 先于角色定义的惯例）；空白整段省略；
+//!   2. 人设段（多角色群像，方案 §2 第 1 步 / D1-D3）：每个 LLM 位实例的 persona
 //!      作为该角色的自我人设——**LLM 位唯一时保持 v1 单角色裸 persona 形态（等价
 //!      改造）**，多 LLM 位时逐个分节（【角色名】+ persona）并附群像语境声明
 //!      （v1.5 简化：多角色按 roster 序单次生成，尚未逐拍独立调用——见 generation.rs）；
 //!      随后注入用户位 persona 作为「对话对手设定」段（措辞「用户扮演的角色：{name}
 //!      ——{persona}」，D2 扮演位；persona 空白时只报名字或整段省略）；
-//!   2. 当前虚时行「当前时间：…」（BR-003 记账层的读者侧投影）：最新场景行的
+//!   3. 当前虚时行「当前时间：…」（BR-003 记账层的读者侧投影）：最新场景行的
 //!      记账位 + 会话日历快照（FR-013），让角色知道「现在是什么时间」；
-//!   3. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
+//!   4. 远景编年史：更早的每个场景恰好一行（场序 / 地点 / 时间原文 / 日历 label /
 //!      一句话摘要中可用的字段），拼在人设段之后；人设段为空时 system 只含
-//!      其余四段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
+//!      其余各段；Task-03 起两档——刚滑出窗口的**桥场**（窗口外最近的一场）有
 //!      recap（两三句加厚回顾）时追加一行缩进回顾，无 recap 回退单行，更古老的
 //!      场恒一行；
-//!   4. 相关回忆（卷宗，Task-05 记忆探索器产出）：探索器查证出的与本回合直接
+//!   5. 相关回忆（卷宗，Task-05 记忆探索器产出）：探索器查证出的与本回合直接
 //!      相关的往事引文与事实（services/explorer.rs）；None / 空白省略；
-//!   5. 人物状态快照（FR-012，迁移 0009 起挂实例）：状态按**实例**分组渲染——
+//!   6. 人物状态快照（FR-012，迁移 0009 起挂实例）：状态按**实例**分组渲染——
 //!      恰一个持有状态的实例时保持 v1 两小组形态（【当前状态】/【关系】，等价
 //!      改造），多实例时逐实例分节（【实例名 · 组名】），让每个角色知道自己当前
 //!      的状态；expiry 是给结算的清算线索，不进叙事快照（给模型的永远是「现在
@@ -70,15 +73,27 @@ pub struct AssembleInputs<'a> {
     /// （1–6，缺省 [`crate::domain::context::SETTLED_SCENES_IN_NEAR`]）由调用方
     /// 穿入；仅改窗口大小，装配/编年史语义不变（窗口数学见 context::near_view）。
     pub near_scenes: usize,
+    /// 全局系统提示词（config.json `system_prompt`）：注入 system 消息最前段
+    /// （先于人设段）；空白整段省略。与 near_scenes 同经 GenerationDeps 穿入。
+    pub system_prompt: &'a str,
 }
 
-/// 装配一次聊天的完整 messages：system(人设段 + 当前虚时 + 远景编年史 + 相关回忆
-/// 卷宗 + 人物状态快照) + 近景上下文。persona 为空白时跳过对应段（角色卡允许空
-/// 人设）；五段全空时不产生空 system 回合（v1 不变量）。`scenes` 为空（场景特性之前
-/// 的旧数据会话）时无虚时行与远景，全部消息按字符预算兜底（ADR-004 优雅退化，不 panic）。
+/// 装配一次聊天的完整 messages：system(全局系统提示词 + 人设段 + 当前虚时 +
+/// 远景编年史 + 相关回忆卷宗 + 人物状态快照) + 近景上下文。persona 为空白时跳过
+/// 对应段（角色卡允许空人设）；六段全空时不产生空 system 回合（v1 不变量）。
+/// `scenes` 为空（场景特性之前的旧数据会话）时无虚时行与远景，全部消息按字符
+/// 预算兜底（ADR-004 优雅退化，不 panic）。
 pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
-    let AssembleInputs { instances, scenes, history, calendar, states, dossier, near_scenes } =
-        input;
+    let AssembleInputs {
+        instances,
+        scenes,
+        history,
+        calendar,
+        states,
+        dossier,
+        near_scenes,
+        system_prompt,
+    } = input;
     // 无场景行 = 旧数据：不做场景切分，整段历史视为进行中场走预算兜底。
     let spans = if scenes.is_empty() {
         SceneSpans {
@@ -95,9 +110,15 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
     );
 
     let mut out = Vec::new();
-    // system 常驻核心五段（顺序固定）：人设段 → 当前虚时行 → 远景编年史 →
-    // 相关回忆（卷宗）→ 人物状态快照；各段空态自然省略，段间空行分隔。
+    // system 常驻核心六段（顺序固定）：全局系统提示词 → 人设段 → 当前虚时行 →
+    // 远景编年史 → 相关回忆（卷宗）→ 人物状态快照；各段空态自然省略，段间空行分隔。
     let mut sections: Vec<String> = Vec::new();
+    // 第一段：全局系统提示词——用户自定义指令原文置于所有领域段之前（全局框架
+    // 指令先于人设 / 世界段）；空白整段省略。
+    let prompt = system_prompt.trim();
+    if !prompt.is_empty() {
+        sections.push(prompt.to_owned());
+    }
     sections.extend(persona_sections(instances));
     if let Some(time) = current_time_line(calendar, scenes) {
         sections.push(time);
@@ -133,7 +154,7 @@ pub fn assemble(input: &AssembleInputs<'_>) -> Vec<ChatMessage> {
 /// - 用户位实例（恰一，D2）注入「对话对手设定」段，措辞「用户扮演的角色：{name}
 ///   ——{persona}」；persona 空白时只报名字。
 ///
-/// 人设全空且无用户位段时返回空 Vec（五段空态自然省略不变）。
+/// 人设全空且无用户位段时返回空 Vec（空段自然省略不变量不受影响）。
 fn persona_sections(instances: &[CharacterInstance]) -> Vec<String> {
     let llm: Vec<&CharacterInstance> = instances.iter().filter(|i| !i.is_user).collect();
     let user = instances.iter().find(|i| i.is_user);

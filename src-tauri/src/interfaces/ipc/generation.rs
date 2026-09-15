@@ -35,15 +35,18 @@ fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> 
     //   解析失败 = 未配置 → None，生成闭环跳过结算（导演是可选能力，不阻塞生成）。
     // - 近景场景数（近景窗口可选化）：1–6，缺省 2；config 读取失败（坏文件等）
     //   回落 ADR-004 默认值，不阻塞正文生成。
+    // - 全局系统提示词（2026-09-15）：空白 = 不注入；读取失败回落空串。
     let config = app.config.load().ok();
     let director_llm = config
         .as_ref()
         .and_then(|config| director::resolve_director_llm(config).ok())
         .map(|client| Arc::new(with_call_trace(app, client)));
-    let near_scenes = config
-        .map_or(
-            crate::domain::context::SETTLED_SCENES_IN_NEAR,
-            |config| config.near_scenes as usize,
+    // 近景场景数与全局系统提示词同一次读取各取所需：读失败（坏文件等）分别回落
+    // ADR-004 默认窗口 / 空串（不注入），均不阻塞正文生成（同口径）。
+    let (near_scenes, system_prompt) =
+        config.map_or(
+            (crate::domain::context::SETTLED_SCENES_IN_NEAR, String::new()),
+            |config| (config.near_scenes as usize, config.system_prompt),
         );
     GenerationDeps {
         storage: app.storage.clone(),
@@ -51,6 +54,7 @@ fn generation_deps(app: &AppState, sink: Arc<dyn EventSink>, llm: LlmClient) -> 
         llm: Arc::new(llm),
         director_llm,
         near_scenes,
+        system_prompt,
     }
 }
 

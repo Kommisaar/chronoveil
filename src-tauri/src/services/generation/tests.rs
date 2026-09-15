@@ -381,6 +381,7 @@ fn deps_for(storage: &Arc<Storage>, log: Arc<EventLog>, url: &str) -> Generation
         llm: Arc::new(client(url)),
         director_llm: None,
         near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: String::new(),
     }
 }
 
@@ -1188,6 +1189,7 @@ async fn scene_line_settles_before_done_release() {
         llm: Arc::new(client(&chat.url())),
         director_llm: Some(Arc::new(client(&director_server.url()))),
         near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: String::new(),
     };
     PendingGeneration { deps, registry: registry.clone(), ticket, regenerate: false }
         .run()
@@ -1269,6 +1271,7 @@ async fn no_scene_line_skips_settlement_entirely() {
         llm: Arc::new(client(&chat.url())),
         director_llm: Some(Arc::new(client(&director_server.url()))),
         near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: String::new(),
     };
     PendingGeneration { deps, registry, ticket, regenerate: false }.run().await;
 

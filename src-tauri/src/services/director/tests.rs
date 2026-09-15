@@ -539,6 +539,7 @@ fn deps_with_director(
         llm: client.clone(),
         director_llm: Some(client),
         near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: String::new(),
     }
 }
 
@@ -878,6 +879,7 @@ async fn run_settlement_records_one_trace_per_attempt() {
         llm: llm.clone(),
         director_llm: Some(llm),
         near_scenes: crate::domain::context::SETTLED_SCENES_IN_NEAR,
+        system_prompt: String::new(),
     };
     let registry = GenerationRegistry::new();
     let ticket = registry.begin(session_id).unwrap();

@@ -110,9 +110,9 @@ describe('IdentityField 人设独立切换（预览|编辑）', () => {
   it('默认预览态：markdown 渲染直插 DOM；切编辑出 textarea，改文即上报；切回预览', () => {
     renderUi(<FormHarness />);
     // 默认渲染预览（引擎静态渲染，加粗进 tok.bold）
-    expect(document.querySelector('[data-persona-preview]')).toBeTruthy();
+    expect(document.querySelector('[data-markdown-preview]')).toBeTruthy();
     expect(
-      document.querySelector('[data-persona-preview]')?.querySelector('.tok.bold')?.textContent,
+      document.querySelector('[data-markdown-preview]')?.querySelector('.tok.bold')?.textContent,
     ).toBe('加粗');
 
     // 切编辑：textarea 携带原文
@@ -124,7 +124,7 @@ describe('IdentityField 人设独立切换（预览|编辑）', () => {
 
     // 切回预览：渲染新文（视图切换不动数据，父级状态即最新）
     switchPersonaMode('预览');
-    expect(document.querySelector('[data-persona-preview]')?.textContent).toContain('改后的人设');
+    expect(document.querySelector('[data-markdown-preview]')?.textContent).toContain('改后的人设');
     expect(screen.queryByLabelText('人设')).toBeNull();
   });
 });

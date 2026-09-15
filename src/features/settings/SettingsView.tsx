@@ -16,12 +16,14 @@ import {
   Radio,
   RadioGroup,
   Text,
+  Textarea,
   Title1,
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
 import {
   Book20Regular,
+  ChatSettings20Regular,
   Color20Regular,
   Globe20Regular,
 } from '@fluentui/react-icons';
@@ -43,6 +45,8 @@ import {
 import { RhythmSettingsCard } from './RhythmSettingsCard';
 import { ProvidersCard } from './ProvidersCard';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { MarkdownPreviewBox } from '../../components/MarkdownPreviewBox';
 
 /** 自动保存防抖：停止修改后延迟落盘（滑杆拖动/逐键输入不逐帧写盘）。 */
 const AUTOSAVE_DEBOUNCE_MS = 600;
@@ -60,6 +64,21 @@ const useStyles = makeStyles({
   },
   animInput: {
     width: '140px',
+  },
+  // 系统提示词内容区：标题行下的全宽块（渲染预览 / 输入框），随卡面内距
+  // （与角色编辑器人设块同结构，2026-09-15 用户定稿仿人设形态）
+  systemPromptBody: {
+    display: 'block',
+    padding: '0px 20px 12px',
+  },
+  // Fluent Textarea 默认不自撑满父容器，显式拉满卡面可用宽
+  systemPromptTextarea: {
+    width: '100%',
+  },
+  // 系统提示词「预览|编辑」分段（与编辑器人设的 personaMode 同款行语言）
+  systemPromptMode: {
+    width: '112px',
+    minWidth: '0px',
   },
   // 近景场景数非法时的卡片级行内提示（与底部汇总合计两处，验收 5）
   rowIssue: {
@@ -94,6 +113,9 @@ export function SettingsView() {
   const [draft, setDraft] = useState<ConfigDto | null>(null);
   // 近景场景数（近景窗口可选化）：「文本态 + 解析」输入。
   const [nearScenesText, setNearScenesText] = useState('');
+  // 系统提示词预览 / 编辑是纯视图切换：不参与数据（落库走修改即保存，
+  // 与角色编辑器人设块同款）。
+  const [systemPromptEditing, setSystemPromptEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -136,6 +158,7 @@ export function SettingsView() {
       uiTheme: draft.uiTheme,
       directorModel: loaded.directorModel,
       nearScenes: nearScenes ?? loaded.nearScenes,
+      systemPrompt: draft.systemPrompt,
       temperature: draft.temperature,
     };
   }, [loaded, draft, nearScenes]);
@@ -254,7 +277,9 @@ export function SettingsView() {
               onAnimDurationBaseChange={(value) => patch({ animDurationBase: value })}
             />
 
-            {/* 近景窗口可选化（ADR-004 参数化）：近景携带的已结算场景数，数字输入 */}
+            {/* 上下文卡：近景窗口（ADR-004 参数化，数字输入）+ 全局系统提示词
+                （2026-09-15，注入每次请求 system 消息最前段，仿角色编辑器人设块的
+                预览/编辑切换形态） */}
             <SettingsCard title={t('settings.contextCard')}>
               <SettingsRow
                 icon={<Book20Regular />}
@@ -284,6 +309,41 @@ export function SettingsView() {
                   {t('settings.issueNearScenes')}
                 </Text>
               ) : null}
+              <SettingsDivider />
+              <SettingsRow
+                icon={<ChatSettings20Regular />}
+                title={t('settings.systemPrompt')}
+                description={t('settings.systemPromptDesc')}
+                control={
+                  <SegmentedControl
+                    className={styles.systemPromptMode}
+                    ariaLabel={t('settings.systemPromptViewLabel')}
+                    value={systemPromptEditing ? 'edit' : 'preview'}
+                    onChange={(v) => setSystemPromptEditing(v === 'edit')}
+                    options={[
+                      { value: 'preview', label: t('settings.systemPromptModePreview') },
+                      { value: 'edit', label: t('settings.systemPromptModeEdit') },
+                    ]}
+                  />
+                }
+              />
+              <div className={styles.systemPromptBody}>
+                {systemPromptEditing ? (
+                  <Textarea
+                    className={styles.systemPromptTextarea}
+                    value={draft.systemPrompt}
+                    rows={4}
+                    onChange={(_, d) => patch({ systemPrompt: d.value })}
+                    aria-label={t('settings.systemPrompt')}
+                    placeholder={t('settings.systemPromptPlaceholder')}
+                  />
+                ) : (
+                  <MarkdownPreviewBox
+                    text={draft.systemPrompt}
+                    hint={t('settings.systemPromptPlaceholder')}
+                  />
+                )}
+              </div>
             </SettingsCard>
 
             {/* 服务卡（装配抽在 ProvidersCard）：provider 增删改、空态引导与

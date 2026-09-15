@@ -112,6 +112,7 @@ fn save_load_roundtrip_and_no_tmp_leftover() {
         ui_theme: "light".into(),
         director_model: Some("director-model".into()),
         near_scenes: 4,
+        system_prompt: "用中文写短句".into(),
         temperature: 0.8,
     };
     store.save(&config).unwrap();
@@ -447,6 +448,26 @@ fn temperature_defaults_and_range_rejected() {
     };
     let err = store.save(&bad).unwrap_err();
     assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 全局系统提示词（2026-09-15）：缺键 → serde 缺省空串（旧 config.json 零迁移兼容，
+/// 空串 = 不注入）；自由文本不校验，长文本落盘往返无损。
+#[test]
+fn system_prompt_defaults_empty_and_roundtrips() {
+    let dir = temp_dir("sysprompt");
+    let store = store_in(&dir);
+    // 缺键 → 空串（旧 config.json 兼容）。
+    std::fs::write(store.path(), r#"{"ui_theme": "dark"}"#).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.system_prompt, "", "缺键补空串");
+    // 多行文本往返无损。
+    let config = Config {
+        system_prompt: "用中文写短句。\n保持冷峻克制的文风。".into(),
+        ..Config::new_with_defaults()
+    };
+    store.save(&config).unwrap();
+    assert_eq!(store.load().unwrap().system_prompt, config.system_prompt);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

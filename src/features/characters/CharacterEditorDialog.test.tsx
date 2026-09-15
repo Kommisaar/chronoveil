@@ -55,6 +55,7 @@ const CONFIG: ConfigDto = {
   uiTheme: 'system',
   directorModel: null,
   nearScenes: 2,
+  systemPrompt: '',
   temperature: 0.7,
 };
 
@@ -97,7 +98,7 @@ describe('CharacterEditorDialog 打开与回填（编辑既有卡）', () => {
     expect((screen.getByLabelText('年龄') as HTMLInputElement).value).toBe('31');
     expect(screen.queryByRole('button', { name: '重命名' })).toBeNull();
     // 人设默认渲染预览（引擎静态渲染直插 DOM，CharacterSummary 随列表回填）
-    expect(document.querySelector('[data-persona-preview]')?.textContent).toContain(
+    expect(document.querySelector('[data-markdown-preview]')?.textContent).toContain(
       '旧书店老板',
     );
   });
@@ -155,7 +156,7 @@ describe('CharacterEditorDialog 人设独立切换（2026-09-15 自整卡会话�
     renderView();
     await openEditorOf('林深');
     // 默认预览态（人设编辑不随身份行——两者已无共享会话）
-    expect(document.querySelector('[data-persona-preview]')).toBeTruthy();
+    expect(document.querySelector('[data-markdown-preview]')).toBeTruthy();
     expect(screen.queryByLabelText('人设')).toBeNull();
 
     switchPersonaMode('编辑');
@@ -172,7 +173,7 @@ describe('CharacterEditorDialog 人设独立切换（2026-09-15 自整卡会话�
 
     switchPersonaMode('预览');
     expect(
-      document.querySelector('[data-persona-preview]')?.textContent,
+      document.querySelector('[data-markdown-preview]')?.textContent,
     ).toContain('旧书店老板，业余侦探。');
     expect(screen.queryByLabelText('人设')).toBeNull();
   });

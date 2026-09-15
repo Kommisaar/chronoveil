@@ -161,6 +161,9 @@ pub struct GenerationDeps {
     /// 编排本体，装配所需的单值经依赖包传递（与 director_llm 同一穿透方式），
     /// generate_once → prompt::AssembleInputs 消费。
     pub near_scenes: usize,
+    /// 全局系统提示词（config.json `system_prompt`）：与 near_scenes 同一穿透方式，
+    /// 空白 = 不注入；prompt::assemble 注入为 system 消息最前段。
+    pub system_prompt: String,
 }
 
 /// 已登记、待驱动的一次生成。命令层构造后交给异步运行时 spawn。
@@ -272,6 +275,7 @@ async fn generate_once(
         states: &states,
         dossier: dossier.as_deref(),
         near_scenes: deps.near_scenes,
+        system_prompt: deps.system_prompt.as_str(),
     });
 
     let sink = Arc::new(GenerationSink::new(deps.sink.clone()));

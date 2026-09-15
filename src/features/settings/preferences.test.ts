@@ -45,6 +45,7 @@ const config = (partial: Partial<ConfigDto>): ConfigDto => ({
   uiTheme: 'system',
   directorModel: null,
   nearScenes: 2,
+  systemPrompt: '',
   temperature: 0.7,
   ...partial,
 });

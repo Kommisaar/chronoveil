@@ -1,8 +1,8 @@
 // 编辑器共享 UI 件冒烟（pieces.tsx / OverrideSection.tsx）：强调色取色器
 // （开合/选色回调/跟随海报/选后面板保持打开/点外部关闭）、模型配置两行
-// （模型设置级联菜单/温度行跟随自定义）、人设 markdown 预览（引擎直插 DOM、
-// 空态提示开关）、预览框（ref 绑定与空态提示）、出场字段（风格标签回显/播放
-// 回调）。i18n 固定中文，断言 zh 文案。
+// （模型设置级联菜单/温度行跟随自定义）、预览框（ref 绑定与空态提示）、
+// 出场字段（风格标签回显/播放回调）。人设 markdown 预览盒已下沉
+// components/MarkdownPreviewBox（测试随组件走）。i18n 固定中文，断言 zh 文案。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -10,11 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelSpecDto, ProviderDto } from '../../../api/types';
 import '../../../i18n';
 import { AccentColorPicker } from './AccentColorPicker';
-import {
-  PerformanceField,
-  PersonaPreviewBox,
-  PreviewBox,
-} from './pieces';
+import { PerformanceField, PreviewBox } from './pieces';
 import { OverrideSection } from './OverrideSection';
 
 function renderUi(node: ReactNode) {
@@ -239,57 +235,6 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     );
     expect(onTemperatureChange).toHaveBeenCalledTimes(1);
     expect(onTemperatureChange).toHaveBeenCalledWith(0.7);
-  });
-});
-
-describe('PersonaPreviewBox（人设展示态）', () => {
-  it('markdown 直插 DOM：加粗产出 tok.bold，正文上屏', () => {
-    renderUi(<PersonaPreviewBox text="**加粗**冷句" />);
-    const box = document.querySelector('[data-persona-preview]');
-    expect(box).toBeTruthy();
-    expect(box!.querySelector('.tok.bold')?.textContent).toBe('加粗');
-    expect(box!.textContent).toContain('冷句');
-  });
-
-  it('场景线挖空底按所在表面注入：容器行内 --cv-scene-line-bg = 主题 bg1（展示态落在 DialogSurface）', () => {
-    renderUi(<PersonaPreviewBox text={'前情\n\n---\n\n后续'} />);
-    const box = document.querySelector<HTMLElement>('[data-persona-preview]')!;
-    // 注入的是 Fluent 主题变量引用（tokens.* 即 var(...)，FluentProvider 按主题
-    // 解析，同聊天侧 engineThemeVars）：指向 bg1 而非 bg2 才是与所在表面同色
-    expect(box.style.getPropertyValue('--cv-scene-line-bg')).toBe(
-      'var(--colorNeutralBackground1)',
-    );
-    // 两表面在主题里确为异色（引用指错表面即出异色矩形，此断言保证上述契约有效）
-    expect(webLightTheme.colorNeutralBackground1).not.toBe(
-      webLightTheme.colorNeutralBackground2,
-    );
-    // 含 --- 的人设渲染不回归：静态渲染与聊天同语法语义，场景线仍产出 hr.scene
-    expect(box.querySelectorAll('hr.scene')).toHaveLength(1);
-    expect(box.textContent).not.toContain('---');
-  });
-
-  it('文本变化即整容器重渲染', () => {
-    const { rerender } = renderUi(<PersonaPreviewBox text="第一版" />);
-    expect(document.querySelector('[data-persona-preview]')!.textContent).toContain('第一版');
-    rerender(
-      <FluentProvider theme={webLightTheme}>
-        <PersonaPreviewBox text="第二版" />
-      </FluentProvider>,
-    );
-    const box = document.querySelector('[data-persona-preview]')!;
-    expect(box.textContent).toContain('第二版');
-    expect(box.textContent).not.toContain('第一版');
-  });
-
-  it('空文本默认出占位提示；showHint=false 不出（编辑态 textarea 已有 placeholder）', () => {
-    const { rerender } = renderUi(<PersonaPreviewBox text="   " />);
-    expect(screen.getByText('这个角色是谁？说话习惯、背景、底线……')).toBeTruthy();
-    rerender(
-      <FluentProvider theme={webLightTheme}>
-        <PersonaPreviewBox text="" showHint={false} />
-      </FluentProvider>,
-    );
-    expect(screen.queryByText('这个角色是谁？说话习惯、背景、底线……')).toBeNull();
   });
 });
 

@@ -1,17 +1,17 @@
 /**
  * 编辑器共享 UI 件（2026-09-09 编辑器重做时抽出）：字段级组件与样式——
- * 预览框、人设预览、输出动画卡内容、模型覆写行，由 CharacterEditorDialog
+ * 预览框、输出动画卡内容、模型覆写行，由 CharacterEditorDialog
  * 排版壳复用。2026-09-13 用户定稿：右侧表单收敛为三张分组设置卡（基础
  * 信息 / 输出动画 / 其他配置），本文件的行级组件改用
  * components/SettingsCard 的行语言（SettingsRow 行 + 行下全宽 cardBody）。
  * 强调色取色器已按字段域拆至 AccentColorPicker（沿用本文件的
- * useFieldStyles）。
+ * useFieldStyles）；人设 markdown 预览盒 2026-09-15 下沉
+ * components/MarkdownPreviewBox（设置页第二用例）。
  */
-import { Button, Text, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
-import { useEffect, useRef } from 'react';
+import { Button, Text, makeStyles, tokens } from '@fluentui/react-components';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ANIM_STYLES, renderStaticMarkdown } from '../../../engine';
+import { ANIM_STYLES } from '../../../engine';
 import { SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
 import { DropdownPushButton } from '../../../components/DropdownPushButton';
 import { SegmentedControl } from '../../../components/SegmentedControl';
@@ -200,35 +200,8 @@ export const useFieldStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     fontSize: tokens.fontSizeBase200,
   },
-  // 人设静态预览的主题适配：引擎的加粗米白是聊天暗色调硬编码，预览容器内用
-  // 主题 token 覆写保证亮色主题可读（动作蓝灰斜体双主题均可读，不动）。场景线
-  // ✦ 挖空底不在此静态覆写：--cv-scene-line-bg 须与所在表面背景一致（engine.css
-  // :root 注释），展示态落在 DialogSurface（bg1）而演出预览框是 bg2 表面，单一
-  // 静态类无法两用——改为两个容器各自行内按表面注入（对齐聊天侧 ChatView 的
-  // engineThemeVars 先例）
-  personaMarkdown: {
-    '& .tok.bold': { color: tokens.colorNeutralForeground1 },
-  },
-  // 人设展示态（2026-09-10 用户定稿）：无边框无底色，markdown 直接落在
-  // 面板上，与聊天叙事流同观感；高度随内容自然生长（编辑态 textarea 变高）
-  personaPlain: {
-    fontSize: tokens.fontSizeBase300,
-    lineHeight: '1.8',
-    wordBreak: 'break-word',
-  },
-  // 空人设：给提示文案撑住一块可点击的视觉空间，非空时不占位
-  personaEmpty: {
-    minHeight: '72px',
-  },
-  // 空态提示（人设）：无框后左上对齐更像输入占位符（演出预览的居中提示是框内场景）
-  personaHint: {
-    position: 'absolute',
-    top: '0px',
-    left: '0px',
-    pointerEvents: 'none',
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
-  },
+  // 人设展示态的预览盒已下沉 components/MarkdownPreviewBox（2026-09-15）：
+  // personaPlain / personaEmpty / personaMarkdown / personaHint 四样式随迁。
   chevron: {
     // 旋转过渡收进 no-preference 媒体块（同 useCardLiftStyles 的 reduce
     // 门控）；chevronOpen 的 transform 不门控——旋转是 aria-expanded 的
@@ -271,41 +244,9 @@ export function PreviewBox(props: {
   );
 }
 
-/** 人设 markdown 静态预览：引擎 renderStaticMarkdown 直插 DOM（与聊天同
-    语法语义），文本变化即整容器重渲染；展示态无边框底色（用户定稿），
-    空文本由兄弟节点出提示（showHint=false 供编辑态实时预览复用——textarea
-    已有 placeholder，不重复出提示）——引擎容器内的 DOM 不归 React 管，
-    子节点放同一容器会在 reconcile 时打架（与 PreviewBox 同一招）。 */
-export function PersonaPreviewBox(props: { text: string; showHint?: boolean }) {
-  const { showHint = true } = props;
-  const styles = useFieldStyles();
-  const { t } = useTranslation();
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (ref.current) renderStaticMarkdown(ref.current, props.text);
-  }, [props.text]);
-  const empty = props.text.trim() === '';
-  return (
-    <div className={styles.previewWrap}>
-      <div
-        ref={ref}
-        data-persona-preview
-        className={mergeClasses(
-          styles.personaPlain,
-          empty && styles.personaEmpty,
-          styles.personaMarkdown,
-        )}
-        // 场景线挖空底按所在表面行内注入：展示态直接落在 DialogSurface（默认
-        // bg1，对比度守卫的配对依据同源），原静态类按 bg2 定值会出异色矩形；
-        // as 断言理由同 PreviewBox
-        style={{ '--cv-scene-line-bg': tokens.colorNeutralBackground1 } as CSSProperties}
-      />
-      {empty && showHint ? (
-        <Text className={styles.personaHint}>{t('characters.personaPlaceholder')}</Text>
-      ) : null}
-    </div>
-  );
-}
+/** 人设 markdown 静态预览：2026-09-15 下沉 components/MarkdownPreviewBox
+ * （设置页全局系统提示词预览成为第二用例），IdentityField 直接用下沉件。 */
+
 
 /** 风格 id → 展示标签；表外遗留串原样回显（不猜别名，与旧下拉一致）。 */
 function styleLabelOf(id: string): string {

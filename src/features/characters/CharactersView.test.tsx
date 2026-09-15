@@ -81,7 +81,7 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
   fireEvent.click(await screen.findByText('林深'));
 
   // persona 默认渲染展示：预览容器由引擎直插 DOM（markdown 静态渲染）
-  const personaPreview = document.querySelector('[data-persona-preview]');
+  const personaPreview = document.querySelector('[data-markdown-preview]');
   expect(personaPreview?.textContent).toContain('旧书店老板');
 
   // 人设默认渲染预览；切「编辑」出 textarea 预填原文（CharacterSummary 扩

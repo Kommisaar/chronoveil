@@ -148,6 +148,7 @@ describe('配置加载降级（Task-14）', () => {
       uiTheme: 'system',
       directorModel: null,
       nearScenes: 2,
+      systemPrompt: '',
       temperature: 0.7,
     };
     mocks.listCharacters.mockResolvedValue([LIN]);

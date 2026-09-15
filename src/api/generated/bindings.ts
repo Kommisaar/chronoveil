@@ -422,6 +422,10 @@ directorModel: string | null;
  */
 nearScenes: number; 
 /**
+ * 全局系统提示词：注入每次请求 system 消息最前段；空白 = 不注入。
+ */
+systemPrompt: string; 
+/**
  * 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
  * Anthropic 侧超 1.0 由协议适配钳制）。
  */

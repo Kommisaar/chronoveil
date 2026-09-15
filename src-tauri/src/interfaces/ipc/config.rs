@@ -94,6 +94,8 @@ pub struct ConfigDto {
     pub director_model: Option<String>,
     /// 近景场景数（近景窗口可选化：最近 N 个已结算场整场进近景，1–6，默认 2）。
     pub near_scenes: u32,
+    /// 全局系统提示词：注入每次请求 system 消息最前段；空白 = 不注入。
+    pub system_prompt: String,
     /// 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
     /// Anthropic 侧超 1.0 由协议适配钳制）。
     pub temperature: f64,
@@ -124,6 +126,7 @@ impl From<&FileConfig> for ConfigDto {
             ui_theme: c.ui_theme.clone(),
             director_model: c.director_model.clone(),
             near_scenes: c.near_scenes,
+            system_prompt: c.system_prompt.clone(),
             temperature: c.temperature,
         }
     }
@@ -155,6 +158,7 @@ impl From<ConfigDto> for FileConfig {
             ui_theme: d.ui_theme,
             director_model: d.director_model,
             near_scenes: d.near_scenes,
+            system_prompt: d.system_prompt,
             temperature: d.temperature,
         }
     }
@@ -211,6 +215,7 @@ mod tests {
             ui_theme: "dark".into(),
             director_model: None,
             near_scenes: 4,
+            system_prompt: "用中文写短句".into(),
             temperature: 0.9,
         };
         let wire = serde_json::to_value(&dto).unwrap();
@@ -226,6 +231,7 @@ mod tests {
         );
         assert_eq!(wire["rhythmMsPerChar"], 90);
         assert_eq!(wire["nearScenes"], 4, "近景场景数 camelCase 透传");
+        assert_eq!(wire["systemPrompt"], "用中文写短句", "全局系统提示词 camelCase 透传");
         assert_eq!(wire["temperature"], 0.9, "采样温度 camelCase 透传");
 
         let file: FileConfig = dto.clone().into();
@@ -233,6 +239,7 @@ mod tests {
         assert_eq!(dto, back, "DTO ↔ 落盘结构往返无损");
         assert_eq!(file.rhythm_ms_per_char, 90);
         assert_eq!(file.near_scenes, 4);
+        assert_eq!(file.system_prompt, "用中文写短句");
         assert_eq!(
             file.providers[0].models,
             vec![ModelSpec::from_id("m1"), ModelSpec::from_id("m2")]

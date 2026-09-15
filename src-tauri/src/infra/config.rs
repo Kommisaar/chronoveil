@@ -215,6 +215,12 @@ pub struct Config {
     /// services/prompt::AssembleInputs（经 generation 穿参）。
     #[serde(default = "default_near_scenes")]
     pub near_scenes: u32,
+    /// 全局系统提示词（2026-09-15）：用户自定义指令，注入每次请求 system 消息的
+    /// 最前段（先于人设段）；空白 = 不注入。自由文本不校验（同人设先例）；
+    /// 旧 config.json 缺键回落空串（零迁移兼容，同 near_scenes 口径）。
+    /// 装配消费点：services/prompt::AssembleInputs（经 generation 穿参）。
+    #[serde(default)]
+    pub system_prompt: String,
     /// 采样温度（0–2，默认 0.7）：chat 请求以 temperature 参数随三协议下发
     /// （消费点 services/generation → LlmConfig → 各 wire payload）。
     pub temperature: f64,
@@ -242,6 +248,7 @@ impl Config {
             ui_theme: "system".into(),
             director_model: None,
             near_scenes: DEFAULT_NEAR_SCENES,
+            system_prompt: String::new(),
             temperature: DEFAULT_TEMPERATURE,
         }
     }

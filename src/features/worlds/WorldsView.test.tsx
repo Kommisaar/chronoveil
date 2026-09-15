@@ -62,6 +62,36 @@ it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 u
   }
 });
 
+// 名册档（Task-04）：切 ledger 后单列名册行上屏——世界名/历法徽章/世界观
+// 摘录同行承载，点行进编辑；gallery 档由本文件其余用例默认覆盖（store 初值
+// gallery，不受本用例影响——还原在 finally）。本用例只读（不改种子），排在
+// 「编辑」用例改历法之前。
+it('名册档：单列名册行承载世界名/历法徽章/世界观摘录，点行进编辑', async () => {
+  useUiStore.setState({ cardDirection: 'ledger' });
+  try {
+    renderView();
+    expect(await screen.findByText('雾灯航线')).toBeTruthy();
+    // 历法徽章：带历法卡显历法名；null 历法卡显「默认数字历」
+    expect(screen.getByText('七曜和历')).toBeTruthy();
+    expect(screen.getByText('默认数字历')).toBeTruthy();
+    // 世界观摘录（excerptOf 64 字档，种子 44 字全文无省略号）；空 worldbook
+    // 卡（空白舞台）渲染空态占位（同图版卡拍板）
+    expect(
+      screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
+    ).toBeTruthy();
+    expect(screen.getByText('还没有世界观')).toBeTruthy();
+    // 点行（名字在行 button 内，点击冒泡）进编辑
+    fireEvent.click(screen.getByText('雾灯航线'));
+    expect(
+      await screen.findByRole('heading', { name: '编辑世界' }, { timeout: 3000 }),
+    ).toBeTruthy();
+  } finally {
+    // 还原共享 store 必须在 finally（口径同上一用例）：断言失败时 'ledger'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
+});
+
 it('新建 = 先落库再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
   renderView();
   await screen.findByText('空白舞台');

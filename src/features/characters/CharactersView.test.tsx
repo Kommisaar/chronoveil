@@ -78,6 +78,38 @@ it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 u
   }
 });
 
+// 名册档（Task-04）：切 ledger 后单列名册行上屏——名字/称号/人设摘录同行
+// 承载，点行进编辑；gallery 档由本文件其余用例默认覆盖（store 初值 gallery，
+// 不受本用例影响——还原在 finally）。
+it('名册档：单列名册行承载名字/称号/人设摘录与元信息，点行进编辑', async () => {
+  useUiStore.setState({ cardDirection: 'ledger' });
+  try {
+    renderView();
+    // 林深种子带 titles + markdown persona（断言素材同 gallery 首用例）。以
+    // 林深行 button 为界做行内断言（不全局 getByText——「N 个会话」在多张
+    // 种子卡上同文案）：称号整串 + 人设摘录（excerptOf 剥 ** 加粗标记，
+    // 64 字档全文无省略号）+ 元信息同行承载。会话数是 0 而非种子静态值 1：
+    // mock listCharacters 实时统计 is_user 扮演位会话数（backend.ts），林深
+    // 从未作扮演位（苏鸢才是），静态 sessionCount 被覆写
+    const nameText = await screen.findByText('林深');
+    const row = nameText.closest('button');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain('「守夜人 · 旧书店主」');
+    expect(row?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
+    expect(row?.textContent).toContain('动画样式 · ink');
+    expect(row?.textContent).toContain('0 个会话');
+    // 点行（名字在行 button 内，点击冒泡）进编辑
+    fireEvent.click(screen.getByText('林深'));
+    expect(
+      await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
+    ).toBeTruthy();
+  } finally {
+    // 还原共享 store 必须在 finally（口径同上一用例）：断言失败时 'ledger'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
+});
+
 it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
   renderView();
   await screen.findByText('苏鸢');

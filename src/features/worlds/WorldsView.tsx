@@ -3,8 +3,9 @@
  * 卡面口径（2026-09-15 晚间用户批准重设计定稿）：gallery 档用 WorldPlateCard
  * 横版「图版卡」（上图下文，卡面承载身份——世界观摘录是主角，历法/日期退居
  * 次位；竖=角色域、横=世界域，对齐角色页海报墙的视觉分量），替代同日早前
- * 的档案卡定稿；ledger/stage 档暂仍渲染旧档案卡（三方向对比期的过渡形态，
- * 由后续任务 T4/T5 分别接管，拍板后败者裁撤）。
+ * 的档案卡定稿；ledger 档落单列名册行（WorldLedgerRow，Task-04，与角色页
+ * CharacterLedgerRow 同族）；stage 档暂仍旧档案卡（三方向对比期的过渡形态，
+ * 由后续任务 T5 接管，拍板后败者裁撤）。
  *
  * - 世界色按 id 取模恒定（worldGradientOf，地志调色板与角色靛紫系拉开域
  *   别）；同世界跨处配色漂移不可接受（同角色页规则）；
@@ -24,8 +25,9 @@
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
  * - 工具栏卡面风格切换器（三方向对比期基建）：与角色页共用全局
- *   cardDirection 档位——gallery 落图版卡网格（本任务），ledger/stage 暂仍
- *   档案卡（过渡形态，T4/T5 接管），拍板胜出方向后随败者裁撤。
+ *   cardDirection 档位——gallery 落图版卡网格，ledger 落单列名册行
+ *   （Task-04），stage 暂仍档案卡（过渡形态，T5 接管），拍板胜出方向后随
+ *   败者裁撤。
  */
 import {
   Button,
@@ -49,6 +51,7 @@ import { usePageContainerStyles } from '../../components/usePageContainerStyles'
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
 import { WorldEditorDialog } from './WorldEditorDialog';
+import { WorldLedgerRow } from './WorldLedgerRow';
 import { WorldPlateCard } from './WorldPlateCard';
 import { worldGradientOf } from './worldGradient';
 
@@ -87,11 +90,20 @@ const useStyles = makeStyles({
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '16px',
   },
-  // 档案卡网格（ledger/stage 过渡档，T4/T5 接管后随败者裁撤）
+  // 档案卡网格（stage 过渡档，T5 接管后随败者裁撤）
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
     gap: '16px',
+  },
+  // 名册容器（ledger 档，Task-04）：单列限宽 880 居中（对齐 settings 族阅读
+  // 宽度，与角色页 ledgerList 同口径）——名册是阅读型列表不是卡片墙；行间
+  // 分隔由 WorldLedgerRow 行内细线承担
+  ledgerList: {
+    display: 'flex',
+    flexDirection: 'column',
+    maxWidth: '880px',
+    marginInline: 'auto',
   },
   // 卡面风格切换器定宽：SegmentedControl 轨道自带 width:100%，工具栏 flex 行
   // 内不约束会撑满整行（同本文件 WorldEditorDialog.worldbookMode 先例）
@@ -100,7 +112,8 @@ const useStyles = makeStyles({
     minWidth: '0px',
   },
 
-  // —— 档案卡（ledger/stage 过渡档样式，gallery 已换 WorldPlateCard）：
+  // —— 档案卡（stage 过渡档样式，gallery 已换 WorldPlateCard、ledger 已换
+  //    WorldLedgerRow）：
   //    原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的 interactive
   //    语义栈，裸 button + Griffel 类即测试契约「点击进编辑」） ——
   card: {
@@ -192,7 +205,7 @@ export function WorldsView() {
   const { t } = useTranslation();
 
   // 卡面方向档位（三方向对比期基建，与角色页共用）：gallery 落图版卡，
-  // ledger/stage 暂仍档案卡（过渡，T4/T5 接管）
+  // ledger 落名册行（Task-04），stage 暂仍档案卡（过渡，T5 接管）
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -377,9 +390,23 @@ export function WorldsView() {
                   />
                 ))}
               </div>
+            ) : cardDirection === 'ledger' ? (
+              // 名册档（Task-04）：单列名册行——世界色块 + 三行信息 + 行间细线
+              <div className={styles.ledgerList}>
+                {sorted.map((world, index) => (
+                  <WorldLedgerRow
+                    key={world.id}
+                    world={world}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                  />
+                ))}
+              </div>
             ) : (
-              // ledger/stage 过渡档：暂仍旧档案卡网格（后续任务 T4/T5 分别
-              // 接管改版，拍板后败者随档案卡代码一并裁撤）
+              // stage 过渡档：暂仍旧档案卡网格（后续任务 T5 接管改版，拍板后
+              // 败者随档案卡代码一并裁撤）
               <div className={styles.grid}>
                 {sorted.map((world, index) => {
                   const revealDelay = reveal[index];

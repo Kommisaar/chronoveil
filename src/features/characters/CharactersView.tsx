@@ -8,8 +8,9 @@
 // - 交互与测试契约：点击进编辑；修改即保存（2026-09-13 用户定稿），无
 //   脏守卫与丢弃确认；本视图仅服务编辑既有卡，新建 = 先以默认名落库再
 //   进编辑器（handleNew）。
-// - 工具栏卡面风格切换器（三方向对比期基建）：读写全局 cardDirection 档位，
-//   对比期本页无视觉分支（切换只改 store 值），拍板胜出方向后随败者裁撤。
+// - 工具栏卡面风格切换器（三方向对比期基建）：读写全局 cardDirection 档位；
+//   ledger 档落单列名册（CharacterLedgerRow，Task-04），gallery/stage 暂落
+//   海报墙（stage 由 T5 接管），拍板胜出方向后随败者裁撤。
 import {
   Button,
   Text,
@@ -39,6 +40,7 @@ import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { useUiStore } from '../../stores/ui';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 import type { AnimDefaults } from './editor/useEditorForm';
+import { CharacterLedgerRow } from './CharacterLedgerRow';
 import { CharacterPosterCard } from './CharacterPosterCard';
 
 /** 新建卡的默认负载：先落库再进编辑器（修改即保存），后续编辑自动保存到该卡。 */
@@ -88,6 +90,15 @@ const useStyles = makeStyles({
     gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
     gap: '16px',
   },
+  // 名册容器（ledger 档）：单列限宽 880 居中（对齐 settings 族阅读宽度，
+  // usePageContainerStyles 的 settings 档内容宽上限同为 880）——名册是阅读
+  // 型列表不是海报墙；行间分隔由 CharacterLedgerRow 行内细线承担
+  ledgerList: {
+    display: 'flex',
+    flexDirection: 'column',
+    maxWidth: '880px',
+    marginInline: 'auto',
+  },
   empty: {
     display: 'flex',
     minHeight: '240px',
@@ -111,7 +122,8 @@ export function CharactersView() {
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
-  // 卡面方向档位（三方向对比期基建）：本任务只改 store 值，视觉分支由后续任务接入
+  // 卡面方向档位（三方向对比期基建）：ledger 落名册行，gallery/stage 暂落
+  // 海报墙（stage 由 T5 接管）
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -139,8 +151,11 @@ export function CharactersView() {
   const [deleteTarget, setDeleteTarget] = useState<CharacterSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
-  // 以下滚入才播；同批 60ms 级错峰。本视图内无重挂触发源，resetKey 恒定。
-  const { reveal, register } = useRevealOnScroll(characters.length, 'characters');
+  // 以下滚入才播；同批 60ms 级错峰。resetKey 携带卡面方向（同 WorldsView
+  // 口径，Task-03 builder 标记的必要性）：gallery ↔ ledger/stage 切换会重挂
+  // 网格 DOM（useRevealOnScroll 文件头的设计场景），揭示状态须随之重置——
+  // 否则新元素无人观察，折叠线以下从未滚入过的卡切档后永久透明。
+  const { reveal, register } = useRevealOnScroll(characters.length, cardDirection);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -353,19 +368,37 @@ export function CharactersView() {
                 {loadError}
               </Text>
             ) : null}
-            <div className={styles.gridPoster}>
-              {sorted.map((character, index) => (
-                <CharacterPosterCard
-                  key={character.id}
-                  character={character}
-                  index={index}
-                  revealDelay={reveal[index]}
-                  register={register}
-                  onOpen={openEditor}
-                  onExport={(id) => void handleExport(id)}
-                />
-              ))}
-            </div>
+            {cardDirection === 'ledger' ? (
+              // 名册档（Task-04）：单列名册行——身份块 + 三行信息 + 行间细线
+              <div className={styles.ledgerList}>
+                {sorted.map((character, index) => (
+                  <CharacterLedgerRow
+                    key={character.id}
+                    character={character}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                    onExport={(id) => void handleExport(id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              // gallery/stage 档：海报墙（stage 由 T5 接管）
+              <div className={styles.gridPoster}>
+                {sorted.map((character, index) => (
+                  <CharacterPosterCard
+                    key={character.id}
+                    character={character}
+                    index={index}
+                    revealDelay={reveal[index]}
+                    register={register}
+                    onOpen={openEditor}
+                    onExport={(id) => void handleExport(id)}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

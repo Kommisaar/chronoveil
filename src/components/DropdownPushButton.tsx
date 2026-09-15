@@ -14,11 +14,7 @@
  * ——同 AccentColorPicker 对「弹层越出画面」的踩坑口径），横向不钳位（菜单
  * 与触发钮同宽）。
  */
-import {
-  makeStyles,
-  mergeClasses,
-  tokens,
-} from '@fluentui/react-components';
+import { mergeClasses } from '@fluentui/react-components';
 import {
   Checkmark20Regular,
   ChevronDown20Regular,
@@ -27,6 +23,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DROPDOWN_POP_MS } from './motion';
+import { useDropdownPushStyles } from './useDropdownPushStyles';
 // 级联子系统共用常量与二级飞出层（本文件超 500 行上限时按职责拆出的伴生件）
 import {
   DropdownPushSubmenu,
@@ -40,133 +37,6 @@ import { findClipBounds, MARGIN_PX, placeSubmenuVertically } from './dropdownPla
  *  dropdownPlacement）。 */
 const GAP_PX = 6;
 
-const useStyles = makeStyles({
-  root: {
-    position: 'relative',
-    display: 'inline-flex',
-    minWidth: '0px',
-  },
-  // 触发钮对齐 Fluent secondary 控件语言（bg1 + 1px 描边 + hover bg2），
-  // 与行内原生 Fluent 按钮同排不跳调
-  triggerDisabled: {
-    opacity: '0.45',
-  },
-  trigger: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: tokens.spacingHorizontalXXS,
-    width: '100%',
-    // 32px = Fluent Button medium 高度：与同行原生按钮（预览动画）等高
-    // （2026-09-14 用户反馈；旧 Fluent Dropdown 按钮是 30px，勿沿用）
-    height: '32px',
-    padding: '0px 6px 0px 12px',
-    borderRadius: tokens.borderRadiusMedium,
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-    color: tokens.colorNeutralForeground1,
-    fontSize: tokens.fontSizeBase300,
-    cursor: 'pointer',
-    // 悬停/按下三件套（底 + 描边 + 前景）对齐原生 Fluent Button 次级形态：
-    // 从注入样式表实测其 hover/active 规则（背景 Background1Hover/Pressed、
-    // 描边 Stroke1Hover/Pressed），按下有明确压暗反馈（用户反馈补齐）
-    ':hover': {
-      backgroundColor: tokens.colorNeutralBackground1Hover,
-      border: `1px solid ${tokens.colorNeutralStroke1Hover}`,
-      color: tokens.colorNeutralForeground1Hover,
-    },
-    ':active': {
-      backgroundColor: tokens.colorNeutralBackground1Pressed,
-      border: `1px solid ${tokens.colorNeutralStroke1Pressed}`,
-      color: tokens.colorNeutralForeground1Pressed,
-    },
-    ':focus-visible': {
-      outlineWidth: '2px',
-      outlineStyle: 'solid',
-      outlineColor: tokens.colorBrandForeground1,
-      outlineOffset: '1px',
-    },
-  },
-  // 箭头旋转是 aria-expanded 的可视冗余：补间收进 no-preference 媒体块
-  // （同 pieces.tsx chevron 门控），减弱动态瞬时翻转
-  chevron: {
-    flexShrink: 0,
-    color: tokens.colorNeutralForeground3,
-    '@media (prefers-reduced-motion: no-preference)': {
-      transitionProperty: 'transform',
-      transitionDuration: tokens.durationFast,
-      transitionTimingFunction: tokens.curveEasyEase,
-    },
-  },
-  chevronOpen: {
-    transform: 'rotate(180deg)',
-  },
-  menu: {
-    position: 'absolute',
-    left: '0px',
-    width: '100%',
-    zIndex: 20,
-    padding: '4px',
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusXLarge,
-    boxShadow: tokens.shadow16,
-  },
-  menuBelow: {
-    top: 'calc(100% + 6px)',
-  },
-  menuAbove: {
-    bottom: 'calc(100% + 6px)',
-  },
-  list: {
-    display: 'flex',
-    flexDirection: 'column',
-    overflowY: 'auto',
-  },
-  item: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
-    width: '100%',
-    height: `${ITEM_HEIGHT_PX}px`,
-    flexShrink: 0,
-    padding: '0px 8px',
-    border: 'none',
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: 'transparent',
-    color: tokens.colorNeutralForeground1,
-    fontSize: tokens.fontSizeBase300,
-    textAlign: 'left',
-    cursor: 'pointer',
-    ':hover': { backgroundColor: tokens.colorNeutralBackground2 },
-  },
-  itemIcon: {
-    display: 'inline-flex',
-    flexShrink: 0,
-    color: tokens.colorNeutralForeground2,
-  },
-  itemText: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  itemCheck: {
-    marginLeft: 'auto',
-    flexShrink: 0,
-    color: tokens.colorBrandForeground1,
-  },
-  // 级联父行的子菜单指向箭头：方向指示不是选中标记，灰色与触发钮 chevron
-  // 同色（复用 itemCheck 会染上品牌蓝——2026-09-15 用户反馈）
-  itemArrow: {
-    marginLeft: 'auto',
-    flexShrink: 0,
-    color: tokens.colorNeutralForeground3,
-  },
-  // 级联父行：行容器做子菜单定位参照（relative）；本身不可选（无勾选语义）
-  subItem: {
-    position: 'relative',
-  },
-});
 
 export interface DropdownPushOption {
   value: string;
@@ -202,7 +72,7 @@ export interface DropdownPushButtonProps {
 type Phase = 'closed' | 'open' | 'closing';
 
 export function DropdownPushButton(props: DropdownPushButtonProps) {
-  const styles = useStyles();
+  const styles = useDropdownPushStyles();
   const [phase, setPhase] = useState<Phase>('closed');
   // 落位（null = 未量测，走 CSS 默认下方展开）：翻转方向 + 两侧都放不下时
   // 的列表限高
@@ -392,7 +262,10 @@ export function DropdownPushButton(props: DropdownPushButtonProps) {
     <div ref={wrapRef} className={mergeClasses(styles.root, props.className)}>
       <button
         type="button"
-        className={mergeClasses(styles.trigger, props.disabled && styles.triggerDisabled)}
+        className={mergeClasses(
+          styles.trigger,
+          props.disabled ? styles.triggerDisabled : styles.triggerInteractive,
+        )}
         aria-label={props.ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={props.disabled ? false : open}

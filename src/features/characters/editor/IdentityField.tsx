@@ -7,19 +7,23 @@
  * Esc 还原快照随之裁撤；输入框常驻，与编辑器其余卡（输出动画 / 模型配置）
  * 同款「所见即所改」形态。
  *
+ * 称号行（2026-09-15 chip 形态定稿）：chip 编辑器在 TitlesChips（逐行输入
+ * 框弃用），装在与身份输入框等宽的 titlesBox 容器内折行，本卡只接线
+ * titles 数据流。
+ *
  * 人设块独立持有「预览|编辑」切换（2026-09-15 自整卡会话拆出，部分回退
  * 2026-09-13「同一会话」定稿）：默认预览态渲染 markdown（与聊天同语法
  * 语义，PersonaPreviewBox）；切编辑变多行输入框。多行文本没有 Enter 提交
  * 语义，切回预览即「提交」——落库始终走修改即保存，切换不动数据。
  */
-import { Button, Input, Text, Textarea, Tooltip, makeStyles, tokens } from '@fluentui/react-components';
+import { Input, Text, Textarea, makeStyles, tokens } from '@fluentui/react-components';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Add20Regular, Dismiss20Regular } from '@fluentui/react-icons';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { AccentColorPicker } from './AccentColorPicker';
 import { PersonaPreviewBox } from './pieces';
+import { TitlesChips } from './TitlesChips';
 
 const useStyles = makeStyles({
   // 身份行输入统一宽度（2026-09-15 用户定稿：名称/性别/年龄/称号各行对齐，
@@ -27,6 +31,21 @@ const useStyles = makeStyles({
   identityInput: {
     width: '200px',
     minWidth: '0px',
+  },
+  // 称号 chip 容器（2026-09-15 用户定稿：与身份输入框等宽的盒子装 chips）：
+  // 描边圆角与 Fluent Input 同语言，chips 在盒内折行；border-box 使总宽与
+  // identityInput 的 200px 一致
+  titlesBox: {
+    display: 'flex',
+    boxSizing: 'border-box',
+    width: '200px',
+    minWidth: '0px',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    gap: '4px',
+    padding: '3px 4px',
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    borderRadius: tokens.borderRadiusMedium,
   },
   // 人设内容区：标题行下的全宽块（渲染预览 / 输入框），随卡面内距
   personaBody: {
@@ -41,18 +60,6 @@ const useStyles = makeStyles({
   personaMode: {
     width: '112px',
     minWidth: '0px',
-  },
-  // 称号行：逐行输入竖排（行 = Input + 删除钮，底部添加钮）
-  titlesControl: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: tokens.spacingVerticalS,
-  },
-  titleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: tokens.spacingHorizontalXS,
   },
   // 名称必填提示：贴卡面底部内距（自动保存挂起时的就地说明）
   hint: {
@@ -150,37 +157,8 @@ export function IdentityField(props: IdentityFieldProps) {
       <SettingsRow
         title={t('characters.titleLabel')}
         control={
-          <div className={styles.titlesControl}>
-            {titles.map((title, index) => (
-              <div key={index} className={styles.titleRow}>
-                <Input
-                  className={styles.identityInput}
-                  value={title}
-                  onChange={(_, d) =>
-                    onTitlesChange(titles.map((v, j) => (j === index ? d.value : v)))
-                  }
-                  aria-label={`${t('characters.characterTitle')} ${index + 1}`}
-                  placeholder={t('characters.titlePlaceholder')}
-                />
-                <Tooltip content={t('characters.titleRemove')} relationship="label">
-                  <Button
-                    appearance="subtle"
-                    size="small"
-                    aria-label={t('characters.titleRemove')}
-                    icon={<Dismiss20Regular />}
-                    onClick={() => onTitlesChange(titles.filter((_, j) => j !== index))}
-                  />
-                </Tooltip>
-              </div>
-            ))}
-            <Button
-              appearance="transparent"
-              size="small"
-              icon={<Add20Regular />}
-              onClick={() => onTitlesChange([...titles, ''])}
-            >
-              {t('characters.titleAdd')}
-            </Button>
+          <div className={styles.titlesBox}>
+            <TitlesChips titles={titles} onTitlesChange={onTitlesChange} />
           </div>
         }
       />

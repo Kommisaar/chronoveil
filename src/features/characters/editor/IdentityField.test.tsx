@@ -72,18 +72,15 @@ describe('IdentityField 常驻编辑（2026-09-15 重设计）', () => {
     expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('利维亚的杰洛特');
   });
 
-  it('称号逐行输入：改值 / 删除 / 添加空行', () => {
-    const onTitlesChange = vi.fn();
-    renderUi(<FormHarness initialTitles={['布拉维坎的屠夫']} onTitlesChange={onTitlesChange} />);
-    const first = screen.getByLabelText('称号 1') as HTMLInputElement;
-    expect(first.value).toBe('布拉维坎的屠夫');
-    fireEvent.change(first, { target: { value: '利维亚的战士' } });
-    expect(onTitlesChange).toHaveBeenLastCalledWith(['利维亚的战士']);
+  it('称号行接线 TitlesChips：点添加 → 输入 → Enter，chip 经表单数据流上屏', () => {
+    renderUi(<FormHarness initialTitles={['布拉维坎的屠夫']} />);
+    // chip 形态（交互细节在 TitlesChips.test.tsx 全覆盖，此处只验证接线）
+    expect(screen.getByText('布拉维坎的屠夫')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '添加称号' }));
-    expect(onTitlesChange).toHaveBeenLastCalledWith(['利维亚的战士', '']);
-    // 删第 0 行：剩空行（空行由载荷侧过滤，UI 允许暂存）
-    fireEvent.click(screen.getAllByRole('button', { name: '删除称号' })[0]!);
-    expect(onTitlesChange).toHaveBeenLastCalledWith(['']);
+    const input = screen.getByPlaceholderText('如：布拉维坎的屠夫');
+    fireEvent.change(input, { target: { value: '利维亚的战士' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('利维亚的战士')).toBeTruthy();
   });
 
   it('canSave=false：卡面底部出名称必填提示', () => {

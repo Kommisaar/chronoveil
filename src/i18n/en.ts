@@ -195,7 +195,7 @@ export const en = {
     animDurationUnit: 'ms',
     animRhythmUnit: 'ms/char',
     modelOverride: 'Model settings',
-    overrideHint: 'Provider and model overridden',
+    overrideHint: 'Customized',
     overrideFollowDesc: 'Provider and model follow global settings',
     temperature: 'Temperature',
     providersLoadFailed: 'Failed to load provider configuration; overrides unavailable',

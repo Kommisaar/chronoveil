@@ -34,7 +34,6 @@ const useStyles = makeStyles({
     cursor: 'pointer',
     // 段文案禁换行：等宽分段下长标签（如四字「跟随全局」）换行会撑破 32px 段高
     whiteSpace: 'nowrap',
-    ':hover': { color: tokens.colorNeutralForeground1 },
     // 选中态切换的底/描边/前景交叉淡化收进 no-preference 媒体块（同
     // useCardLiftStyles 门控惯例）：减弱动态瞬时切换，只去补间不去反馈
     '@media (prefers-reduced-motion: no-preference)': {
@@ -42,6 +41,16 @@ const useStyles = makeStyles({
       transitionDuration: tokens.durationFast,
       transitionTimingFunction: tokens.curveEasyEase,
     },
+  },
+  // 未选中段的悬停/按压反馈（2026-09-15 用户定稿对齐 subtle 按钮语言：
+  // hover 背景提亮一档、active 再深一档，原 hover 只提文字）。只挂未选
+  // 中段——选中段的白底描边浮起不被 hover 冲掉
+  segmentIdle: {
+    ':hover': {
+      color: tokens.colorNeutralForeground1,
+      backgroundColor: tokens.colorSubtleBackgroundHover,
+    },
+    ':active': { backgroundColor: tokens.colorSubtleBackgroundPressed },
   },
   segmentSelected: {
     backgroundColor: tokens.colorNeutralBackground1,
@@ -107,7 +116,10 @@ export function SegmentedControl(props: SegmentedControlProps) {
           type="button"
           role="radio"
           aria-checked={o.value === props.value}
-          className={mergeClasses(styles.segment, o.value === props.value && styles.segmentSelected)}
+          className={mergeClasses(
+            styles.segment,
+            o.value === props.value ? styles.segmentSelected : styles.segmentIdle,
+          )}
           onClick={() => props.onChange(o.value)}
         >
           {o.label}

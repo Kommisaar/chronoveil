@@ -82,7 +82,12 @@ export const useFieldStyles = makeStyles({
     cursor: 'pointer',
     // 名称行空间紧张时不许把取色器压扁
     flexShrink: 0,
-    ':hover': { backgroundColor: tokens.colorNeutralBackground2 },
+    // 悬停与 chip 按钮（subtle 外观）同 token：colorSubtleBackgroundHover。
+    // 曾用 NeutralBackground2——深色主题下那是压暗档（grey[12]），与按钮类
+    // 悬停的提亮方向相反（2026-09-15 用户定稿对齐）
+    ':hover': { backgroundColor: tokens.colorSubtleBackgroundHover },
+    // 按压再深一档，对齐 Fluent subtle 按钮的 :active 反馈
+    ':active': { backgroundColor: tokens.colorSubtleBackgroundPressed },
   },
   chipColor: {
     // 正方形 + 禁收缩：弹性布局下不被挤压拉伸

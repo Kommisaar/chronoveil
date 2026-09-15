@@ -194,7 +194,7 @@ export const zh = {
     // 模型配置卡两行（2026-09-14 拆分）：模型设置（级联菜单选服务/模型）与
     // 温度（分段+滑杆）各自持有跟随语义。
     modelOverride: '模型设置',
-    overrideHint: '已自定义服务与模型',
+    overrideHint: '自定义',
     overrideFollowDesc: '服务与模型跟随全局设置',
     // 温度覆写行（模型配置卡）：null 跟随全局，分段「跟随|自定义」+ 滑杆。
     temperature: '温度',

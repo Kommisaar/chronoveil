@@ -10,8 +10,11 @@
  *   角色卡同款（card-enter-pop 弹簧 + useRevealOnScroll 视口揭示错峰）；
  * - 新建 = 先以默认名落库再进编辑器（修改即保存，同 CharactersView 惯例，
  *   无独立 create 表单态）；
- * - 编辑器（WorldEditorDialog）为标准模态：三张分组卡（基础信息 / 世界观 /
- *   历法五选），改动经表单钩子防抖自动落库；
+ * - 编辑器（WorldEditorDialog）与角色编辑器同档（2026-09-15 用户定稿升档
+ *   「世界观是世界的灵魂」，旧「标准模态简单档」口径作废）：左世界色画布
+ *   + 右三张分组卡（基础信息 / 世界观 / 历法五选），非模态 + 毛玻璃背板 +
+ *   从档案卡 FLIP 长出，可见性与挂载分离（editorOpen 置 false 走退场动画，
+ *   onClosed 才卸载）；改动经表单钩子防抖自动落库；
  * - 删除走 ConfirmDialog 确认：世界软删（ADR-009），已建会话内的世界快照
  *   （world_instances，D1 冻结语义）不受影响——文案明示该语义；
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
@@ -186,6 +189,9 @@ export function WorldsView() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // 编辑目标（既有卡）：新建走「先建卡再编辑」。
   const [editor, setEditor] = useState<WorldSummary | null>(null);
+  // 可见性与挂载分离（同 CharactersView）：editorOpen=false 只触发退场
+  // 动画，播完 onClosed 才真正卸载编辑器。
+  const [editorOpen, setEditorOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WorldSummary | null>(null);
@@ -219,6 +225,7 @@ export function WorldsView() {
       const created = await createWorld(newWorldInput(t('worlds.new')));
       await refresh();
       setEditor(created);
+      setEditorOpen(true);
     } catch (e) {
       setEditorError(`${t('worlds.saveFailed')}：${describeError(e)}`);
     } finally {
@@ -252,7 +259,9 @@ export function WorldsView() {
       await deleteWorld(deleteTarget.id);
       await refresh();
       if (editor?.id === deleteTarget.id) {
-        setEditor(null);
+        // 编辑中的卡被删：置不可见走退场动画（getTriggerRect 已查不到卡片，
+        // 退化为纯淡出），onClosed 到点再真正卸载。
+        setEditorOpen(false);
       }
     } catch (e) {
       setEditorError(`${t('worlds.deleteFailed')}：${describeError(e)}`);
@@ -265,9 +274,20 @@ export function WorldsView() {
   const openEditor = useCallback((world: WorldSummary) => {
     setEditorError(null);
     setEditor(world);
+    setEditorOpen(true);
   }, []);
 
-  const closeEditor = useCallback(() => setEditor(null), []);
+  const closeEditor = useCallback(() => setEditorOpen(false), []);
+
+  /** 共享元素过渡用：当前编辑目标对应的触发元素（档案卡）矩形。
+      关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
+      自行退化为纯淡出（同 CharactersView 形态）。 */
+  const getTriggerRect = useCallback(() => {
+    const el = editor
+      ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
+      : null;
+    return el ? el.getBoundingClientRect() : null;
+  }, [editor]);
 
   // UI-002：卡片按 updated_at 倒序（同角色页惯例）。
   const sorted = [...worlds].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -336,6 +356,9 @@ export function WorldsView() {
                     key={world.id}
                     type="button"
                     ref={register(index)}
+                    // FLIP 共享元素过渡锚点：编辑器 getTriggerRect 按世界 id
+                    // 现测本卡矩形（后续图版卡继承同一属性约定）
+                    data-editor-trigger={world.id}
                     className={mergeClasses(
                       styles.card,
                       revealDelay === undefined ? styles.preReveal : styles.enterPop,
@@ -375,10 +398,13 @@ export function WorldsView() {
       {editor ? (
         <WorldEditorDialog
           key={`edit-${editor.id}`}
+          open={editorOpen}
           world={editor}
+          getTriggerRect={getTriggerRect}
           errorText={editorError}
           onAutosave={handleAutosave}
           onClose={closeEditor}
+          onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}
         />
       ) : null}

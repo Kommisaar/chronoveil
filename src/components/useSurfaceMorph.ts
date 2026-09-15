@@ -1,8 +1,8 @@
 /**
- * 编辑器对话框 surface 的共享元素进出场形变（FLIP）。
+ * 角色/世界编辑器对话框 surface 的共享元素进出场形变（FLIP）。
  *
  * 搬移说明：自 src/features/characters/editor/ 逐字搬至 components 跨
- * feature 复用层（features 禁互引），世界卡编辑器将复用，文件同名。
+ * feature 复用层（features 禁互引），世界卡编辑器已复用，文件同名。
  *
  * 面板本体走 FLIP 行内变换——挂载时把面板钉到触发卡片的矩形
  * （translate+scale），再过渡回位；退场反向缩回卡片。进场形变用弹簧曲线

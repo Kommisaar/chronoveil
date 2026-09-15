@@ -4,18 +4,21 @@
  *
  * 身份优先层级（2026-09-15 晚间重设计，用户批准的编辑器重排授权）：卡面/
  * 编辑器承载身份，配置退居次位——名称是身份首键，升级为卡内第一行全宽块
- * （aria-label 不变，仅弃 SettingsRow 行形态）；称号 chips 容器同步放开为
- * 全宽。该授权有意覆盖同日早前「名称/性别/年龄/称号各行统一 200px 对齐」
- * 定稿，200px 仅保留给性别/年龄两个不抢层级的次级行。
+ * （aria-label 不变，仅弃 SettingsRow 行形态）；称号与名称同属身份主键，
+ * 同比照全宽块（Task-07 修正轮：称号原置于 SettingsRow 的 control 槽，该槽
+ * flexShrink:0 且不 grow，width:100% 被内容收缩包裹、chips 多时溢出卡边，
+ * 故随名称弃行形态出槽）。该授权有意覆盖同日早前「名称/性别/年龄/称号各行
+ * 统一 200px 对齐」定稿，200px 仅保留给性别/年龄两个不抢层级的次级行。
  *
  * 常驻编辑（2026-09-15 重设计，用户定稿）：身份行不再有「展示态⇄编辑态」
  * 整卡会话——旧开关纯展示性（数据在键入时已随修改即保存落库），铅笔/对钩/
  * Esc 还原快照随之裁撤；输入框常驻，与编辑器其余卡（输出动画 / 模型配置）
  * 同款「所见即所改」形态。
  *
- * 称号行（2026-09-15 chip 形态定稿，宽度随晚间重设计放开）：chip 编辑器在
- * TitlesChips（逐行输入框弃用），装在全宽 titlesBox 容器内折行，本卡只接线
- * titles 数据流。
+ * 称号行（2026-09-15 chip 形态定稿；Task-07 修正轮定型为全宽身份块）：chip
+ * 编辑器在 TitlesChips（逐行输入框弃用），装在 titlesBox 内折行，本卡只接线
+ * titles 数据流。无可见行标题（比照名称块先例）：读屏可达性由 TitlesChips
+ * 自带 role=group + aria-label（称号）与逐枚编辑输入框 aria-label 承担。
  *
  * 人设块独立持有「预览|编辑」切换（2026-09-15 自整卡会话拆出，部分回退
  * 2026-09-13「同一会话」定稿）：默认预览态渲染 markdown（与聊天同语法
@@ -41,18 +44,23 @@ const useStyles = makeStyles({
     width: '200px',
     minWidth: '0px',
   },
-  // 名称全宽身份块（2026-09-15 晚间重设计授权，有意覆盖同日早前「身份行
-  // 统一 200px 对齐」定稿）：名称是身份首键，卡内第一行全宽置顶；内距与
-  // SettingsRow 行语言一致，块后由使用方插 SettingsDivider 与后续行分隔
-  nameBlock: {
+  // 全宽身份块（2026-09-15 晚间重设计授权，有意覆盖同日早前「身份行统一
+  // 200px 对齐」定稿；Task-07 修正轮称号入列）：名称是身份首键，卡内第一行
+  // 全宽置顶；称号与名称同属身份主键，同比照。内距与 SettingsRow 行语言一致，
+  // 块后由使用方插 SettingsDivider 与后续行分隔。卡 body 是纵向 flex，块作为
+  // 默认 stretch 的 flex 项拉满卡宽，是 titlesBox 百分比宽的可靠解析基准
+  identityBlock: {
     display: 'block',
     padding: '12px 20px',
   },
   nameInput: {
     width: '100%',
   },
-  // 称号 chip 容器（2026-09-15 晚间重设计由 200px 放开为全宽，与名称全宽
-  // 呼应）：描边圆角与 Fluent Input 同语言，chips 在盒内折行
+  // 称号 chip 容器：描边圆角与 Fluent Input 同语言，chips 在盒内折行。
+  // width:100% 只在普通块父级（identityBlock）下解析为满行——不可回置
+  // SettingsRow 的 control 槽（flexShrink:0 收缩槽会按内容收缩包裹并溢出
+  // 卡边，Task-07 修正的缺陷根源）；minWidth:0 兜 flex 项不因内容撑溢，
+  // border-box 令描边与内距计入 100% 宽
   titlesBox: {
     display: 'flex',
     boxSizing: 'border-box',
@@ -140,7 +148,7 @@ export function IdentityField(props: IdentityFieldProps) {
     <SettingsCard title={t('characters.sectionBasic')}>
       {/* 名称：全宽身份块置顶（无行标题，aria-label 承担可达性），块后
           SettingsDivider 与次级行分隔 */}
-      <div className={styles.nameBlock}>
+      <div className={styles.identityBlock}>
         <Input
           className={styles.nameInput}
           value={name}
@@ -175,14 +183,15 @@ export function IdentityField(props: IdentityFieldProps) {
         }
       />
       <SettingsDivider />
-      <SettingsRow
-        title={t('characters.titleLabel')}
-        control={
-          <div className={styles.titlesBox}>
-            <TitlesChips titles={titles} onTitlesChange={onTitlesChange} />
-          </div>
-        }
-      />
+      {/* 称号：全宽身份块（比照名称块，无可见行标题——TitlesChips 自带
+          role=group + aria-label 承担可达性）。不可回置 SettingsRow 的
+          control 槽：该槽 flexShrink:0 收缩包裹百分比宽，chips 多时溢出
+          卡边（Task-07 修正的缺陷根源） */}
+      <div className={styles.identityBlock}>
+        <div className={styles.titlesBox}>
+          <TitlesChips titles={titles} onTitlesChange={onTitlesChange} />
+        </div>
+      </div>
       <SettingsDivider />
       <SettingsRow
         title={t('characters.accentColor')}

@@ -75,6 +75,20 @@ describe('IdentityField 常驻编辑（2026-09-15 重设计）', () => {
     ).toBeTruthy();
   });
 
+  it('称号全宽身份块（Task-07 修正）：性别/年龄行之后、无行标题，group 语义仍在', () => {
+    renderUi(<FormHarness />);
+    // 称号块弃 SettingsRow 行形态（control 收缩槽溢出缺陷），比照名称块独立
+    // 成块；宽度无法在 jsdom 断言（无布局引擎），位置以文档顺序为准。
+    // 读屏可达性由 TitlesChips 自带 role=group + aria-label 承担（无可见行标题）
+    const titles = screen.getByRole('group', { name: '称号' });
+    expect(
+      titles.compareDocumentPosition(screen.getByLabelText('性别')) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      titles.compareDocumentPosition(screen.getByLabelText('年龄')) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+
   it('改名称即上报（无提交动作，改动直传父级表单）', () => {
     renderUi(<FormHarness />);
     const name = screen.getByLabelText('名称');

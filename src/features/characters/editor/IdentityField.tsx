@@ -1,6 +1,6 @@
 /**
- * 基础信息分组卡（与 SettingsView 的分组设置卡同一结构件，一个配置项一行）：
- * 性别 / 年龄 / 称号 / 强调色行 + 人设块，行间 SettingsDivider。
+ * 基础信息分组卡（与 SettingsView 的分组设置卡同一结构件）：名称与称号
+ * 两个全宽身份块 + 性别 / 年龄 / 强调色行 + 人设块，块与行间 SettingsDivider。
  *
  * 身份优先层级（2026-09-15 晚间重设计，用户批准的编辑器重排授权）：卡面/
  * 编辑器承载身份，配置退居次位——名称是身份首键，升级为卡内第一行全宽块
@@ -59,13 +59,12 @@ const useStyles = makeStyles({
   // 称号 chip 容器：描边圆角与 Fluent Input 同语言，chips 在盒内折行。
   // width:100% 只在普通块父级（identityBlock）下解析为满行——不可回置
   // SettingsRow 的 control 槽（flexShrink:0 收缩槽会按内容收缩包裹并溢出
-  // 卡边，Task-07 修正的缺陷根源）；minWidth:0 兜 flex 项不因内容撑溢，
-  // border-box 令描边与内距计入 100% 宽
+  // 卡边，Task-07 修正的缺陷根源）；宽度兜底由 width:100% + 块父级 +
+  // flexWrap 折行共同承担，border-box 令描边与内距计入 100% 宽
   titlesBox: {
     display: 'flex',
     boxSizing: 'border-box',
     width: '100%',
-    minWidth: '0px',
     flexWrap: 'wrap',
     alignItems: 'flex-start',
     gap: '4px',

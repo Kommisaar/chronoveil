@@ -21,8 +21,9 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const useStyles = makeStyles({
-  // chip 流式布局：多枚 chip + 添加按钮同行排布，超出换行（在 200px
-  // titlesBox 容器内使用，间距取 XS 防盒内过挤）
+  // chip 流式布局：多枚 chip + 添加按钮同行排布，超出换行（在全宽
+  // titlesBox 身份块容器内使用；间距取 XS：chip 自带描边与内距，视觉
+  // 分隔已足够，紧凑成组、宽盒一行多容，放大间距反而松散）
   chipsRow: {
     display: 'flex',
     flexWrap: 'wrap',

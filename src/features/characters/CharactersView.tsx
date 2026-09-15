@@ -59,20 +59,7 @@ function newCharacterInput(name: string): CharacterInput {
 }
 
 const useStyles = makeStyles({
-  // —— 氛围层与页面骨架 ——
-  ambient: {
-    position: 'fixed',
-    inset: '0px',
-    zIndex: 0,
-    pointerEvents: 'none',
-    backgroundColor: 'transparent',
-    backgroundImage:
-      'radial-gradient(1100px 420px at 20% -8%, rgba(107, 70, 184, 0.16), transparent 62%), ' +
-      'radial-gradient(900px 380px at 96% 0%, rgba(63, 106, 179, 0.10), transparent 60%)',
-  },
   content: {
-    position: 'relative',
-    zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
@@ -289,7 +276,6 @@ export function CharactersView() {
 
   return (
     <div className={page}>
-      <div className={styles.ambient} aria-hidden />
       <div className={styles.content}>
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('characters.title')}</Title1>

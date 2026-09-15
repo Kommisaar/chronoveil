@@ -42,6 +42,9 @@ const useStyles = makeStyles({
     borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusMedium,
     backgroundColor: tokens.colorNeutralBackground1,
+    // 原生 button 字色是 UA 默认（黑）不随主题继承，显式走 token（同
+    // WorldsView 卡片的注释）
+    color: tokens.colorNeutralForeground1,
     textAlign: 'left',
     cursor: 'pointer',
     fontFamily: 'inherit',

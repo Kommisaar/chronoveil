@@ -1,8 +1,13 @@
 /**
- * 世界页（0017 世界卡特性）：与角色页同款的列表三态 + 卡网格 + 编辑器形态，
- * 卡面为世界卡简化版——名称 + 历法摘要两行（世界卡无海报 / 强调色 / 演出
- * 参数，不做电影海报视觉，平面信息卡即可）。
+ * 世界页（0017 世界卡特性）：与角色页同款的列表三态 + 卡网格 + 编辑器形态。
+ * 卡面为档案卡（2026-09-15 用户定稿，单一形态）：顶部世界色粗带 + 名称 +
+ * 历法·更新日期——世界卡无海报 / 强调色 / 演出参数，不做电影海报视觉。
  *
+ * - 世界色（色带与历法色点）按 id 取模恒定（worldGradientOf，地志调色板
+ *   与角色靛紫系拉开域别）；同世界跨处配色漂移不可接受（同角色页规则）；
+ * - 悬停无位移（仅底色变化）：lift 的 translateY/scale 在宽扁信息卡上观感
+ *   浮动（用户反馈），与 WorldPickGrid worldCard 同款静停；入场动画仍与
+ *   角色卡同款（card-enter-pop 弹簧 + useRevealOnScroll 视口揭示错峰）；
  * - 新建 = 先以默认名落库再进编辑器（修改即保存，同 CharactersView 惯例，
  *   无独立 create 表单态）；
  * - 编辑器（WorldEditorDialog）为标准模态：三张分组卡（基础信息 / 世界观 /
@@ -12,17 +17,27 @@
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
  */
-import { Button, Text, Title1, makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
+import {
+  Button,
+  Text,
+  Title1,
+  makeStyles,
+  mergeClasses,
+  tokens,
+} from '@fluentui/react-components';
 import { useCallback, useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorldInput, WorldSummary } from '../../api/types';
 import { createWorld, deleteWorld, listWorlds, updateWorld } from '../../api/commands';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
+import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
 import { StateBlock } from '../../components/StateBlock';
-import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
+import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { WorldEditorDialog } from './WorldEditorDialog';
+import { worldGradientOf } from './worldGradient';
 
 const useStyles = makeStyles({
   content: {
@@ -46,43 +61,91 @@ const useStyles = makeStyles({
   errorText: {
     color: tokens.colorPaletteRedForeground1,
   },
-  // 世界卡平面网格：240px 起步随窗加列（比海报墙的 200px 宽——两行信息卡
-  // 需要更宽的呼吸面）
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-    gap: '16px',
-  },
   empty: {
     display: 'flex',
     minHeight: '240px',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 世界卡：左缘 4px 品牌色竖条（世界卡的克制识别语汇，不抢角色海报语言）+
-  // 名称 / 历法摘要两行
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+    gap: '16px',
+  },
+
+  // —— 档案卡：原生 button（非 Fluent Card——宽扁信息卡不需要 Card 的
+  //    interactive 语义栈，裸 button + Griffel 类即测试契约「点击进编辑」） ——
   card: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'stretch',
-    gap: tokens.spacingVerticalXS,
-    padding: '16px',
-    borderLeft: `4px solid ${tokens.colorBrandBackground}`,
-    borderRight: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderTop: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
+    padding: '0px',
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusMedium,
     backgroundColor: tokens.colorNeutralBackground1,
+    // 原生 button 自带 user agent 字色/居中/表单字体，全部收编到主题
+    color: tokens.colorNeutralForeground1,
     textAlign: 'left',
-    cursor: 'pointer',
     fontFamily: 'inherit',
+    fontSize: 'inherit',
+    cursor: 'pointer',
+    // 悬停无位移（定稿，见文件头）：仅底色轻变，不 lift
+    ':hover': {
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+    },
+    ':active': {
+      backgroundColor: tokens.colorNeutralBackground1Pressed,
+    },
   },
-  calendarLine: {
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
+  band: {
+    height: '6px',
+    flexShrink: 0,
+    borderRadius: '5px 5px 0px 0px',
+  },
+  body: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    padding: '12px 16px 14px',
+  },
+  name: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    maxWidth: '100%',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  meta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalXS,
+    color: tokens.colorNeutralForeground3,
+    fontSize: tokens.fontSizeBase200,
+    minWidth: 0,
+  },
+  dot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: tokens.borderRadiusCircular,
+    flexShrink: 0,
+  },
+
+  // —— 入场动画（与角色卡同款；keyframes 在 app.css；reduced-motion 门控在
+  //    @media 内）。揭示前占位：滚入视口前以透明等待；揭示后换动画类，
+  //    backwards fill 在批内延迟期接手维持 from 态，动画止于自然态。 ——
+  preReveal: {
+    opacity: 0,
+  },
+  enterPop: {
+    '@media (prefers-reduced-motion: no-preference)': {
+      animationName: 'card-enter-pop',
+      // 弹簧入场档（POP_IN_MS）与曲线 SPRING_CURVE 均出自 src/components/motion.ts
+      animationDuration: `${POP_IN_MS}ms`,
+      animationTimingFunction: SPRING_CURVE,
+      animationFillMode: 'backwards',
+      animationDelay: 'var(--enter-delay, 0ms)',
+    },
   },
 });
 
@@ -97,7 +160,6 @@ function describeError(e: unknown): string {
 
 export function WorldsView() {
   const styles = useStyles();
-  const lift = useCardLiftStyles();
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
@@ -112,6 +174,10 @@ export function WorldsView() {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WorldSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // 视口揭示（同角色页海报墙）：首屏立即成批、折叠线以下滚入才播，批内按
+  // 清单浮现统一档错峰；resetKey 恒 'worlds'（无形态切换，仅列表清空重挂时重播）。
+  const { reveal, register } = useRevealOnScroll(worlds.length, 'worlds');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -234,21 +300,44 @@ export function WorldsView() {
               </Text>
             ) : null}
             <div className={styles.grid}>
-              {sorted.map((world) => (
-                <button
-                  key={world.id}
-                  type="button"
-                  className={mergeClasses(styles.card, lift.root)}
-                  onClick={() => openEditor(world)}
-                >
-                  <Text size={400} weight="semibold">
-                    {world.name}
-                  </Text>
-                  <span className={styles.calendarLine}>
-                    {world.calendar === null ? t('worlds.calendarNone') : world.calendar.name}
-                  </span>
-                </button>
-              ))}
+              {sorted.map((world, index) => {
+                const revealDelay = reveal[index];
+                return (
+                  <button
+                    key={world.id}
+                    type="button"
+                    ref={register(index)}
+                    className={mergeClasses(
+                      styles.card,
+                      revealDelay === undefined ? styles.preReveal : styles.enterPop,
+                    )}
+                    style={
+                      revealDelay === undefined
+                        ? undefined
+                        : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties)
+                    }
+                    onClick={() => openEditor(world)}
+                  >
+                    {/* 世界色粗带：每世界恒定（worldGradientOf，见文件头） */}
+                    <span className={styles.band} style={{ backgroundImage: worldGradientOf(world.id) }} aria-hidden />
+                    <span className={styles.body}>
+                      <span className={styles.name}>{world.name}</span>
+                      <span className={styles.meta}>
+                        {/* 历法色点：取 id+1 错位色（同角色卡 dot 先例） */}
+                        <span
+                          className={styles.dot}
+                          style={{ backgroundImage: worldGradientOf(world.id + 1) }}
+                          aria-hidden
+                        />
+                        {/* null 历法 → 「默认数字历」；有历法无名 → 空串 */}
+                        <span>{world.calendar === null ? t('worlds.calendarNone') : world.calendar.name ?? ''}</span>
+                        <span aria-hidden>·</span>
+                        <span>{new Date(world.updatedAt).toLocaleDateString()}</span>
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}

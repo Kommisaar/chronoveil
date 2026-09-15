@@ -1,9 +1,9 @@
 /**
  * 角色编辑器左栏：电影海报占满整列的实时预览。
  *
- * 渐变 + 首字水印 + 名字 + 出场风格，随表单输入实时更新，与海报墙语言
- * 统一（渐变规则同 posterGradientOf）。纯预览，对读屏隐藏（aria-hidden）
- * 防与右栏表单重复。
+ * 渐变 + 首字水印 + 名字 + 称号 + 出场风格，随表单输入实时更新，与海报墙
+ * 语言统一（渐变规则同 posterGradientOf；称号行 2026-09-15 卡面升级随墙内
+ * 同步，墙内墙外一致）。纯预览，对读屏隐藏（aria-hidden）防与右栏表单重复。
  */
 import { Text, makeStyles, tokens } from '@fluentui/react-components';
 
@@ -62,6 +62,15 @@ const useStyles = makeStyles({
     color: 'rgba(255, 255, 255, 0.66)',
     fontSize: tokens.fontSizeBase200,
   },
+  // 称号行（2026-09-15 卡面升级）：色档沿 posterMetaText——本栏是 aria-hidden
+  // 装饰预览、无实底，沿用其既有次级文字档；单行截断与海报墙 identityB 一致
+  posterTitles: {
+    color: 'rgba(255, 255, 255, 0.66)',
+    fontSize: tokens.fontSizeBase200,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
   posterDot: {
     width: '8px',
     height: '8px',
@@ -75,13 +84,21 @@ export interface PosterPaneProps {
   posterGradient: string;
   /** 海报名（回退名）；首字水印跟随其首字，新建空名时同取「新」。 */
   nameText: string;
+  /** 称号行文本（调用方已拼好「称号一 · 称号二」）；空串 = 无称号不渲染。 */
+  titlesText: string;
   /** 出场风格色点渐变（与强调色板同一派生）。 */
   dotGradient: string;
   /** 出场风格标签文案。 */
   styleLabel: string;
 }
 
-export function PosterPane({ posterGradient, nameText, dotGradient, styleLabel }: PosterPaneProps) {
+export function PosterPane({
+  posterGradient,
+  nameText,
+  titlesText,
+  dotGradient,
+  styleLabel,
+}: PosterPaneProps) {
   const styles = useStyles();
   return (
     <aside className={styles.poster} style={{ backgroundImage: posterGradient }} aria-hidden>
@@ -91,6 +108,9 @@ export function PosterPane({ posterGradient, nameText, dotGradient, styleLabel }
       <div className={styles.posterScrim} />
       <div className={styles.posterContent}>
         <Text className={styles.posterName}>{nameText}</Text>
+        {titlesText ? (
+          <Text className={styles.posterTitles}>{`「${titlesText}」`}</Text>
+        ) : null}
         <div className={styles.posterMeta}>
           <span className={styles.posterDot} style={{ backgroundImage: dotGradient }} />
           <Text className={styles.posterMetaText}>{styleLabel}</Text>

@@ -318,6 +318,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
           <PosterPane
             posterGradient={form.live.posterGradient}
             nameText={form.live.nameText}
+            titlesText={form.titles.join(' · ')}
             dotGradient={form.live.dotGradient}
             styleLabel={form.live.styleLabel}
           />

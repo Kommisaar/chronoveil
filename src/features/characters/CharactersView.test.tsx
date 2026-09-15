@@ -50,6 +50,11 @@ it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
   expect(
     suy.compareDocumentPosition(lin) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  // 卡面信息层级（Task-02，林深种子带 titles + markdown persona）：身份信息
+  // 上卡——称号行整串（「」包裹、「·」连接）与人设摘录行（excerptOf 已剥
+  // ** 加粗标记，48 字档无省略号）；配置元信息退居其下
+  expect(screen.getByText('「守夜人 · 旧书店主」')).toBeTruthy();
+  expect(screen.getByText('旧书店老板，雨天总在擦一盏灯。')).toBeTruthy();
 });
 
 // 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
@@ -62,10 +67,15 @@ it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 u
   const segments = [...group.querySelectorAll('[role="radio"]')];
   expect(segments).toHaveLength(3);
 
-  fireEvent.click(segments.find((r) => r.textContent === '名册')!);
-  expect(useUiStore.getState().cardDirection).toBe('ledger');
-  // 还原共享 store：shared 组 isolate:false，模块级 store 跨用例/跨文件驻留
-  useUiStore.setState({ cardDirection: 'gallery' });
+  try {
+    fireEvent.click(segments.find((r) => r.textContent === '名册')!);
+    expect(useUiStore.getState().cardDirection).toBe('ledger');
+  } finally {
+    // 还原共享 store 必须在 finally（Task-01 reviewer 转入）：shared 组
+    // isolate:false，模块级 store 跨用例/跨文件驻留——断言失败时 'ledger'
+    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
+    useUiStore.setState({ cardDirection: 'gallery' });
+  }
 });
 
 it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {

@@ -35,9 +35,11 @@ export const characters: CharacterSummary[] = [
     avatar: null,
     gender: '男',
     age: '31',
-    titles: [],
-    
-    persona: '旧书店老板，业余侦探；观察力锋利，语气温和。',
+    // 称号 + 带 markdown 的 persona：专供卡面升级（Task-02）断言——称号行
+    // 「守夜人 · 旧书店主」与摘录行（excerptOf 剥 ** 加粗标记）
+    titles: ['守夜人', '旧书店主'],
+
+    persona: '**旧书店老板**，雨天总在擦一盏灯。',
     renderStyle: 'ink',
     modelProviderId: null,
     modelName: null,

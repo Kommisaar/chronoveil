@@ -13,7 +13,11 @@
  *   图标的非文字对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，含 hover/
  *   按下交互态同值覆写，机制见常量注释）；
  * - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑；
- * - 海报文字（首字母水印/名字/问候/元信息）一律用普通 span 而非 Text：
+ * - 卡面信息层级（2026-09-15 用户批准重设计）：卡面承载身份，配置信息退居
+ *   次位——称号行 + 人设首句摘录（excerptOf 48 字档）紧随名字，动画样式/
+ *   会话数等配置元信息排在其下；两行各自条件渲染，空则整行不渲染（海报卡
+ *   不放「还没有人设」占位，留白比占位噪声干净）；
+ * - 海报文字（首字母水印/名字/称号/人设摘录/元信息）一律用普通 span 而非 Text：
  *   Fluent Card 自带 `.fui-Card哈希 .fui-Text { color: currentcolor }`
  *   两类名后代规则（useCardStyles.styles.raw.js），单类名的 Griffel color
  *   压不过它——暗色下继承值恰为白色被掩盖，亮色下会变成深底深字；
@@ -42,6 +46,7 @@ import type { CharacterSummary } from '../../api/types';
 import { POP_IN_MS, SPRING_CURVE } from '../../components/motion';
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
+import { excerptOf } from '../../lib/excerpt';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
 
 /**
@@ -177,6 +182,17 @@ const useStyles = makeStyles({
     color: `rgba(255, 255, 255, ${POSTER_META_TEXT_ALPHA})`,
     fontSize: tokens.fontSizeBase200,
   },
+  // 称号行 / 人设摘录行（2026-09-15 卡面升级）：色档与 metaTextB 同源
+  // （POSTER_META_TEXT_ALPHA 半透明白），仍落 contentB 的 POSTER_SCRIM_ALPHA
+  // 实底区内——对比度数学与 contrastGuard 断言零变化；单行截断，被截断的
+  // 称号全文经 title 属性悬停可读
+  identityB: {
+    color: `rgba(255, 255, 255, ${POSTER_META_TEXT_ALPHA})`,
+    fontSize: tokens.fontSizeBase200,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
 
   // —— 卡菜单（Task-04 导出入口）：海报右上角的 ⋯ 触发器，白字保证暗色海报上可读 ——
   cardMenuTrigger: {
@@ -266,6 +282,10 @@ export function CharacterPosterCard({
       : ({ '--enter-delay': `${revealDelay}ms` } as CSSProperties);
   // null = 跟随全局（0014）：卡片元数据行显示跟随语义而非空值。
   const styleMeta = `${t('characters.renderStyle')} · ${character.renderStyle ?? t('characters.followGlobal')}`;
+  // 身份两行（空则整行不渲染，见文件头设计意图）：称号整串「」包裹、
+  // 人设摘录走 excerptOf（markdown-lite 剥标记，48 字档）
+  const titlesText = character.titles.length > 0 ? `「${character.titles.join(' · ')}」` : '';
+  const personaExcerpt = excerptOf(character.persona, 48);
 
   return (
     <Card
@@ -321,6 +341,14 @@ export function CharacterPosterCard({
       <div className={styles.scrimB} />
       <div className={styles.contentB}>
         <span className={styles.nameB}>{character.name}</span>
+        {titlesText ? (
+          <span className={styles.identityB} title={titlesText}>
+            {titlesText}
+          </span>
+        ) : null}
+        {personaExcerpt ? (
+          <span className={styles.identityB}>{personaExcerpt}</span>
+        ) : null}
         <div className={styles.metaB}>
           <span className={styles.dot} style={{ backgroundImage: dotGradientOf(character) }} />
           <span className={styles.metaTextB}>{styleMeta}</span>

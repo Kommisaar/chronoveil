@@ -344,10 +344,17 @@ const POSTER_ICON_SCRIM_FLOOR = 0.62;
  * - 主文字（OnBrand token，双主题 #ffffff）：对比 ≈6.19:1 ≥ 4.5；
  * - 次文字（半透明白按合成像素计）：0.8 合成 = floor(255×0.8+97×0.2) = 223
  *   → ≈4.65:1 ≥ 4.5。
+ *
+ * 数值锚闭环（2026-09-15 Task-05 修正轮补 stage 侧后成立）：同值 0.62/0.8
+ * 约束的四侧——pick（POSTER_ON_BRAND 组锚 PICK_SCRIM_ALPHA）/ poster
+ * （POSTER_CARD_TEXT 组锚 POSTER_SCRIM_ALPHA / POSTER_META_TEXT_ALPHA）/
+ * world（本组锚 WORLD_BLEED_*）/ stage（下方 stage 锚组锚 STAGE_*）——
+ * 全部有常量值 + 挂载模板串双锚，任一处改值不同步即失败。
  */
 const WORLD_BLEED_TEXT_SCRIM_FLOOR = 0.62;
 const WORLD_BLEED_TEXT_META_ALPHA = 0.8;
 const WORLD_FULL_BLEED_CARD_FILE = 'src/features/worlds/WorldFullBleedCard.tsx';
+const STAGE_CARD_FILE = 'src/features/characters/CharacterStageCard.tsx';
 
 /**
  * 豁免清单（当前为空：基准 a0a00c0 实测全部可配对组合双主题 ≥4.5）。
@@ -589,6 +596,31 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       }
     }
     expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('角色舞台卡文字用点：源文件仍持压暗实底与次级文字常量（stage 侧数值锚）', () => {
+    // stage 侧数值锚（2026-09-15 Task-05 修正轮补）：此前只有互指字样检查
+    //（WORLD_BLEED 组内 toContain('STAGE_SCRIM_ALPHA')），stage 常量改值
+    //（如 0.62→0.4）全门禁照过——本组把常量值与挂载模板串钉死，形态照抄
+    // world 侧锚（数学不重复算：四处同值，最坏合成推导见 WORLD_BLEED 常量
+    // 注释与 POSTER_CARD_TEXT 组）。闭环覆盖见 WORLD_BLEED 常量文档注释。
+    const source = readSource(STAGE_CARD_FILE);
+    expect(
+      source,
+      `文字区实底常量被移除或改值（同值约束四处须同步，含本守卫）：${STAGE_CARD_FILE}`,
+    ).toContain(`STAGE_SCRIM_ALPHA = ${WORLD_BLEED_TEXT_SCRIM_FLOOR}`);
+    expect(
+      source,
+      `文字区实底未挂 STAGE_SCRIM_ALPHA（下限失效）：${STAGE_CARD_FILE}`,
+    ).toContain('rgba(0, 0, 0, ${STAGE_SCRIM_ALPHA})');
+    expect(
+      source,
+      `次级文字常量被移除或改值（同值约束四处须同步，含本守卫）：${STAGE_CARD_FILE}`,
+    ).toContain(`STAGE_META_TEXT_ALPHA = ${WORLD_BLEED_TEXT_META_ALPHA}`);
+    expect(
+      source,
+      `次级文字未经 STAGE_META_TEXT_ALPHA 出色（直改字面量绕过常量锚）：${STAGE_CARD_FILE}`,
+    ).toContain('rgba(255, 255, 255, ${STAGE_META_TEXT_ALPHA})');
   });
 
   it('海报卡 ⋯ 触发器图标：源文件仍持实底芯常量，白图标 × 最坏合成背景 ≥3:1（非文字线）', () => {

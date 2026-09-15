@@ -108,7 +108,15 @@ const useStyles = makeStyles({
     gap: '6px',
     opacity: '0',
     // 动效整体收进 no-preference 门控：位移与过渡只在允许动效时存在，
-    // reduced-motion 下降级为 opacity 瞬切、无位移（常驻可达性不受影响）
+    // reduced-motion 下降级为 opacity 瞬切、无位移（常驻可达性不受影响）。
+    // transform 两态必须同桶（本 slot 与 revealOpen 的 transform 同收进同一
+    // @media 块）：Griffel 按 at-rules 分桶插 <style>——media 内规则归 'm' 桶、
+    // media 外归 'd' 桶，styleBucketOrdering 使 m 桶文档序恒在后；两态
+    // transform 分属两桶时同为单类选择器（特异性相等）按文档序取后者，
+    // m 桶的闭态 4px 恒胜、开态永不归位（2026-09-15 reviewer 以锁定版
+    // griffel 实锤）。同桶时两规则同 selector + 同 at-rules + 同 property →
+    // 同键，mergeClasses 按后位胜出去重，revealOpen 的 0px 才压得过 4px
+    //（opacity 无此坑：两态都声明在 media 外同桶，天然受去重保护）
     '@media (prefers-reduced-motion: no-preference)': {
       transform: 'translateY(4px)',
       transitionProperty: 'opacity, transform',
@@ -118,7 +126,13 @@ const useStyles = makeStyles({
   },
   revealOpen: {
     opacity: '1',
-    transform: 'translateY(0px)',
+    // transform 必须与 reveal 的 transform 同桶（同收进同形 @media 块，机制
+    // 与失效形态见 reveal 槽注释）：搬出 media 块会被 m/d 桶文档序压制，
+    // 开态 0px 不生效——揭示块常驻低于设计位 4px；reduced-motion 下两态均
+    // 无 transform，与文件头「降级后无位移」一致
+    '@media (prefers-reduced-motion: no-preference)': {
+      transform: 'translateY(0px)',
+    },
   },
   // 称号行：整串「」包裹、「·」连接（同海报卡/名册行拍板）；被截断的称号
   // 全文经 title 悬停可读

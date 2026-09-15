@@ -56,12 +56,15 @@ import { dotGradientOf, posterGradientOf } from './posterGradient';
 
 /**
  * 海报文字区压暗下限（对比度守卫配对依据，与 src/app/layout/CharacterPickGrid.tsx
- * 的 PICK_SCRIM_ALPHA 及 src/components/contrastGuard.test.ts 的
- * POSTER_TEXT_SCRIM_FLOOR 互指）：同为「OnBrand 文字压暗下限」语义，值同为
+ * 的 PICK_SCRIM_ALPHA、CharacterStageCard 的 STAGE_SCRIM_ALPHA、
+ * WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA 及
+ * src/components/contrastGuard.test.ts 的 POSTER_TEXT_SCRIM_FLOOR 互指）：
+ * 同为「OnBrand 文字压暗下限」语义，值同为
  * 0.62——最坏合成数学相同：accent 原色直出（posterGradientOf 不压暗）可为纯白，
  * 纯白 accent × (1 − 0.62) 黑实底 → 灰 255×0.38=96.9 → 取整 97（向上保守）→
  * 相对亮度 ≈0.1195 → 白字对比 ≈6.19:1 ≥ AA 4.5:1。选 0.62 而非恰过线的
- * 0.55（≈4.76:1）留余量，与选人卡同档。语境差异（故不共享常量，各自文件内
+ * 0.55（≈4.76:1）留余量，与选人卡同档；改值须四处同步（含守卫）。语境差异
+ * （故不共享常量，各自文件内
  * 单一事实源 + 守卫文本锚定）：选人卡是迷你卡上逐元素实底（名字条/首字徽标/
  * 角标），本卡是底部文字区 contentB 整块实底，且实底之下另有 scrimB 渐变负责
  * 海报→文字带的视觉过渡——实底叠下层时总压暗 = 1 − (1−0.62)(1−s) ≥ 0.62，
@@ -74,8 +77,10 @@ const POSTER_SCRIM_ALPHA = 0.62;
  * 0.66 不达标——0.66 白 × 97 灰最坏合成 = 255×0.66+97×0.34=201.28 → 取整 201
  * （向下保守）→ 对比 ≈3.74:1 < 4.5；0.8 → 合成 255×0.8+97×0.2=223.4 → 223 →
  * 对比 ≈4.65:1 ≥ 4.5（恰过线的 0.78≈4.52 余量过薄弃用）。选提文字不透明度而非
- * 提 scrim：0.62 下限与选人卡共享语义，再抬只会让海报更闷。推导与断言见
- * contrastGuard.test.ts 海报文字断言组，两侧同步改。
+ * 提 scrim：0.62 下限与选人卡共享语义，再抬只会让海报更闷。同档同值另见
+ * CharacterStageCard 的 STAGE_META_TEXT_ALPHA 与 WorldFullBleedCard 的
+ * WORLD_BLEED_META_TEXT_ALPHA；推导与断言见 contrastGuard.test.ts 海报文字
+ * 断言组，改值须四处同步（含守卫）。
  */
 const POSTER_META_TEXT_ALPHA = 0.8;
 

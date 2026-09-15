@@ -208,7 +208,7 @@ it('删除：软删 + 确认对话框（文案明示历史保留），卡片消�
 // ---- 角色卡导入/导出（Task-04；浏览器 dev 走 mock：导出回路径串、导入建样例卡）----
 // 用例放文件末尾：导入会向模块级 mock 种子追加新卡，影响后续断言。
 
-it('导出：卡片菜单「导出角色卡」可触发，静默成功不弹错误（None 取消同静默）', async () => {
+it('导出：卡片菜单「导出角色卡」可触发，静默成功不弹错误，不打开编辑器（None 取消同静默）', async () => {
   renderView();
   await screen.findByText('苏鸢');
 
@@ -221,6 +221,10 @@ it('导出：卡片菜单「导出角色卡」可触发，静默成功不弹错�
     expect(screen.queryByRole('menuitem', { name: '导出角色卡' })).toBeNull();
   });
   expect(screen.queryByRole('alert')).toBeNull();
+  // 菜单项 click 防冒泡回归（2026-09-15 reviewer 实测）：React 门户事件沿
+  // React 树冒泡，MenuItem 不 stopPropagation 会导出同时打开卡片编辑器
+  // （openEditor 同步 setState，无需等待）
+  expect(screen.queryByRole('heading', { name: '编辑角色' })).toBeNull();
 });
 
 it('导入：工具栏「导入角色卡」经内置样例建新卡并刷新清单', async () => {

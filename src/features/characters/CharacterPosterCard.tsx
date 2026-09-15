@@ -8,10 +8,15 @@
  *   的清单浮现统一档错峰）；
  *   必须走 Griffel 类 + mergeClasses：Fluent Card 内部对 className 再过一次
  *   Griffel 合并，字符串拼接的全局类会被静默丢弃（repo 规约）；
- * - 卡菜单（Task-04）：海报右上角 ⋯ 触发器出「导出角色卡」；点击/键盘事件
- *   不冒泡到卡片（否则会同时打开编辑器）；触发器挂 28px 圆形实底芯保证恒白
- *   图标的非文字对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，含 hover/
- *   按下交互态同值覆写，机制见常量注释）；
+ * - 卡菜单（Task-04）：海报右上角 ⋯ 触发器出「导出角色卡」。菜单契约
+ *   （2026-09-15 reviewer 实测）：①菜单是嵌在可点卡内的 interactive，
+ *   规范上属嵌套违例，WebView2 运行时可接受（reviewer 裁定维持）；②触发器
+ *   与菜单项两处都必须 stopPropagation——React 门户事件沿 React 树冒泡
+ *   （MenuPopover 虽渲染在 document.body，菜单项的合成 click 仍会抵达卡的
+ *   onClick），菜单项不截会导出同时打开编辑器（master 既有缺陷，修正轮经
+ *   coordinator 授权一并修）。触发器挂 28px 圆形实底芯保证恒白图标的非文字
+ *   对比度下限（2026-09-14，POSTER_ICON_SCRIM_ALPHA，含 hover/按下交互态
+ *   同值覆写，机制见常量注释）；
  * - 交互与测试契约不变：卡片是 .fui-Card、名字独立文本节点、点击进编辑；
  * - 卡面信息层级（2026-09-15 用户批准重设计）：卡面承载身份，配置信息退居
  *   次位——称号行 + 人设首句摘录（excerptOf 48 字档）紧随名字，动画样式/
@@ -327,7 +332,15 @@ export function CharacterPosterCard({
         </MenuTrigger>
         <MenuPopover>
           <MenuList>
-            <MenuItem icon={<ArrowDownloadRegular />} onClick={() => onExport(character.id)}>
+            {/* 菜单项也要 stopPropagation（契约见文件头②）：门户 click 沿 React
+                树冒泡，不截会导出同时打开编辑器（master 既有缺陷，修正轮修） */}
+            <MenuItem
+              icon={<ArrowDownloadRegular />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onExport(character.id);
+              }}
+            >
               {t('characters.export')}
             </MenuItem>
           </MenuList>

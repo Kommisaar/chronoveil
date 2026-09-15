@@ -13,8 +13,12 @@
  *   空则整行不渲染——海报卡同款拍板，留白比占位噪声干净）/ 元信息行（域色
  *   点 + 动画样式 + 会话数）；
  * - 行右端 ⋯ 导出菜单：形态抄 CharacterPosterCard（Menu/MenuTrigger/
- *   MenuPopover），点击/键盘事件 stopPropagation 不冒泡进行（否则同时打开
- *   编辑器）。触发器落中性底行上，无需海报卡的黑实底芯（那是恒白图标浮暗
+ *   MenuPopover）。菜单契约（2026-09-15 reviewer 实测）：①菜单是嵌在可点行
+ *   内的 interactive，规范上属嵌套违例，WebView2 运行时可接受（reviewer
+ *   裁定维持）；②触发器与菜单项两处都必须 stopPropagation——React 门户
+ *   事件沿 React 树冒泡（MenuPopover 虽渲染在 document.body，菜单项的合成
+ *   click 仍会抵达行 button 的 onClick），菜单项不截会导出同时打开编辑器。
+ *   触发器落中性底行上，无需海报卡的黑实底芯（那是恒白图标浮暗
  *   渐变的对比度下限，此处图标随前景色走）；
  * - data-editor-trigger 必挂：编辑器 getTriggerRect 按角色 id 现测本行矩形
  *   做 FLIP 共享元素过渡；入场 preReveal/enterPop + register/revealDelay
@@ -267,7 +271,15 @@ export function CharacterLedgerRow({
         </MenuTrigger>
         <MenuPopover>
           <MenuList>
-            <MenuItem icon={<ArrowDownloadRegular />} onClick={() => onExport(character.id)}>
+            {/* 菜单项也要 stopPropagation（契约见文件头②）：门户 click 沿 React
+                树冒泡，不截会导出同时打开编辑器 */}
+            <MenuItem
+              icon={<ArrowDownloadRegular />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onExport(character.id);
+              }}
+            >
               {t('characters.export')}
             </MenuItem>
           </MenuList>

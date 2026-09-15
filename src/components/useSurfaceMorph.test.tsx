@@ -1,3 +1,5 @@
+// 搬移说明：随实现自 src/features/characters/editor/ 同步逐字搬至 components。
+//
 // useSurfaceMorph 关闭→卸载链路行为测试（审计补盲：此前该 hook 全仓仅
 // CharacterEditorDialog 消费且零测试）。断言公开时点契约——open=false 表示
 // 「退场中」：EXIT_MS 到点回调 onClosed、父级据此真正卸载；不锁 FLIP 变换
@@ -16,7 +18,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // EXIT_MS 与实现（useSurfaceMorph.ts 私有常量）同式互指：卸载计时 =
 // 退场形变档 MORPH_OUT_MS + 冲刷余量。实现改推导式时此处必须同步。
-import { MORPH_OUT_MS } from '../../../components/motion';
+import { MORPH_OUT_MS } from './motion';
 import { useSurfaceMorph } from './useSurfaceMorph';
 
 const EXIT_MS = MORPH_OUT_MS + 10;

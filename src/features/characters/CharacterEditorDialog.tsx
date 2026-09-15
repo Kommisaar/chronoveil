@@ -23,7 +23,7 @@
  * - 动画契约：open=false 表示「退场中」——本组件留在挂载树播完出场动画
  *   （keyframes 在 app.css，Griffel 类经 mergeClasses 挂载），计时到点回调
  *   onClosed，父级才真正卸载；因此关闭永远有退场，无论哪条路径发起。
- *   面板本体的共享元素 FLIP 形变在 editor/useSurfaceMorph（弹簧进 / 减速
+ *   面板本体的共享元素 FLIP 形变在 components/useSurfaceMorph（弹簧进 / 减速
  *   退，矩形由父级 getTriggerRect 现测）；surface 与背板纯淡化走静态
  *   keyframes，body 内容交叉淡化（晚于形变淡入，遮住缩放挤压），退场期
  *   掐交互。reduced-motion 门控在 @media 内。自动保存后无「未保存修改」，
@@ -70,7 +70,7 @@ import { PosterPane } from './editor/PosterPane';
 import { OverrideSection } from './editor/OverrideSection';
 import { PerformanceField, useFieldStyles } from './editor/pieces';
 import { useEditorForm } from './editor/useEditorForm';
-import { useSurfaceMorph } from './editor/useSurfaceMorph';
+import { useSurfaceMorph } from '../../components/useSurfaceMorph';
 
 const useStyles = makeStyles({
   // padding 0：海报顶天立地贴满左缘，内边距交给右栏各段

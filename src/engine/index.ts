@@ -37,7 +37,7 @@ export {
 } from './anims/index';
 export type { AnimStyleId, AnimStyleMeta } from './anims/index';
 export { CreditClock, TICK_MS, microPauseMs, speedFactor, tickIntervalMs } from './clock';
-export { StreamParser } from './parser';
+export { SCENE_LINE_RE, StreamParser } from './parser';
 export { renderStaticMarkdown } from './static';
 export { ParagraphStream } from './seal';
 export type { Granularity } from './take-unit';

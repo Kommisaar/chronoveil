@@ -20,8 +20,10 @@
  */
 import { StreamUnit, textUnit } from './queue';
 
-/** 场景线整块判定（demo tokenize：/^\s*(-{3,}|={3,}|—{2,})\s*$/） */
-const SCENE_LINE_RE = /^\s*(-{3,}|={3,}|—{2,})\s*$/;
+/** 场景线整块判定（demo tokenize：/^\s*(-{3,}|={3,}|—{2,})\s*$/）。
+ * 公开给 lib/excerpt.ts 作卡面摘录的场景线判定单一事实源：改划线字符集 /
+ * 连排下限时需意识到摘录侧同步消费。 */
+export const SCENE_LINE_RE = /^\s*(-{3,}|={3,}|—{2,})\s*$/;
 /** 场景线候选字符集：空白与三种划线（块首只有这些字符时才可能成为场景线） */
 const SCENE_LINE_CHARS_RE = /[-=—\s]/;
 /** 无序列表项目符（解析时随正文吐出，悬挂缩进样式见 engine.css） */

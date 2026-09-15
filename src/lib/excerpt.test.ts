@@ -51,6 +51,14 @@ describe('excerptOf：markdown-lite 剥离', () => {
   it('块内正文后的划线是字面文本（x\\n--- 保留，与引擎一致）', () => {
     expect(excerptOf('台词\n---', 50)).toBe('台词 ---');
   });
+
+  it('「- - -」不剥列表标记也不丢块（负向前视分支：场景线候选失败形态，按字面保留）', () => {
+    expect(excerptOf('- - -', 20)).toBe('- - -');
+  });
+
+  it('CRLF 归一：空行分段 + 场景线正确分块（场景线块丢弃、前段保留）', () => {
+    expect(excerptOf('前段\r\n\r\n---', 50)).toBe('前段');
+  });
 });
 
 describe('excerptOf：空与纯符号输入', () => {

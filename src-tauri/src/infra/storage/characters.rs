@@ -10,11 +10,30 @@ use super::now;
 
 pub(crate) const ENTITY: &str = "character";
 
-const COLS: &str = "id, name, avatar, persona, gender, age, render_style, model_config, \
+const COLS: &str = "id, name, avatar, persona, gender, age, render_style, \
+                    model_provider_id, model_name, model_temperature, \
                     accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
-                    voice_config, created_at, updated_at, deleted_at";
+                    titles, \
+                    created_at, updated_at, deleted_at";
 
-fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
+/// titles 列（JSON 文本）→ Vec；NULL = 空数组。坏 JSON 属后端数据损坏，上抛不吞。
+fn parse_titles(raw: Option<String>) -> Result<Vec<String>, StorageError> {
+    match raw {
+        None => Ok(Vec::new()),
+        Some(text) => serde_json::from_str(&text)
+            .map_err(|e| StorageError::Backend(format!("characters.titles 非法 JSON：{e}"))),
+    }
+}
+
+fn serialize_titles(titles: &[String]) -> Result<String, StorageError> {
+    serde_json::to_string(titles)
+        .map_err(|e| StorageError::Backend(format!("characters.titles 序列化失败：{e}")))
+}
+
+/// 行 → 领域对象；titles 解析需携带领域错误，故不走 `rusqlite::Result` 闭包签名
+/// （与 scenes.rs 的 scene_from_row 同款）。
+fn character_from_row(row: &Row<'_>) -> Result<Character, StorageError> {
+    let titles_raw: Option<String> = row.get(14)?;
     Ok(Character {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -23,25 +42,29 @@ fn row_to_character(row: &Row<'_>) -> rusqlite::Result<Character> {
         gender: row.get(4)?,
         age: row.get(5)?,
         render_style: row.get(6)?,
-        model_config: row.get(7)?,
-        accent_color: row.get(8)?,
-        anim_duration_ms: row.get(9)?,
-        anim_rhythm_ms: row.get(10)?,
-        anim_punct_pause: row.get::<_, Option<i64>>(11)?.map(|v| v != 0),
-        voice_config: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
-        deleted_at: row.get(15)?,
+        model_provider_id: row.get(7)?,
+        model_name: row.get(8)?,
+        model_temperature: row.get(9)?,
+        accent_color: row.get(10)?,
+        anim_duration_ms: row.get(11)?,
+        anim_rhythm_ms: row.get(12)?,
+        anim_punct_pause: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+        titles: parse_titles(titles_raw)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        deleted_at: row.get(17)?,
     })
 }
 
 pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character, StorageError> {
     let ts = now();
+    let titles = serialize_titles(&new.titles)?;
     conn.execute(
-                "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
-             model_config, accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
-             voice_config, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+               "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
+             model_provider_id, model_name, model_temperature, \
+             accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
+             titles, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
         params![
             new.name,
             new.avatar,
@@ -49,12 +72,14 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
             new.gender,
             new.age,
             new.render_style,
-            new.model_config,
+            new.model_provider_id,
+            new.model_name,
+            new.model_temperature,
             new.accent_color,
             new.anim_duration_ms,
             new.anim_rhythm_ms,
             new.anim_punct_pause.map(i64::from),
-            new.voice_config,
+            titles,
             ts,
         ],
     )?;
@@ -66,12 +91,14 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         gender: new.gender.clone(),
         age: new.age.clone(),
         render_style: new.render_style.clone(),
-        model_config: new.model_config.clone(),
+        model_provider_id: new.model_provider_id.clone(),
+        model_name: new.model_name.clone(),
+        model_temperature: new.model_temperature,
         accent_color: new.accent_color.clone(),
         anim_duration_ms: new.anim_duration_ms,
         anim_rhythm_ms: new.anim_rhythm_ms,
         anim_punct_pause: new.anim_punct_pause,
-        voice_config: new.voice_config.clone(),
+        titles: new.titles.clone(),
         created_at: ts,
         updated_at: ts,
         deleted_at: None,
@@ -82,10 +109,10 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
 pub(crate) fn list(conn: &Connection) -> Result<Vec<Character>, StorageError> {
     let sql = format!("SELECT {COLS} FROM characters WHERE deleted_at IS NULL ORDER BY id ASC");
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map([], row_to_character)?;
+    let mut rows = stmt.query([])?;
     let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
+    while let Some(row) = rows.next()? {
+        out.push(character_from_row(row)?);
     }
     Ok(out)
 }
@@ -94,11 +121,12 @@ pub(crate) fn list(conn: &Connection) -> Result<Vec<Character>, StorageError> {
 pub(crate) fn get(conn: &Connection, id: i64) -> Result<Character, StorageError> {
     let sql =
         format!("SELECT {COLS} FROM characters WHERE id = ?1 AND deleted_at IS NULL");
-    conn.query_row(&sql, params![id], row_to_character)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StorageError::NotFound { entity: ENTITY, id },
-            other => other.into(),
-        })
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(row) => character_from_row(row),
+        None => Err(StorageError::NotFound { entity: ENTITY, id }),
+    }
 }
 
 /// 整卡覆盖更新；目标在世才生效（墓碑行不可改），bump updated_at。
@@ -107,11 +135,13 @@ pub(crate) fn update(
     id: i64,
     upd: &UpdateCharacter,
 ) -> Result<(), StorageError> {
+    let titles = serialize_titles(&upd.titles)?;
     let n = conn.execute(
                "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, gender = ?4, age = ?5, \
-             render_style = ?6, model_config = ?7, accent_color = ?8, anim_duration_ms = ?9, \
-             anim_rhythm_ms = ?10, anim_punct_pause = ?11, voice_config = ?12, updated_at = ?13 \
-             WHERE id = ?14 AND deleted_at IS NULL",
+             render_style = ?6, model_provider_id = ?7, model_name = ?8, model_temperature = ?9, \
+             accent_color = ?10, anim_duration_ms = ?11, anim_rhythm_ms = ?12, \
+             anim_punct_pause = ?13, titles = ?14, updated_at = ?15 \
+             WHERE id = ?16 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
@@ -119,12 +149,14 @@ pub(crate) fn update(
             upd.gender,
             upd.age,
             upd.render_style,
-            upd.model_config,
+            upd.model_provider_id,
+            upd.model_name,
+            upd.model_temperature,
             upd.accent_color,
             upd.anim_duration_ms,
             upd.anim_rhythm_ms,
             upd.anim_punct_pause.map(i64::from),
-            upd.voice_config,
+            titles,
             now(),
             id,
         ],
@@ -179,12 +211,14 @@ mod tests {
             gender: None,
             age: None,
             render_style: Some("type".into()),
-            model_config: None,
+            model_provider_id: None,
+            model_name: None,
+            model_temperature: None,
             accent_color: None,
             anim_duration_ms: None,
             anim_rhythm_ms: None,
             anim_punct_pause: None,
-            voice_config: None,
+            titles: Vec::new(),
         }
     }
 
@@ -207,12 +241,14 @@ mod tests {
             gender: Some("女".to_string()),
             age: Some("24".to_string()),
             render_style: Some("fade".to_string()),
-            model_config: Some(r#"{"temperature":0.8}"#.to_string()),
+            model_provider_id: Some("p1".to_string()),
+            model_name: Some("gpt-x".to_string()),
+            model_temperature: Some(0.8),
             accent_color: Some("#6b46b8".to_string()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: Some(80),
             anim_punct_pause: Some(false),
-            voice_config: None,
+            titles: vec!["布拉维坎的屠夫".to_string(), "利维亚的战士".to_string()],
         };
         storage.update_character(id, &upd).unwrap();
         let got = storage.get_character(id).unwrap();
@@ -222,7 +258,12 @@ mod tests {
         assert_eq!(got.gender.as_deref(), Some("女"));
         assert_eq!(got.age.as_deref(), Some("24"));
         assert_eq!(got.render_style.as_deref(), Some("fade"));
-        assert_eq!(got.model_config.as_deref(), Some(r#"{"temperature":0.8}"#));
+        // 称号集合（0016）：多值 JSON 数组往返
+        assert_eq!(got.titles, ["布拉维坎的屠夫", "利维亚的战士"]);
+        // 模型覆写三标量（0015 扁平化）：全字段覆盖结果
+        assert_eq!(got.model_provider_id.as_deref(), Some("p1"));
+        assert_eq!(got.model_name.as_deref(), Some("gpt-x"));
+        assert_eq!(got.model_temperature, Some(0.8));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));
         // 演出参数覆写（0013）：上面 upd 已带 Some 值，直接断言全字段覆盖结果
         assert_eq!(got.anim_duration_ms, Some(600));
@@ -239,10 +280,27 @@ mod tests {
         let got = storage.get_character(id).unwrap();
         assert_eq!(got.anim_duration_ms, None);
         assert_eq!(got.anim_punct_pause, None);
+        // 模型覆写清除（None = 跟随全局）
+        let upd_clear_model = UpdateCharacter {
+            model_provider_id: None,
+            model_name: None,
+            model_temperature: None,
+            ..upd.clone()
+        };
+        storage.update_character(id, &upd_clear_model).unwrap();
+        let got = storage.get_character(id).unwrap();
+        assert_eq!(got.model_provider_id, None);
+        assert_eq!(got.model_name, None);
+        assert_eq!(got.model_temperature, None);
         // 强调色清除（None = 跟随海报派生）
         let upd_clear_accent = UpdateCharacter { accent_color: None, ..upd.clone() };
         storage.update_character(id, &upd_clear_accent).unwrap();
         assert_eq!(storage.get_character(id).unwrap().accent_color, None);
+
+        // 称号清除（空数组 = 清空全部，恒落 "[]" 不落 NULL）
+        let upd_clear_titles = UpdateCharacter { titles: Vec::new(), ..upd.clone() };
+        storage.update_character(id, &upd_clear_titles).unwrap();
+        assert!(storage.get_character(id).unwrap().titles.is_empty());
 
         let upd_clear = UpdateCharacter { avatar: None, ..upd };
         storage.update_character(id, &upd_clear).unwrap();

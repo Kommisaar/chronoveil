@@ -32,6 +32,14 @@ function textareaOf(label: string): HTMLTextAreaElement {
   return screen.getByLabelText(label) as HTMLTextAreaElement;
 }
 
+/** 人设切「编辑」分段（2026-09-15 常驻编辑重设计后独立切换）。 */
+function switchPersonaEdit() {
+  const group = screen.getByRole('radiogroup', { name: '人设视图' });
+  fireEvent.click(
+    [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '编辑')!,
+  );
+}
+
 afterEach(cleanup);
 
 it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
@@ -56,8 +64,8 @@ it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自�
   const newCard = await screen.findAllByText('新建角色', undefined, { timeout: 3000 });
   expect(newCard.length).toBeGreaterThanOrEqual(2);
 
-  // 名称行展示态起步：进一次输入态（输入框预填默认名），改名 → 防抖后自动保存
-  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  // 身份行常驻输入态（2026-09-15 重设计）：输入框直接在（预填默认名），改名
+  // → 防抖后自动保存
   expect(inputOf('名称').value).toBe('新建角色');
   fireEvent.change(inputOf('名称'), { target: { value: '乌鸦' } });
   await waitFor(
@@ -76,10 +84,9 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
   const personaPreview = document.querySelector('[data-persona-preview]');
   expect(personaPreview?.textContent).toContain('旧书店老板');
 
-  // 点铅笔进统一编辑会话，人设切纯文本输入态：textarea 预填原文
-  // （CharacterSummary 扩字段随列表返回，TASK-008 Rust 侧）；编辑态不渲染
-  // 不着色，渲染只在展示态发生
-  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  // 人设默认渲染预览；切「编辑」出 textarea 预填原文（CharacterSummary 扩
+  // 字段随列表返回，TASK-008 Rust 侧）；编辑态不渲染不着色，渲染只在预览态
+  switchPersonaEdit();
   expect(textareaOf('人设').value).toContain('旧书店老板');
   expect(document.querySelector('[data-persona-syntax]')).toBeNull();
 
@@ -98,8 +105,7 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
 it('修改即保存：编辑中切换目标卡无丢弃确认，最后一拍经卸载补存落到原卡', async () => {
   renderView();
   fireEvent.click(await screen.findByText('林深'));
-  // 名称默认展示态：点铅笔（重命名）进入行内输入态后再改值（防抖窗口内切换）
-  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
+  // 身份行常驻输入态：直接改值（防抖窗口内切换）
   fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
 
   // 直接切换到苏鸢：不再弹「放弃未保存的修改？」，切换放行
@@ -111,7 +117,6 @@ it('修改即保存：编辑中切换目标卡无丢弃确认，最后一拍经�
 
   // 复原（本文件 mock 种子跨用例共享，破坏性改动需还原供后续用例）
   fireEvent.click(screen.getByText('林深（改）'));
-  fireEvent.click(screen.getByRole('button', { name: '重命名' }));
   fireEvent.change(inputOf('名称'), { target: { value: '林深' } });
   await waitFor(
     () => {

@@ -227,7 +227,7 @@ const useStyles = makeStyles({
 });
 
 export interface CharacterEditorDialogProps {
-  /** 编辑目标（全量字段预填，含 persona / modelConfig）；新建由父级先建卡
+  /** 编辑目标（全量字段预填，含 persona / 模型覆写三扁平字段）；新建由父级先建卡
    *  再进编辑器，本组件只服务编辑既有卡。 */
   character: CharacterSummary;
   /** 可见性：false 时本组件播退场动画（仍挂载），到点回调 onClosed。 */
@@ -338,6 +338,8 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                   onNameChange={form.setName}
                   onGenderChange={form.setGender}
                   onAgeChange={form.setAge}
+                  titles={form.titles}
+                  onTitlesChange={form.setTitles}
                   persona={form.persona}
                   onPersonaChange={form.setPersona}
                   accentColor={form.accentColor}
@@ -380,8 +382,14 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
                 </SettingsCard>
                 <SettingsCard title={t('characters.sectionOther')}>
                   <OverrideSection
-                    override={form.override}
-                    onOverrideChange={form.setOverride}
+                    modelProviderId={form.modelProviderId}
+                    modelName={form.modelName}
+                    modelTemperature={form.modelTemperature}
+                    onModelOverrideChange={(providerId, modelName) => {
+                      form.setModelProviderId(providerId);
+                      form.setModelName(modelName);
+                    }}
+                    onTemperatureChange={form.setModelTemperature}
                     providers={providers}
                     globalTemperature={animDefaults?.temperature ?? DEFAULT_TEMPERATURE}
                     globalProviderId={animDefaults?.defaultProviderId ?? ''}

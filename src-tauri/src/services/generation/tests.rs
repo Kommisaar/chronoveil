@@ -51,7 +51,12 @@ fn test_config() -> FileConfig {
     }
 }
 
-fn character_with(model_config: Option<String>) -> Character {
+/// 覆写三标量任取的 Character 夹具（0015 扁平化后的模型覆写形态）。
+fn character_with_overrides(
+    provider_id: Option<&str>,
+    model_name: Option<&str>,
+    temperature: Option<f64>,
+) -> Character {
     Character {
         id: 1,
         name: "苏鸢".into(),
@@ -60,21 +65,27 @@ fn character_with(model_config: Option<String>) -> Character {
         gender: None,
         age: None,
         render_style: Some("fade".into()),
-        model_config,
+        model_provider_id: provider_id.map(str::to_string),
+        model_name: model_name.map(str::to_string),
+        model_temperature: temperature,
         accent_color: None,
         anim_duration_ms: None,
         anim_rhythm_ms: None,
         anim_punct_pause: None,
-        voice_config: None,
+        titles: Vec::new(),
         created_at: 0,
         updated_at: 0,
         deleted_at: None,
     }
 }
 
+fn character_without_override() -> Character {
+    character_with_overrides(None, None, None)
+}
+
 #[test]
 fn resolve_llm_uses_global_default_without_override() {
-    let cfg = resolve_effective_llm(&test_config(), Some(&character_with(None))).unwrap();
+    let cfg = resolve_effective_llm(&test_config(), Some(&character_without_override())).unwrap();
     assert_eq!(cfg.base_url, "https://main.example/v1");
     assert_eq!(cfg.model, "m1b", "active_model 选中者生效");
     assert_eq!(cfg.api_key, "k1");
@@ -82,62 +93,62 @@ fn resolve_llm_uses_global_default_without_override() {
     // active_model 未选 → 回落该服务第一个模型。
     let mut fallback = test_config();
     fallback.active_model = None;
-    let cfg = resolve_effective_llm(&fallback, Some(&character_with(None))).unwrap();
+    let cfg = resolve_effective_llm(&fallback, Some(&character_without_override())).unwrap();
     assert_eq!(cfg.model, "m1a");
 }
 
 #[test]
 fn resolve_llm_applies_character_override_two_levels() {
-    // 字段级覆写（第一级：全局默认打底）
-    let over = character_with(Some(r#"{"model":"custom-model","apiKey":"kk"}"#.into()));
+    // 字段级覆写（第一级：全局默认打底）：只覆写模型名，其余沿用全局默认。
+    let over = character_with_overrides(None, Some("custom-model"), None);
     let cfg = resolve_effective_llm(&test_config(), Some(&over)).unwrap();
     assert_eq!(cfg.model, "custom-model");
-    assert_eq!(cfg.api_key, "kk");
+    assert_eq!(cfg.api_key, "k1");
     assert_eq!(cfg.base_url, "https://main.example/v1", "未覆写字段沿用全局默认");
 
-    // providerId 切换整套 Provider：模型取目标服务第一个模型
-    let switched = character_with(Some(r#"{"providerId":"p2"}"#.into()));
+    // provider 切换整套 Provider：模型取目标服务第一个模型
+    let switched = character_with_overrides(Some("p2"), None, None);
     let cfg = resolve_effective_llm(&test_config(), Some(&switched)).unwrap();
     assert_eq!(cfg.base_url, "https://backup.example/v1");
     assert_eq!(cfg.model, "m2a");
 
-    // 直接覆写压过 providerId 切换
-    let mixed = character_with(Some(r#"{"providerId":"p2","model":"m3"}"#.into()));
+    // 模型名覆写压过 provider 切换
+    let mixed = character_with_overrides(Some("p2"), Some("m3"), None);
     let cfg = resolve_effective_llm(&test_config(), Some(&mixed)).unwrap();
     assert_eq!(cfg.base_url, "https://backup.example/v1");
     assert_eq!(cfg.model, "m3");
 
-    // 未知键忽略；空串不覆写（temperature 0.7 为域内合法覆写值，等价默认）。
-    let lenient = character_with(Some(r#"{"temperature":0.7,"providerId":""}"#.into()));
-    assert!(resolve_effective_llm(&test_config(), Some(&lenient)).is_ok());
+    // trimmed 空串视同未设置：不覆写也不报错。
+    let blank = character_with_overrides(Some("  "), Some(" "), None);
+    let cfg = resolve_effective_llm(&test_config(), Some(&blank)).unwrap();
+    assert_eq!(cfg.model, "m1b");
 }
 
-/// 温度覆写（2026-09-14）：model_config.temperature 缺省跟随全局（设置页 0–2
+/// 温度覆写（2026-09-14）：model_temperature 缺省跟随全局（设置页 0–2
 /// 滑杆），给出且在域内则覆写生效；越界快速失败（可读错误，不静默钳边）。
 #[test]
 fn resolve_llm_temperature_override_follows_and_applies() {
     // 缺省 → 全局默认温度（new_with_defaults = 0.7）。
-    let base = resolve_effective_llm(&test_config(), Some(&character_with(None))).unwrap();
+    let base = resolve_effective_llm(&test_config(), Some(&character_without_override())).unwrap();
     assert_eq!(base.temperature, 0.7);
 
     // 域内覆写生效。
-    let over = character_with(Some(r#"{"temperature":1.3}"#.into()));
+    let over = character_with_overrides(None, None, Some(1.3));
     let cfg = resolve_effective_llm(&test_config(), Some(&over)).unwrap();
     assert_eq!(cfg.temperature, 1.3);
 
     // 越界（>2 / <0）→ 可读错误。
-    let high = character_with(Some(r#"{"temperature":2.5}"#.into()));
+    let high = character_with_overrides(None, None, Some(2.5));
     let err = resolve_effective_llm(&test_config(), Some(&high)).unwrap_err();
     assert!(err.contains("temperature"), "错误可读：{err}");
-    let low = character_with(Some(r#"{"temperature":-0.5}"#.into()));
+    let low = character_with_overrides(None, None, Some(-0.5));
     assert!(resolve_effective_llm(&test_config(), Some(&low))
         .unwrap_err()
         .contains("temperature"));
 }
 
-/// 协议随 provider 走（2026-09-14 三协议）：角色 model_config 切 provider 后
-/// LlmConfig.api 跟随所选 provider；legacy baseUrl/apiKey 覆写不携带协议
-/// （沿用所选 provider 的 api，协议不在角色覆写键清单里）。
+/// 协议随 provider 走（2026-09-14 三协议）：角色覆写切 provider 后
+/// LlmConfig.api 跟随所选 provider。
 #[test]
 fn resolve_llm_api_follows_selected_provider() {
     use crate::infra::llm::ProviderApi;
@@ -146,49 +157,36 @@ fn resolve_llm_api_follows_selected_provider() {
     config.providers[1].api = ProviderApi::Anthropic;
 
     // 切到 p2 → api 跟随 p2。
-    let switched = character_with(Some(r#"{"providerId":"p2"}"#.into()));
+    let switched = character_with_overrides(Some("p2"), None, None);
     let cfg = resolve_effective_llm(&config, Some(&switched)).unwrap();
     assert_eq!(cfg.api, ProviderApi::Anthropic, "切 provider 后协议跟随所选 provider");
 
     // 全局默认 p1 → openai。
-    let cfg = resolve_effective_llm(&config, Some(&character_with(None))).unwrap();
+    let cfg = resolve_effective_llm(&config, Some(&character_without_override())).unwrap();
     assert_eq!(cfg.api, ProviderApi::OpenAi);
-
-    // 切 p2 后 legacy 覆写 baseUrl/apiKey：协议仍跟随 p2，不因覆写改变。
-    let overridden = character_with(Some(r#"{"providerId":"p2","baseUrl":"https://relay.example/v1"}"#.into()));
-    let cfg = resolve_effective_llm(&config, Some(&overridden)).unwrap();
-    assert_eq!(cfg.base_url, "https://relay.example/v1");
-    assert_eq!(cfg.api, ProviderApi::Anthropic, "legacy 覆写不携带协议");
 }
 
 #[test]
 fn resolve_llm_fails_fast_on_bad_config() {
-    let err = resolve_effective_llm(
-        &test_config(),
-        Some(&character_with(Some("{bad".into()))),
-    )
-    .unwrap_err();
-    assert!(err.contains("model_config"), "{err}");
-
     let none = FileConfig::new_with_defaults();
-    let err = resolve_effective_llm(&none, Some(&character_with(None))).unwrap_err();
+    let err = resolve_effective_llm(&none, Some(&character_without_override())).unwrap_err();
     assert!(err.contains("未配置"), "{err}");
 
     // 目标服务没有任何模型 → 快速失败。
     let mut no_models = test_config();
     no_models.providers[0].models.clear();
     no_models.active_model = None;
-    let err = resolve_effective_llm(&no_models, Some(&character_with(None))).unwrap_err();
+    let err = resolve_effective_llm(&no_models, Some(&character_without_override())).unwrap_err();
     assert!(err.contains("未配置"), "无模型视为未配置：{err}");
 
     let mut missing = test_config();
     missing.active_provider_id = Some("ghost".into());
-    let err = resolve_effective_llm(&missing, Some(&character_with(None))).unwrap_err();
+    let err = resolve_effective_llm(&missing, Some(&character_without_override())).unwrap_err();
     assert!(err.contains("未配置"), "悬空 active id 视为未选择：{err}");
 
     let err = resolve_effective_llm(
         &test_config(),
-        Some(&character_with(Some(r#"{"providerId":"ghost"}"#.into()))),
+        Some(&character_with_overrides(Some("ghost"), None, None)),
     )
     .unwrap_err();
     assert!(err.contains("不存在"), "{err}");

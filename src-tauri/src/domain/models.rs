@@ -49,8 +49,14 @@ pub struct Character {
     /// 出场动画风格（18 种之一，按角色存；2026-09-14 起可空——None = 跟随
     /// 全局设置 config.json 的 render_style）。
     pub render_style: Option<String>,
-    /// 角色专属模型覆写 JSON，可空。
-    pub model_config: Option<String>,
+    /// 模型覆写三标量（2026-09-15 自 JSON 串列扁平化）：provider id / 模型名 /
+    /// 采样温度，NULL = 跟随全局设置——与演出参数三列（anim_*）同族。
+    /// provider 存在性与 temperature 范围（0–2）在命令层与解析层校验。
+    pub model_provider_id: Option<String>,
+    /// 覆写模型名（对齐 config.json `active_model` 的「模型名」词汇）；None = 跟随全局。
+    pub model_name: Option<String>,
+    /// 覆写采样温度（0–2）；None = 跟随全局。
+    pub model_temperature: Option<f64>,
     /// 强调色（编辑器右栏渐变背景等界面着色），#RRGGBB；None = 跟随海报派生色。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13 用户定稿）：动效时长 ms（150–1200，命令层
@@ -61,8 +67,10 @@ pub struct Character {
     pub anim_rhythm_ms: Option<i64>,
     /// 标点微停开关；None = 跟随全局设置。
     pub anim_punct_pause: Option<bool>,
-    /// TTS 预留缝（CON-003），恒 None。
-    pub voice_config: Option<String>,
+    /// 称号集合（2026-09-15）：诨名 / 头衔，可多个（如「布拉维坎的屠夫」）。
+    /// 库内单列 JSON 字符串数组存储（真集合形态，与 [`Scene::present`] 同族）；
+    /// 写侧恒落 JSON 文本（空数组落 `"[]"` 不落 NULL），读侧 NULL 视作空数组。
+    pub titles: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 软删除墓碑（ADR-009）：None = 在世。
@@ -131,12 +139,16 @@ pub struct NewCharacter {
     pub age: Option<String>,
     /// None = 跟随全局设置（2026-09-14；新建卡默认跟随，与演出参数三列同族）。
     pub render_style: Option<String>,
-    pub model_config: Option<String>,
+    /// 模型覆写三标量（2026-09-15 扁平化），语义同 [`Character`] 同名字段。
+    pub model_provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub model_temperature: Option<f64>,
     pub accent_color: Option<String>,
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
-    pub voice_config: Option<String>,
+    /// 称号集合，语义同 [`Character::titles`]；Default 为空数组。
+    pub titles: Vec<String>,
 }
 
 /// 更新角色卡入参：整卡覆盖（编辑表单全量提交）；avatar 传 None 即清除头像。
@@ -149,13 +161,17 @@ pub struct UpdateCharacter {
     pub age: Option<String>,
     /// None = 跟随全局设置（2026-09-14）。
     pub render_style: Option<String>,
-    pub model_config: Option<String>,
+    /// 传 None 即清除覆写（跟随全局）；语义同 [`Character`] 同名字段。
+    pub model_provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub model_temperature: Option<f64>,
     pub accent_color: Option<String>,
     /// 传 None 即清除覆写（跟随全局）。
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
-    pub voice_config: Option<String>,
+    /// 称号集合，语义同 [`Character::titles`]；空数组即清除全部称号。
+    pub titles: Vec<String>,
 }
 
 /// 开局包（FR-014）：建会话可选携带的「显式日历 + 开场锚」。
@@ -338,7 +354,8 @@ pub struct NewScene {
     /// 桥场加厚回顾（Task-03），可空；随 summary 同路径回写上一行；新行不预填
     /// （2026-09-12 裁决：边界快照只属于被收束的场景），进行中 header 行恒 None。
     pub recap: Option<String>,
-    /// 在场实例 id 数组（迁移 0009 起语义，见 [`Scene::present`]）；空数组落库为 NULL。
+    /// 在场实例 id 数组（迁移 0009 起语义，见 [`Scene::present`]）；写侧恒落
+    /// JSON 文本（空数组落 `"[]"` 不落 NULL），读侧 NULL 视作空数组（历史行）。
     pub present: Vec<i64>,
 }
 

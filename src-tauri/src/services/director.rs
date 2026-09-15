@@ -50,7 +50,7 @@ const NARRATIVE_MAX_CHARS: usize = 6_000;
 
 /// 导演调用解析（INT-003）：模型名经 `effective_director_model`（空 = 跟随主模型），
 /// base_url / api_key 取 active_provider。**不复用** `resolve_effective_llm`——那是
-/// Character.model_config 覆写语义，导演调用不做角色级覆写（§7-5）。到结算时点
+/// Character 模型覆写三标量的语义，导演调用不做角色级覆写（§7-5）。到结算时点
 /// 主模型必然已配置成功（否则 send_message 早失败），错误分支仅防御。
 pub fn resolve_director_llm(config: &FileConfig) -> Result<LlmClient, String> {
     let provider = config
@@ -406,7 +406,7 @@ pub async fn run_settlement(deps: &GenerationDeps, ticket: &GenerationTicket, tr
 /// （错误后果级：结算持续失败不可自愈时只能靠人看日志介入）。
 fn note_failure(error: impl std::fmt::Display, failures: &mut u32, backoff_ms: u64) {
     *failures += 1;
-    if *failures % LOG_EVERY_N_FAILURES == 0 {
+    if (*failures).is_multiple_of(LOG_EVERY_N_FAILURES) {
         log::error!(
             "结算已连续失败 {failures} 次（ADR-005 重试直到成功，当前退避 {backoff_ms}ms）：{error}"
         );

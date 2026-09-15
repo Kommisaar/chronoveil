@@ -1,6 +1,7 @@
 //! 角色卡导入/导出（Task-04）：单卡 JSON 的构建 / 解析 / 校验纯函数（禁 tauri / rusqlite / reqwest，ADR-010）。
 //!
-//! 卡文件格式（version 1，wire camelCase）：
+//! 卡文件格式（version 1，wire camelCase；2026-09-15 模型覆写随 0015 扁平化
+//! 改为三标量字段，不做旧格式兼容——应用未发布无存量义务）：
 //!
 //! ```json
 //! {
@@ -8,8 +9,8 @@
 //!   "version": 1,
 //!   "character": {
 //!     "name": "…", "avatar": null, "persona": "…", "gender": null, "age": null,
-//!     "renderStyle": "type", "modelConfig": null, "accentColor": null,
-//!     "voiceConfig": null
+//!     "renderStyle": "type", "modelProviderId": null, "modelName": null,
+//!     "modelTemperature": null, "accentColor": null, "titles": []
 //!   }
 //! }
 //! ```
@@ -32,7 +33,7 @@ pub const FORMAT_TAG: &str = "chronoveil-character";
 pub const FORMAT_VERSION: u32 = 1;
 
 /// 卡文件里的 `character` 对象：与命令层 wire 的 `CharacterInput` 同形（camelCase）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterCardPayload {
     pub name: String,
@@ -43,21 +44,24 @@ pub struct CharacterCardPayload {
     pub age: Option<String>,
     /// None = 跟随全局设置（2026-09-14，与卡 wire 同形）。
     pub render_style: Option<String>,
-    pub model_config: Option<String>,
+    /// 模型覆写三标量（2026-09-15 扁平化，与卡 wire 同形；None = 跟随全局）。
+    pub model_provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub model_temperature: Option<f64>,
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13，可选项随卡携带；旧卡文件缺省 = None = 跟随
     /// 全局，serde 缺字段即 None，格式版本仍为 1 向前兼容）。
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
-    /// TTS 预留缝（CON-003），当前恒 None，仍随卡携带以保持形状对称。导入经
-    /// create 路径一次性写入；update 不改写此槽位（保留库值，见
-    /// characters::update_character_impl）。
-    pub voice_config: Option<String>,
+    /// 称号集合（2026-09-15；旧卡文件缺省 = 空数组，serde 缺字段即默认值，
+    /// 格式版本仍为 1 向前兼容）。
+    #[serde(default)]
+    pub titles: Vec<String>,
 }
 
 impl From<&Character> for CharacterCardPayload {
-    /// 领域角色卡 → 卡负载：只取 CharacterInput 同形十二字段，库侧字段（id /
+    /// 领域角色卡 → 卡负载：只取 CharacterInput 同形字段，库侧字段（id /
     /// 时间戳 / 墓碑）不导出。
     fn from(c: &Character) -> Self {
         Self {
@@ -67,18 +71,20 @@ impl From<&Character> for CharacterCardPayload {
             gender: c.gender.clone(),
             age: c.age.clone(),
             render_style: c.render_style.clone(),
-            model_config: c.model_config.clone(),
+            model_provider_id: c.model_provider_id.clone(),
+            model_name: c.model_name.clone(),
+            model_temperature: c.model_temperature,
             accent_color: c.accent_color.clone(),
             anim_duration_ms: c.anim_duration_ms,
             anim_rhythm_ms: c.anim_rhythm_ms,
             anim_punct_pause: c.anim_punct_pause,
-            voice_config: c.voice_config.clone(),
+            titles: c.titles.clone(),
         }
     }
 }
 
 /// 卡文件信封（只序列化；解析走 `Value` 以区分「过新 / 缺失 / 非法」三种版本错误）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterCardFile<'a> {
     pub format: &'static str,
@@ -199,12 +205,14 @@ mod tests {
             gender: Some("女".into()),
             age: Some("24".into()),
             render_style: Some("typewriter".into()),
-            model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            model_provider_id: Some("p1".into()),
+            model_name: Some("m1".into()),
+            model_temperature: Some(0.8),
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
             anim_punct_pause: Some(false),
-            voice_config: None,
+            titles: vec!["雨夜守夜人".into()],
             // 库侧字段：不应出现在卡文件里。
             created_at: 1,
             updated_at: 2,
@@ -219,16 +227,18 @@ mod tests {
         assert_eq!(value["format"], FORMAT_TAG);
         assert_eq!(value["version"], 1);
         let c = &value["character"];
-        // CharacterInput 同形九字段（camelCase）齐全。
+        // CharacterInput 同形字段（camelCase）齐全。
         assert_eq!(c["name"], "苏鸢");
         assert_eq!(c["persona"], "雨夜电话亭的守夜人");
         assert_eq!(c["renderStyle"], "typewriter");
-        assert_eq!(c["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
+        assert_eq!(c["modelProviderId"], "p1");
+        assert_eq!(c["modelName"], "m1");
+        assert_eq!(c["modelTemperature"], 0.8);
         assert_eq!(c["accentColor"], "#5e2347");
         assert_eq!(c["gender"], "女");
         assert_eq!(c["age"], "24");
         assert_eq!(c["avatar"], "data:image/png;base64,AAA");
-        assert!(c["voiceConfig"].is_null());
+        assert_eq!(c["titles"], serde_json::json!(["雨夜守夜人"]), "称号数组 camelCase 随卡导出");
         // 库侧字段不导出（id / 时间戳 / 墓碑）。
         for banned in ["id", "render_style", "createdAt", "updatedAt", "deletedAt"] {
             assert!(c.get(banned).is_none(), "卡文件不应含库侧字段 {banned}");
@@ -240,6 +250,16 @@ mod tests {
         let character = sample_character();
         let payload = parse_card_json(&build_card_json(&character)).unwrap();
         assert_eq!(payload, CharacterCardPayload::from(&character));
+    }
+
+    #[test]
+    fn parse_legacy_card_without_titles_defaults_to_empty() {
+        // 旧卡文件（0016 之前）无 titles 字段：serde default 兜底空数组（向前兼容证据）。
+        let payload = parse_card_json(
+            r#"{"format":"chronoveil-character","version":1,"character":{"name":"苏鸢","persona":"x"}}"#,
+        )
+        .unwrap();
+        assert!(payload.titles.is_empty());
     }
 
     #[test]
@@ -332,7 +352,8 @@ mod tests {
               "futureTopLevel": {"x": 1},
               "character": {"name": "苏鸢", "persona": "", "renderStyle": "typewriter",
                             "avatar": null, "gender": null, "age": null,
-                            "modelConfig": null, "accentColor": null, "voiceConfig": null,
+                            "modelProviderId": null, "modelName": null,
+                            "modelTemperature": null, "accentColor": null,
                             "futureField": true}
             }"#,
         )

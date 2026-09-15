@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChronoVeil 表关系报告 · 2026-09-15</title>
+<style>
+  :root {
+    --bg: #1a1a1a; --surface: #232323; --surface2: #2b2b2b; --surface3: #16181d;
+    --border: #3a3a3a; --text: #e8e4dc; --dim: #a8a49c;
+    --amber: #e8b06a; --green: #6cc0a0; --blue: #7aa2c8; --pink: #d090a8;
+    --purple: #a89ad0; --gray: #9aa5b1; --orange: #e8a06a; --red: #d08080;
+    --mono: "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.65; padding: 2rem; max-width: 1660px; margin: 0 auto; }
+  h1 { font-size: 1.55rem; font-weight: 600; }
+  h1 .sub { color: var(--dim); font-size: 1rem; font-weight: 400; margin-left: .75rem; }
+  h2 { font-size: 1.15rem; font-weight: 600; margin: 2.4rem 0 1rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); color: var(--amber); }
+  .meta { color: var(--dim); font-size: .9rem; margin: .3rem 0 1.5rem; }
+  .meta a { color: var(--blue); }
+  code { font-family: var(--mono); font-size: .84em; background: var(--surface2); padding: .08em .4em; border-radius: 4px; color: var(--amber); }
+  /* ---- ER 画布 ---- */
+  .canvas { position: relative; width: 1560px; height: 1260px; background: var(--surface3); border: 1px solid var(--border); border-radius: 10px; margin: 1rem auto 0; overflow: hidden; }
+  .canvas svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tbl { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+  .tbl .tname { height: 32px; line-height: 32px; padding: 0 10px; font-family: var(--mono); font-weight: 700; font-size: .9rem; background: var(--surface2); border-bottom: 1px solid var(--border); }
+  .tbl .tname .zh { color: var(--dim); font-family: "Segoe UI", "Microsoft YaHei"; font-weight: 400; font-size: .76rem; margin-left: .5rem; }
+  .row { height: 20px; line-height: 20px; padding: 0 10px; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; display: flex; align-items: center; gap: 6px; color: #cfcabe; }
+  .row .nm { color: var(--text); }
+  .row .nt { color: var(--dim); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; font-family: "Segoe UI", "Microsoft YaHei"; }
+  .tfoot { height: 20px; line-height: 20px; padding: 0 10px; font-family: var(--mono); font-size: 10.5px; color: var(--dim); border-top: 1px dashed var(--border); white-space: nowrap; overflow: hidden; background: rgba(0,0,0,.15); }
+  .b { display: inline-block; font-size: 9px; font-weight: 700; line-height: 14px; height: 14px; padding: 0 4px; border-radius: 3px; vertical-align: 1px; font-family: var(--mono); }
+  .b-pk { background: rgba(232,176,106,.18); color: var(--amber); border: 1px solid rgba(232,176,106,.5); }
+  .b-fk { background: rgba(122,162,200,.15); color: var(--blue); border: 1px solid rgba(122,162,200,.5); }
+  .b-uk { background: rgba(168,154,208,.15); color: var(--purple); border: 1px solid rgba(168,154,208,.5); }
+  .b-nn { color: var(--dim); font-weight: 400; }
+  .b-dead { background: rgba(208,128,128,.15); color: var(--red); border: 1px solid rgba(208,128,128,.5); }
+  /* 表头分类色 */
+  .c-character .tname { color: var(--amber); }
+  .c-session .tname  { color: var(--green); }
+  .c-instance .tname { color: var(--blue); }
+  .c-message .tname  { color: var(--pink); }
+  .c-scene .tname    { color: var(--orange); }
+  .c-state .tname    { color: var(--purple); }
+  .c-llm .tname      { color: var(--gray); }
+  /* ---- 图例 ---- */
+  .legend { position: absolute; left: 1160px; top: 90px; width: 350px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: .82rem; }
+  .legend h3 { font-size: .85rem; color: var(--dim); font-weight: 600; margin-bottom: 6px; }
+  .legend .li { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: #cfcabe; }
+  .legend svg { flex: 0 0 auto; }
+  .legend .num { display: inline-flex; width: 18px; height: 18px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--blue); color: var(--blue); font-size: 10px; font-weight: 700; align-items: center; justify-content: center; font-family: var(--mono); }
+  /* ---- 关系清单 ---- */
+  .rels { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1.4rem; }
+  .rel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .55rem .9rem; font-size: .86rem; }
+  .rel .num { display: inline-flex; width: 19px; height: 19px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--blue); color: var(--blue); font-size: 10.5px; font-weight: 700; align-items: center; justify-content: center; font-family: var(--mono); margin-right: 6px; vertical-align: -4px; }
+  .rel .pair { font-family: var(--mono); color: var(--text); }
+  .rel .card { color: var(--green); font-weight: 600; }
+  .rel .how { color: var(--dim); }
+  .rel.log .num { border-color: var(--amber); color: var(--amber); }
+  /* ---- 约定卡片 ---- */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem 1.2rem; }
+  .note { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 6px; padding: .6rem .9rem; font-size: .86rem; }
+  .note b { color: var(--amber); }
+  .note.amber { border-left-color: var(--amber); }
+  .note.pink { border-left-color: var(--pink); }
+  .note.green { border-left-color: var(--green); }
+  footer { color: var(--dim); font-size: .82rem; margin: 2.4rem 0 .5rem; }
+  @media print { body { padding: 1rem; } .canvas { transform: scale(.62); transform-origin: top left; } }
+</style>
+</head>
+<body>
+
+<h1>ChronoVeil 表关系报告<span class="sub">SQLite 数据模型 · 2026-09-15</span></h1>
+<p class="meta">
+  依据：<code>src-tauri/migrations/0001–0014</code>（最终形态）与 <code>src-tauri/src/domain/models.rs</code> ·
+  业务表 7 张 + 技术表 <code>schema_version</code> · 时间戳统一 Unix 毫秒 ·
+  上一版快照（2026-09-12，含当时目标态标注）见 <code>docs/报告-数据模型.html</code>。
+</p>
+
+<h2>实体关系图</h2>
+<div class="canvas">
+  <!-- 连线层 -->
+  <svg class="wires" viewBox="0 0 1560 1260" aria-hidden="true">
+    <defs>
+      <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a8ba6"/>
+      </marker>
+      <marker id="arwLog" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#e8b06a"/>
+      </marker>
+    </defs>
+    <!-- ① characters → instances（character_id） -->
+    <path d="M 360 430 H 460 V 560 H 560" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ② sessions → instances（session_id） -->
+    <path d="M 740 314 V 470" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ③ sessions → messages（session_id） -->
+    <path d="M 660 250 H 440 V 830 H 150 V 870" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ④ instances → messages（instance_id） -->
+    <path d="M 620 714 V 820 H 380 V 870" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ⑤ sessions → scenes（session_id） -->
+    <path d="M 990 220 H 1060 V 830 H 900 V 870" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ⑥ scenes → messages（scene_id） -->
+    <path d="M 620 1000 H 470" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ⑦ instances → character_state（instance_id） -->
+    <path d="M 920 620 H 1120" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ⑧ sessions → llm_calls（session_id 可空） -->
+    <path d="M 990 140 H 1100 V 840 H 1200 V 870" fill="none" stroke="#7a8ba6" stroke-width="1.6" marker-end="url(#arw)"/>
+    <!-- ⑨ sessions → sessions（分叉，逻辑引用无外键，虚线） -->
+    <path d="M 780 90 V 56 H 880 V 90" fill="none" stroke="#e8b06a" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arwLog)"/>
+    <!-- 关系编号徽章 -->
+    <g font-family="Consolas, monospace" font-size="11" font-weight="700">
+      <g><circle cx="460" cy="495" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="460" y="499" fill="#7aa2c8" text-anchor="middle">1</text></g>
+      <g><circle cx="740" cy="392" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="740" y="396" fill="#7aa2c8" text-anchor="middle">2</text></g>
+      <g><circle cx="440" cy="690" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="440" y="694" fill="#7aa2c8" text-anchor="middle">3</text></g>
+      <g><circle cx="500" cy="820" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="500" y="824" fill="#7aa2c8" text-anchor="middle">4</text></g>
+      <g><circle cx="980" cy="830" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="980" y="834" fill="#7aa2c8" text-anchor="middle">5</text></g>
+      <g><circle cx="545" cy="1000" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="545" y="1004" fill="#7aa2c8" text-anchor="middle">6</text></g>
+      <g><circle cx="1020" cy="620" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="1020" y="624" fill="#7aa2c8" text-anchor="middle">7</text></g>
+      <g><circle cx="1100" cy="500" r="9" fill="#2b2b2b" stroke="#7aa2c8"/><text x="1100" y="504" fill="#7aa2c8" text-anchor="middle">8</text></g>
+      <g><circle cx="830" cy="56" r="9" fill="#2b2b2b" stroke="#e8b06a"/><text x="830" y="60" fill="#e8b06a" text-anchor="middle">9</text></g>
+    </g>
+  </svg>
+
+  <!-- characters -->
+  <div class="tbl c-character" style="left:50px; top:90px; width:310px;">
+    <div class="tname">characters<span class="zh">角色卡 · 模板</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="nm">name</span><span class="nt">NOT NULL</span></div>
+    <div class="row"><span class="nm">avatar?</span><span class="nt">data URL / 相对路径</span></div>
+    <div class="row"><span class="nm">persona</span><span class="nt">人设提示词底版</span></div>
+    <div class="row"><span class="nm">gender? · age?</span><span class="nt">展示元数据，自由文本</span></div>
+    <div class="row"><span class="nm">render_style?</span><span class="nt">NULL=跟随全局；否则 18 风格 id</span></div>
+    <div class="row"><span class="nm">model_config?</span><span class="nt">JSON 角色级模型覆写</span></div>
+    <div class="row"><span class="nm">accent_color?</span><span class="nt">#RRGGBB；NULL=海报派生</span></div>
+    <div class="row"><span class="nm">anim_duration_ms?</span><span class="nt">NULL=跟随全局（0013）</span></div>
+    <div class="row"><span class="nm">anim_rhythm_ms?</span><span class="nt">10–160；NULL=跟随全局</span></div>
+    <div class="row"><span class="nm">anim_punct_pause?</span><span class="nt">NULL=跟随全局</span></div>
+    <div class="row"><span class="nm">voice_config</span><span class="nt">恒 NULL（TTS 预留缝）</span></div>
+    <div class="row"><span class="nm">created_at · updated_at</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span><span class="nt">软删墓碑</span></div>
+  </div>
+
+  <!-- sessions -->
+  <div class="tbl c-session" style="left:660px; top:90px; width:330px;">
+    <div class="tname">sessions<span class="zh">会话 · 时间线账本</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="nm">title</span><span class="nt">缺省取首条用户消息截断</span></div>
+    <div class="row"><span class="nm">calendar_config?</span><span class="nt">会话历法唯一归属（snake JSON）</span></div>
+    <div class="row"><span class="nm">forked_from_session_id?</span><span class="nt">逻辑指向，无外键</span></div>
+    <div class="row"><span class="nm">fork_anchor_scene_idx?</span><span class="nt">源会话 scenes.idx 口径</span></div>
+    <div class="row"><span class="nm">created_at · updated_at</span><span class="nt">每条消息刷新</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span></div>
+    <div class="tfoot">IDX updated_at DESC（会话清单倒序）</div>
+  </div>
+
+  <!-- character_instances -->
+  <div class="tbl c-instance" style="left:560px; top:470px; width:360px;">
+    <div class="tname">character_instances<span class="zh">会话角色实例 · 运行时身份</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">session_id</span><span class="nt">→ sessions.id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">character_id?</span><span class="nt">→ characters.id；NULL=动态造人</span></div>
+    <div class="row"><span class="nm">name</span><span class="nt">建会话快照（D1 卡死人活）</span></div>
+    <div class="row"><span class="nm">persona</span><span class="nt">快照，改卡不回写</span></div>
+    <div class="row"><span class="nm">render_style</span><span class="nt">快照具体值（卡 NULL→全局），NOT NULL</span></div>
+    <div class="row"><span class="nm">is_user</span><span class="nt">CHECK 0/1；全会话恰好 1（D2，应用层保证）</span></div>
+    <div class="row"><span class="nm">created_at</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span></div>
+    <div class="tfoot">IDX (session_id, id)</div>
+  </div>
+
+  <!-- character_state -->
+  <div class="tbl c-state" style="left:1120px; top:470px; width:380px;">
+    <div class="tname">character_state<span class="zh">人物状态 · append-only 历史链</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">instance_id</span><span class="nt">→ instances.id，NOT NULL</span></div>
+    <div class="row"><span class="nm">scope</span><span class="nt">CHECK：state｜relation</span></div>
+    <div class="row"><span class="nm">key</span><span class="nt">情绪/持有/约定/「对XX」走 key 文本</span></div>
+    <div class="row"><span class="nm">value</span><span class="nt">叙事语言，非数字</span></div>
+    <div class="row"><span class="nm">expiry?</span><span class="nt">scene_end｜event:xxx｜manual</span></div>
+    <div class="row"><span class="nm">source_scene?</span><span class="nt">as_of 还原的时间锚</span></div>
+    <div class="row"><span class="nm">updated_at</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span><span class="nt">清除语义（可还原）</span></div>
+    <div class="row"><span class="nm">superseded_at?</span><span class="nt">演进取代语义（0010 历史化）</span></div>
+    <div class="tfoot">UK (instance_id, key) 仅约束生效行（两者皆 NULL）</div>
+  </div>
+
+  <!-- messages -->
+  <div class="tbl c-message" style="left:70px; top:870px; width:400px;">
+    <div class="tname">messages<span class="zh">消息</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">session_id</span><span class="nt">→ sessions.id</span></div>
+    <div class="row"><span class="nm">role</span><span class="nt">CHECK：user｜assistant</span></div>
+    <div class="row"><span class="nm">content</span><span class="nt">原始 markdown-lite，显示时才解析</span></div>
+    <div class="row"><span class="nm">reasoning? · think_ms?</span><span class="nt">思考与正文分离落库</span></div>
+    <div class="row"><span class="nm">tokens?</span><span class="nt">用量，可空</span></div>
+    <div class="row"><span class="nm">created_at</span></div>
+    <div class="row"><span class="nm">interrupt_flag?</span><span class="nt">终态：done/error/cancel 透传</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">scene_id?</span><span class="nt">→ scenes.id；插入恒 NULL，结算唯一写入</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">instance_id?</span><span class="nt">→ instances.id；说话人（user=用户位）</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span><span class="nt">重新生成/重试替换</span></div>
+    <div class="tfoot">IDX (session_id, id)</div>
+  </div>
+
+  <!-- scenes -->
+  <div class="tbl c-scene" style="left:620px; top:870px; width:400px;">
+    <div class="tname">scenes<span class="zh">场景</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">session_id</span><span class="nt">→ sessions.id</span></div>
+    <div class="row"><span class="nm">idx</span><span class="nt">同会话单调自增（墓碑也计序）= 叙事顺序</span></div>
+    <div class="row"><span class="nm">location? · time_note?</span><span class="nt">叙事层原文</span></div>
+    <div class="row"><span class="nm">fic_day? · fic_part?</span><span class="nt">记账层唯一事实源；part 六值</span></div>
+    <div class="row"><span class="nm">date_label?</span><span class="nt">日历命名缓存（如「白蜡月·晨露日」）</span></div>
+    <div class="row"><span class="nm">summary?</span><span class="nt">本场一行（远景压缩）</span></div>
+    <div class="row"><span class="nm">recap?</span><span class="nt">桥场两三句加厚回顾</span></div>
+    <div class="row"><span class="nm">present</span><span class="nt">JSON 数组 = 在场实例 id</span></div>
+    <div class="row"><span class="b b-dead">⚰</span><span class="nm">deleted_at?</span></div>
+    <div class="tfoot">IDX (session_id, idx)</div>
+  </div>
+
+  <!-- llm_calls -->
+  <div class="tbl c-llm" style="left:1140px; top:870px; width:370px;">
+    <div class="tname">llm_calls<span class="zh">LLM 调用轨迹 · 日志旁路</span></div>
+    <div class="row"><span class="b b-pk">PK</span><span class="nm">id</span></div>
+    <div class="row"><span class="b b-fk">FK</span><span class="nm">session_id?</span><span class="nt">→ sessions.id</span></div>
+    <div class="row"><span class="nm">kind</span><span class="nt">CHECK：dialogue｜explorer｜director｜draft*</span></div>
+    <div class="row"><span class="nm">model</span></div>
+    <div class="row"><span class="nm">started_at · duration_ms</span></div>
+    <div class="row"><span class="nm">prompt_json</span><span class="nt">请求消息数组，可回放</span></div>
+    <div class="row"><span class="nm">response_text?</span><span class="nt">失败/取消=已收半条</span></div>
+    <div class="row"><span class="nm">reasoning_text?</span></div>
+    <div class="row"><span class="nm">tool_calls_json?</span><span class="nt">工具轮 [{name, arguments}]</span></div>
+    <div class="row"><span class="nm">prompt_tokens? · completion_tokens?</span></div>
+    <div class="row"><span class="nm">status</span><span class="nt">CHECK：ok｜error（取消按 error）</span></div>
+    <div class="row"><span class="nm">error_text?</span></div>
+    <div class="tfoot">*draft 为历史值（已裁撤，读到判损坏）· 无 ⚰ 只插不改不删</div>
+  </div>
+
+  <!-- 图例 -->
+  <div class="legend">
+    <h3>图例</h3>
+    <div class="li"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#7a8ba6" stroke-width="1.6"/></svg>真实 FOREIGN KEY 约束（箭头指向子表）</div>
+    <div class="li"><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#e8b06a" stroke-width="1.6" stroke-dasharray="6 4"/></svg>逻辑引用（刻意无外键约束）</div>
+    <div class="li"><span class="b b-pk">PK</span> 主键 <span class="b b-fk">FK</span> 外键 <span class="b b-uk">UK</span> 唯一索引</div>
+    <div class="li"><span class="b b-dead">⚰</span> 软删除墓碑 <code>deleted_at</code>（ADR-009）</div>
+    <div class="li"><code>?&nbsp;</code> 可空列 · 圆圈编号对应下方「关系清单」</div>
+  </div>
+</div>
+
+<h2>关系清单</h2>
+<div class="rels">
+  <div class="rel"><span class="num">1</span><span class="pair">characters → character_instances</span> <span class="card">1 ─ N</span> <span class="how">FK <code>character_id</code>（可空）：建会话选卡实例化的快照溯源；NULL = 动态造人（D6）。</span></div>
+  <div class="rel"><span class="num">2</span><span class="pair">sessions → character_instances</span> <span class="card">1 ─ N</span> <span class="how">FK <code>session_id</code>：会话阵容成员；用户扮演位 + LLM 位都挂这里。</span></div>
+  <div class="rel"><span class="num">3</span><span class="pair">sessions → messages</span> <span class="card">1 ─ N</span> <span class="how">FK <code>session_id</code>：会话消息流；<code>updated_at</code> 随新消息刷新（FR-007）。</span></div>
+  <div class="rel"><span class="num">4</span><span class="pair">character_instances → messages</span> <span class="card">1 ─ N</span> <span class="how">FK <code>instance_id</code>（可空）：说话人——user 消息 = 用户位实例，assistant = 生成位实例。</span></div>
+  <div class="rel"><span class="num">5</span><span class="pair">sessions → scenes</span> <span class="card">1 ─ N</span> <span class="how">FK <code>session_id</code>：场景线按 <code>idx</code> 单调自增，顺序即叙事顺序（FR-011）。</span></div>
+  <div class="rel"><span class="num">6</span><span class="pair">scenes → messages</span> <span class="card">1 ─ N</span> <span class="how">FK <code>scene_id</code>（可空）：插入恒 NULL，导演结算（commit_settlement）AttachRange 回填，唯一写入者。</span></div>
+  <div class="rel"><span class="num">7</span><span class="pair">character_instances → character_state</span> <span class="card">1 ─ N</span> <span class="how">FK <code>instance_id</code> NOT NULL：状态挂实例而非模板卡——会话隶属由实例携带（迁移 0009 换挂）。</span></div>
+  <div class="rel"><span class="num">8</span><span class="pair">sessions → llm_calls</span> <span class="card">1 ─ N</span> <span class="how"><code>session_id</code>（可空，FK）：每次 LLM HTTP 请求一条轨迹；现行写入方恒 Some。</span></div>
+  <div class="rel log"><span class="num">9</span><span class="pair">sessions → sessions（自引用）</span> <span class="card">1 ─ N</span> <span class="how">逻辑引用（<b>无外键</b>）：<code>forked_from_session_id</code> + <code>fork_anchor_scene_idx</code>——源会话软删不得阻断新时间线；锚记 <code>scenes.idx</code> 叙事位置，不记行 id。</span></div>
+</div>
+
+<h2>约束与约定速查</h2>
+<div class="notes">
+  <div class="note amber"><b>全库软删除（ADR-009）</b>：除 <code>llm_calls</code> 外每表带 <code>deleted_at</code> 墓碑；唯一约束一律只约束在世/生效行（partial unique index，软删后同键可重插）。</div>
+  <div class="note"><b>状态生效行判定</b>：<code>deleted_at IS NULL AND superseded_at IS NULL</code>——墓碑是「清除」、superseded 是「演进取代」；同键 (instance_id, key) 演进为 append-only 历史链，时间线分叉靠 <code>source_scene</code> 做 as_of 还原。</div>
+  <div class="note green"><b>D1「卡死人活」</b>：实例的 name / persona / render_style 是建会话一次性快照，改卡不回写旧会话；例外——演出三参数（anim_*，0013）不快照，聊天流按卡现值实时读取。</div>
+  <div class="note green"><b>D2 扮演位</b>：全会话恰好 1 个 <code>is_user = 1</code> 实例，由应用层保证（数据库仅 CHECK 0/1）。</div>
+  <div class="note pink"><b>记账层与命名层</b>：scenes 的 <code>fic_day</code>/<code>fic_part</code> 是时间唯一事实源（part 六值：清晨/上午/午后/黄昏/夜/深夜；day 线内单调不倒流），<code>date_label</code> 只是日历换算缓存。</div>
+  <div class="note"><b>wire 与存储两种形态</b>：IPC 边界 camelCase DTO（tauri-specta 生成），落库 JSON 一律 Rust serde 产出的 snake_case（如 <code>calendar_config</code>、<code>present</code>），禁止混存直落。</div>
+  <div class="note"><b>llm_calls 日志旁路</b>：无墓碑、只插不改不删；<code>kind</code> 的 CHECK 保留历史值 <code>'draft'</code>（历法起草已裁撤），Rust 枚举读到即判数据损坏。</div>
+  <div class="note amber"><b>迁移现状</b>：0001→0014 单向追加；应用未发布无存量数据，schema 允许破坏性变更（发布后该豁免失效）。技术表 <code>schema_version</code> 由迁移器自用。</div>
+</div>
+
+<footer>ChronoVeil · docs 非规范资料 · 生成于 2026-09-15，表结构以 <code>src-tauri/migrations/</code> 为准</footer>
+</body>
+</html>

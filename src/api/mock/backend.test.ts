@@ -86,13 +86,15 @@ function characterInput(overrides: Partial<CharacterInput> = {}): CharacterInput
     persona: '雨夜电话亭的守夜人',
     gender: '女',
     age: '24',
+    titles: [],
     renderStyle: 'typewriter',
-    modelConfig: '{"providerId":"p1","model":"m1"}',
+    modelProviderId: 'p1',
+    modelName: 'm1',
+    modelTemperature: null,
     accentColor: '#5e2347',
     animDurationMs: null,
     animRhythmMs: null,
     animPunctPause: null,
-    voiceConfig: null, // CON-003 TTS 预留缝，前端恒传 null
     ...overrides,
   };
 }
@@ -646,7 +648,10 @@ describe('regenerateLast（FR-008：软删旧条 + 新条从零演出）', () =>
 describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
   it('createCharacter 回执全量字段、sessionCount 起始 0、id 不与种子冲突', async () => {
     const { backend } = await loadMock();
-    const created = await backend.createCharacter(characterInput());
+    // 称号带非空值进 create：回执原样带回（防 create 路径丢字段回归）
+    const created = await backend.createCharacter(
+      characterInput({ titles: ['布拉维坎的屠夫', '利维亚的战士'] }),
+    );
     expect(created.id).toBe(11); // 种子角色 id 最大 10
     expect(created.sessionCount).toBe(0);
     expect(created).toMatchObject({
@@ -656,8 +661,11 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
       gender: '女',
       age: '24',
       renderStyle: 'typewriter',
-      modelConfig: '{"providerId":"p1","model":"m1"}',
+      modelProviderId: 'p1',
+      modelName: 'm1',
+      modelTemperature: null,
       accentColor: '#5e2347',
+      titles: ['布拉维坎的屠夫', '利维亚的战士'],
       updatedAt: BASE,
     });
   });
@@ -686,23 +694,32 @@ describe('角色 CRUD（FR-006，含 avatar / 元数据）', () => {
     expect(refreshed.find((c) => c.id === 1)?.sessionCount).toBe(3);
   });
 
-  it('updateCharacter 整卡覆盖：avatar / modelConfig 传 null 即清除；不存在报 NotFound', async () => {
+  it('updateCharacter 整卡覆盖：avatar / 模型覆写传 null 即清除、titles 整组覆写；不存在报 NotFound', async () => {
     const { backend } = await loadMock();
     await backend.updateCharacter(
       2,
       characterInput({
         name: '林深（改）',
         avatar: null,
-        modelConfig: null,
+        modelProviderId: null,
+        modelName: null,
         renderStyle: 'ink',
+        titles: ['夜行侦探'],
       }),
     );
     const updated = (await backend.listCharacters()).find((c) => c.id === 2);
     expect(updated?.name).toBe('林深（改）');
     expect(updated?.avatar).toBeNull();
-    expect(updated?.modelConfig).toBeNull();
+    expect(updated?.modelProviderId).toBeNull();
+    expect(updated?.modelName).toBeNull();
+    expect(updated?.titles).toEqual(['夜行侦探']);
     expect(updated?.accentColor).toBe('#5e2347');
     expect(updated?.updatedAt).toBe(BASE);
+
+    // titles 传空数组即清空全部称号（与 Rust UpdateCharacter 同语义）
+    await backend.updateCharacter(2, characterInput({ titles: [] }));
+    const cleared = (await backend.listCharacters()).find((c) => c.id === 2);
+    expect(cleared?.titles).toEqual([]);
 
     expect(await apiErrorOf(backend.updateCharacter(999, characterInput()))).toEqual({
       kind: 'notFound',

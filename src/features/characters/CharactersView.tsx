@@ -45,14 +45,16 @@ function newCharacterInput(name: string): CharacterInput {
     persona: '',
     gender: null,
     age: null,
+    titles: [],
     // 新建卡默认跟随全局（0014 列语义，与 Rust NewCharacter::default 一致）。
     renderStyle: null,
-    modelConfig: null,
+    modelProviderId: null,
+    modelName: null,
+    modelTemperature: null,
     accentColor: null,
     animDurationMs: null,
     animRhythmMs: null,
     animPunctPause: null,
-    voiceConfig: null,
   };
 }
 

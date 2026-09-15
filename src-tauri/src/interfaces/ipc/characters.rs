@@ -13,7 +13,7 @@ use super::error::IpcError;
 
 /// 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
 ///
-/// TASK-008 起 `persona` / `model_config` 随列表返回：编辑表单点选即载入全量
+/// TASK-008 起 `persona` / 模型覆写三标量随列表返回：编辑表单点选即载入全量
 /// 字段（UI-002），避免为预填再发一次单条查询。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -30,9 +30,11 @@ pub struct CharacterSummary {
     pub age: Option<String>,
     /// 出场动画风格（18 种之一，FR-005）；null = 跟随全局设置（2026-09-14）。
     pub render_style: Option<String>,
-    /// 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
-    /// None = 跟随全局默认。
-    pub model_config: Option<String>,
+    /// 模型覆写三标量（2026-09-15 自 JSON 串列扁平化；`resolve_effective_llm`
+    /// 消费）；None = 跟随全局默认。
+    pub model_provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub model_temperature: Option<f64>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13）：None = 跟随全局设置；聊天流按卡现值实时
@@ -40,6 +42,8 @@ pub struct CharacterSummary {
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
+    /// 称号集合（2026-09-15，展示元数据）。
+    pub titles: Vec<String>,
     pub updated_at: i64,
     /// 该角色开启的会话数（在世会话）。
     pub session_count: i64,
@@ -55,11 +59,14 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         gender: c.gender,
         age: c.age,
         render_style: c.render_style,
-        model_config: c.model_config,
+        model_provider_id: c.model_provider_id,
+        model_name: c.model_name,
+        model_temperature: c.model_temperature,
         accent_color: c.accent_color,
         anim_duration_ms: c.anim_duration_ms,
         anim_rhythm_ms: c.anim_rhythm_ms,
         anim_punct_pause: c.anim_punct_pause,
+        titles: c.titles,
         updated_at: c.updated_at,
         session_count: 0,
     }
@@ -112,12 +119,14 @@ pub(super) fn create_character_impl(
         gender: input.gender,
         age: input.age,
         render_style: input.render_style,
-        model_config: input.model_config,
+        model_provider_id: input.model_provider_id,
+        model_name: input.model_name,
+        model_temperature: input.model_temperature,
         accent_color: input.accent_color,
         anim_duration_ms: input.anim_duration_ms,
         anim_rhythm_ms: input.anim_rhythm_ms,
         anim_punct_pause: input.anim_punct_pause,
-        voice_config: input.voice_config,
+        titles: input.titles,
     })?;
     Ok(CharacterSummary {
         session_count: 0,
@@ -137,13 +146,6 @@ pub fn create_character(
 fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Result<(), IpcError> {
     input.validate().map_err(|message| IpcError::Conflict { message })?;
     // 整卡覆盖（FR-006：编辑表单全量提交）；目标不存在 / 已软删报 NotFound。
-    // 例外 voice_config（CON-003 TTS 预留缝）：一次性系统槽位，仅 create /
-    // import（卡文件导入复用 create 路径）写入；update 忽略入参、保留库中原值
-    // ——前端 buildInput 恒传 null（useEditorForm.ts），若照搬整卡覆盖，导入
-    // 非空 voiceConfig 的卡后编辑器改任意字段即静默清空该槽位。先读库行取
-    // 原值（StoragePort 既有 get_character，无需新端口方法）；其对不存在 /
-    // 已软删报的 NotFound 与下方 update 同形，错误语义不变。
-    let existing = app.storage.get_character(id)?;
     app.storage.update_character(
         id,
         &models::UpdateCharacter {
@@ -153,12 +155,14 @@ fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Resu
             gender: input.gender,
             age: input.age,
             render_style: input.render_style,
-            model_config: input.model_config,
+            model_provider_id: input.model_provider_id,
+            model_name: input.model_name,
+            model_temperature: input.model_temperature,
             accent_color: input.accent_color,
             anim_duration_ms: input.anim_duration_ms,
             anim_rhythm_ms: input.anim_rhythm_ms,
             anim_punct_pause: input.anim_punct_pause,
-            voice_config: existing.voice_config,
+            titles: input.titles,
         },
     )?;
     Ok(())
@@ -193,8 +197,9 @@ mod tests {
     use crate::interfaces::ipc::test_support::{sample_character, temp_state, upd_input};
 
     #[test]
-    fn character_summary_serializes_camel_case_with_persona_and_model_config() {
-        // TASK-008：摘要扩 persona / model_config（编辑预填），wire 保持 camelCase。
+    fn character_summary_serializes_camel_case_with_persona_and_model_overrides() {
+        // TASK-008：摘要扩 persona / 模型覆写（编辑预填），wire 保持 camelCase；
+        // 0015 起覆写为三扁平标量。
         let summary = CharacterSummary {
             id: 5,
             name: "苏鸢".into(),
@@ -203,25 +208,39 @@ mod tests {
             gender: None,
             age: None,
             render_style: Some("typewriter".into()),
-            model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            model_provider_id: Some("p1".into()),
+            model_name: Some("m1".into()),
+            model_temperature: Some(0.8),
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
             anim_punct_pause: Some(false),
+            titles: vec!["雨夜守夜人".into()],
             updated_at: 42,
             session_count: 2,
         };
         let json = serde_json::to_value(&summary).unwrap();
         assert_eq!(json["persona"], "雨夜电话亭的守夜人");
-        assert_eq!(json["modelConfig"], r#"{"providerId":"p1","model":"m1"}"#);
+        assert_eq!(json["modelProviderId"], "p1");
+        assert_eq!(json["modelName"], "m1");
+        assert_eq!(json["modelTemperature"], 0.8);
         assert_eq!(json["accentColor"], "#5e2347", "强调色 camelCase wire");
         assert_eq!(json["animDurationMs"], 600, "演出参数 camelCase wire");
         assert_eq!(json["animPunctPause"], false);
+        assert_eq!(json["titles"], serde_json::json!(["雨夜守夜人"]), "称号数组 camelCase wire");
         assert!(json["avatar"].is_null(), "avatar 可空透传");
         assert!(json["animRhythmMs"].is_null(), "演出参数 None = 跟随全局 → null");
-        // model_config = None（跟随全局）时 wire 为 null。
-        let follower = CharacterSummary { model_config: None, ..summary };
-        assert!(serde_json::to_value(&follower).unwrap()["modelConfig"].is_null());
+        // 覆写 = None（跟随全局）时 wire 为 null。
+        let follower = CharacterSummary {
+            model_provider_id: None,
+            model_name: None,
+            model_temperature: None,
+            ..summary
+        };
+        let json = serde_json::to_value(&follower).unwrap();
+        assert!(json["modelProviderId"].is_null());
+        assert!(json["modelName"].is_null());
+        assert!(json["modelTemperature"].is_null());
     }
 
     #[test]
@@ -235,22 +254,24 @@ mod tests {
             gender: Some("女".into()),
             age: Some("24".into()),
             render_style: Some("typewriter".into()),
-            model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+            model_provider_id: Some("p1".into()),
+            model_name: Some("m1".into()),
+            model_temperature: Some(0.8),
             accent_color: None,
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
             anim_punct_pause: Some(true),
-            voice_config: None,
+            titles: vec!["雨夜守夜人".into()],
         };
         let created = create_character_impl(&app, input.clone()).unwrap();
         assert_eq!(created.avatar.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(created.session_count, 0);
         // 扩字段（TASK-008）随创建回执 / 列表原样返回，编辑表单据此预填。
         assert_eq!(created.persona, "雨夜电话亭的守夜人");
-        assert_eq!(
-            created.model_config.as_deref(),
-            Some(r#"{"providerId":"p1","model":"m1"}"#)
-        );
+        assert_eq!(created.titles, ["雨夜守夜人"]);
+        assert_eq!(created.model_provider_id.as_deref(), Some("p1"));
+        assert_eq!(created.model_name.as_deref(), Some("m1"));
+        assert_eq!(created.model_temperature, Some(0.8));
         assert_eq!(created.anim_duration_ms, Some(600));
         assert_eq!(created.anim_punct_pause, Some(true));
 
@@ -290,19 +311,21 @@ mod tests {
         let suy = listed.iter().find(|c| c.id == created.id).unwrap();
         assert_eq!(suy.session_count, 2);
         assert_eq!(suy.persona, "雨夜电话亭的守夜人");
-        assert_eq!(suy.model_config.as_deref(), Some(r#"{"providerId":"p1","model":"m1"}"#));
+        assert_eq!(suy.model_provider_id.as_deref(), Some("p1"));
+        assert_eq!(suy.model_name.as_deref(), Some("m1"));
         let lin = listed.iter().find(|c| c.id == other.id).unwrap();
         assert_eq!(lin.session_count, 0);
 
-        // 整卡覆盖更新（含清除 avatar；model_config 置回 None = 跟随全局；
-        // 演出参数覆写清除 = 跟随全局）。voice_config 不在此列：一次性系统槽位，
-        // update 忽略入参保留库值（专项测试 update_preserves_voice_config）。
+        // 整卡覆盖更新（含清除 avatar；模型覆写置回 None = 跟随全局；
+        // 演出参数覆写清除 = 跟随全局）。
         update_character_impl(
             &app,
             created.id,
             CharacterInput {
                 avatar: None,
-                model_config: None,
+                model_provider_id: None,
+                model_name: None,
+                model_temperature: None,
                 anim_duration_ms: None,
                 anim_punct_pause: None,
                 ..upd_input("苏鸢（改）", &input)
@@ -313,7 +336,12 @@ mod tests {
         let updated = after.iter().find(|c| c.id == created.id).unwrap();
         assert_eq!(updated.name, "苏鸢（改）");
         assert!(updated.avatar.is_none(), "avatar 传 None 即清除");
-        assert!(updated.model_config.is_none(), "model_config 传 None 即跟随全局");
+        assert!(
+            updated.model_provider_id.is_none()
+                && updated.model_name.is_none()
+                && updated.model_temperature.is_none(),
+            "模型覆写传 None 即跟随全局"
+        );
         assert!(updated.anim_duration_ms.is_none(), "演出参数传 None 即跟随全局");
         assert_eq!(updated.persona, "雨夜电话亭的守夜人");
 
@@ -326,6 +354,22 @@ mod tests {
         let bad_upd = CharacterInput { anim_rhythm_ms: Some(200), ..upd_input("越界", &input) };
         assert!(matches!(
             update_character_impl(&app, created.id, bad_upd),
+            Err(IpcError::Conflict { .. })
+        ));
+
+        // 模型温度范围校验（2026-09-15 写时闸，2026-09-14 起温度为可覆写项）：
+        // 越界快速失败（Conflict），与解析层 resolve_effective_llm 同域互指。
+        let hot = CharacterInput { model_temperature: Some(2.5), ..upd_input("越界", &input) };
+        assert!(matches!(
+            create_character_impl(&app, hot),
+            Err(IpcError::Conflict { .. })
+        ));
+        let cold = CharacterInput {
+            model_temperature: Some(-0.5),
+            ..upd_input("越界", &input)
+        };
+        assert!(matches!(
+            update_character_impl(&app, created.id, cold),
             Err(IpcError::Conflict { .. })
         ));
 
@@ -352,65 +396,6 @@ mod tests {
             update_character_impl(&app, other.id, upd_input("苏鸢", &input)),
             Err(IpcError::NotFound { .. })
         ));
-        drop(app);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn update_preserves_voice_config() {
-        let (app, dir) = temp_state("voice_slot");
-        // create 入参带非空 voice_config：模拟卡文件导入（导入经 create 路径
-        // 一次性写入，见 character_cards::import_character_data）；前端建卡
-        // 恒传 null（CON-003），到不了这个形态。
-        let base = CharacterInput {
-            name: "苏鸢".into(),
-            avatar: None,
-            persona: "雨夜电话亭的守夜人".into(),
-            gender: None,
-            age: None,
-            render_style: Some("typewriter".into()),
-            model_config: None,
-            accent_color: None,
-            anim_duration_ms: None,
-            anim_rhythm_ms: None,
-            anim_punct_pause: None,
-            voice_config: Some(r#"{"tts":"stub"}"#.into()),
-        };
-        let created = create_character_impl(&app, base.clone()).unwrap();
-
-        // update 传 None（前端 buildInput 恒传 null 的现行契约）：槽位保留库值，
-        // 其余字段照常整卡覆盖。
-        update_character_impl(
-            &app,
-            created.id,
-            CharacterInput { voice_config: None, ..upd_input("苏鸢（改）", &base) },
-        )
-        .unwrap();
-        let after = app.storage.get_character(created.id).unwrap();
-        assert_eq!(after.name, "苏鸢（改）", "其余字段整卡覆盖照常生效");
-        assert_eq!(
-            after.voice_config.as_deref(),
-            Some(r#"{"tts":"stub"}"#),
-            "update 传 null 不清空槽位"
-        );
-
-        // update 传任意非空值同样被忽略（一次性系统槽位，无更新通道）。
-        update_character_impl(
-            &app,
-            created.id,
-            CharacterInput {
-                voice_config: Some(r#"{"tts":"other"}"#.into()),
-                ..upd_input("苏鸢（改2）", &base)
-            },
-        )
-        .unwrap();
-        let after = app.storage.get_character(created.id).unwrap();
-        assert_eq!(after.name, "苏鸢（改2）");
-        assert_eq!(
-            after.voice_config.as_deref(),
-            Some(r#"{"tts":"stub"}"#),
-            "update 传任意值均忽略，槽位保持原值"
-        );
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }

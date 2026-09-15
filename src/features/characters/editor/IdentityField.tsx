@@ -1,39 +1,31 @@
 /**
  * 基础信息分组卡（与 SettingsView 的分组设置卡同一结构件，一个配置项一行）：
- * 名称 / 性别 / 年龄 / 强调色四行 + 人设块，行间 SettingsDivider。
+ * 名称 / 性别 / 年龄 / 称号 / 强调色五行 + 人设块，行间 SettingsDivider。
  *
- * 编辑会话由卡片标题栏右侧的统一按钮控制（2026-09-13 用户定稿：人设不再
- * 单独挂切换钮，保存/取消与身份行同一会话）：展示态默认文本，点铅笔进编
- * 辑态——名称 / 性别 / 年龄变输入框、人设变多行输入框（拉满卡面宽），
- * Enter 或标题栏对钩提交回展示态，Esc 还原进编辑前的值（含人设）。刻意
- * 不做失焦提交：Fluent 的焦点管理（tabster）会在开面板时挪走焦点，blur 一
- * 触发就把编辑态弹回展示态；落库仍走修改即保存（随键入自动保存），提交/
- * 取消只切换展示形态，取消的回写会命中「与已存值一致」的防抖跳过。
+ * 常驻编辑（2026-09-15 重设计，用户定稿）：身份行不再有「展示态⇄编辑态」
+ * 整卡会话——旧开关纯展示性（数据在键入时已随修改即保存落库），铅笔/对钩/
+ * Esc 还原快照随之裁撤；输入框常驻，与编辑器其余卡（输出动画 / 模型配置）
+ * 同款「所见即所改」形态。
  *
- * 人设（2026-09-10）：展示态 markdown 渲染（与聊天同语法语义）；多行文本
- * 没有 Enter 提交语义，编辑态的收起只走标题栏按钮。
+ * 人设块独立持有「预览|编辑」切换（2026-09-15 自整卡会话拆出，部分回退
+ * 2026-09-13「同一会话」定稿）：默认预览态渲染 markdown（与聊天同语法
+ * 语义，PersonaPreviewBox）；切编辑变多行输入框。多行文本没有 Enter 提交
+ * 语义，切回预览即「提交」——落库始终走修改即保存，切换不动数据。
  */
-import { Button, Input, Text, Textarea, Tooltip, makeStyles } from '@fluentui/react-components';
-import { useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { Button, Input, Text, Textarea, Tooltip, makeStyles, tokens } from '@fluentui/react-components';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Edit20Regular, Checkmark20Regular } from '@fluentui/react-icons';
+import { Add20Regular, Dismiss20Regular } from '@fluentui/react-icons';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../../components/SettingsCard';
+import { SegmentedControl } from '../../../components/SegmentedControl';
 import { AccentColorPicker } from './AccentColorPicker';
 import { PersonaPreviewBox } from './pieces';
 
 const useStyles = makeStyles({
-  nameInput: {
+  // 身份行输入统一宽度（2026-09-15 用户定稿：名称/性别/年龄/称号各行对齐，
+  // 不再按字段长短分档）
+  identityInput: {
     width: '200px',
-    minWidth: '0px',
-  },
-  // 性别 / 年龄行内输入：短宽度
-  metaInput: {
-    width: '96px',
-    minWidth: '0px',
-  },
-  ageInput: {
-    width: '72px',
     minWidth: '0px',
   },
   // 人设内容区：标题行下的全宽块（渲染预览 / 输入框），随卡面内距
@@ -44,6 +36,23 @@ const useStyles = makeStyles({
   // Fluent Textarea 默认不自撑满父容器，显式拉满卡面可用宽
   personaTextarea: {
     width: '100%',
+  },
+  // 人设「预览|编辑」分段（与覆写行的 modeSegment 同款行语言，两段更窄）
+  personaMode: {
+    width: '112px',
+    minWidth: '0px',
+  },
+  // 称号行：逐行输入竖排（行 = Input + 删除钮，底部添加钮）
+  titlesControl: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: tokens.spacingVerticalS,
+  },
+  titleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalXS,
   },
   // 名称必填提示：贴卡面底部内距（自动保存挂起时的就地说明）
   hint: {
@@ -60,7 +69,10 @@ export interface IdentityFieldProps {
   onNameChange: (value: string) => void;
   onGenderChange: (value: string) => void;
   onAgeChange: (value: string) => void;
-  /** 人设（系统提示词，markdown-lite）：展示态渲染 / 编辑态原文。 */
+  /** 称号集合（0016，展示元数据）：可多个，空项由载荷侧过滤。 */
+  titles: string[];
+  onTitlesChange: (value: string[]) => void;
+  /** 人设（系统提示词，markdown-lite）：预览态渲染 / 编辑态原文。 */
   persona: string;
   onPersonaChange: (value: string) => void;
   /** 强调色（accent_color 语义）：null = 跟随海报派生。 */
@@ -80,6 +92,8 @@ export function IdentityField(props: IdentityFieldProps) {
     onNameChange,
     onGenderChange,
     onAgeChange,
+    titles,
+    onTitlesChange,
     persona,
     onPersonaChange,
     accentColor,
@@ -90,109 +104,86 @@ export function IdentityField(props: IdentityFieldProps) {
   const styles = useStyles();
   const { t } = useTranslation();
 
-  // 编辑既有卡恒以展示态起步（新建走「先建卡再进编辑器」，本组件不再有
-  // create 输入态起点）。整卡一个会话：身份行 + 人设同开同收。
-  const [editing, setEditing] = useState(false);
-  const beforeEditRef = useRef({ name: '', gender: '', age: '', persona: '' });
-  const startEdit = (): void => {
-    beforeEditRef.current = { name, gender, age, persona };
-    setEditing(true);
-  };
-  const commitEdit = (): void => setEditing(false);
-  const cancelEdit = (): void => {
-    onNameChange(beforeEditRef.current.name);
-    onGenderChange(beforeEditRef.current.gender);
-    onAgeChange(beforeEditRef.current.age);
-    onPersonaChange(beforeEditRef.current.persona);
-    setEditing(false);
-  };
-  const identityKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter') commitEdit();
-    if (e.key === 'Escape') cancelEdit();
-  };
+  // 人设预览 / 编辑是纯视图切换：不参与数据（落库走修改即保存）。
+  const [personaEditing, setPersonaEditing] = useState(false);
 
   return (
-    <SettingsCard
-      title={t('characters.sectionBasic')}
-      headerAction={
-        // 编辑 / 保存按钮在卡片标题栏右侧（2026-09-13 用户定稿）：展示态出
-        // 铅笔，编辑态出对钩（提交 = 对钩或身份行 Enter，取消 = Esc）。
-        <Tooltip
-          content={editing ? t('characters.done') : t('characters.rename')}
-          relationship="label"
-        >
-          <Button
-            appearance="subtle"
-            size="small"
-            aria-label={editing ? t('characters.done') : t('characters.rename')}
-            icon={editing ? <Checkmark20Regular /> : <Edit20Regular />}
-            onClick={editing ? commitEdit : startEdit}
+    <SettingsCard title={t('characters.sectionBasic')}>
+      <SettingsRow
+        title={t('characters.nameLabel')}
+        control={
+          <Input
+            className={styles.identityInput}
+            value={name}
+            onChange={(_, d) => onNameChange(d.value)}
+            aria-label={t('characters.name')}
           />
-        </Tooltip>
-      }
-    >
-      {editing ? (
-        <>
-          <SettingsRow
-            title={t('characters.nameLabel')}
-            control={
-              <Input
-                className={styles.nameInput}
-                value={name}
-                onChange={(_, d) => onNameChange(d.value)}
-                aria-label={t('characters.name')}
-                autoFocus
-                onKeyDown={identityKeyDown}
-              />
-            }
+        }
+      />
+      <SettingsDivider />
+      <SettingsRow
+        title={t('characters.genderLabel')}
+        control={
+          <Input
+            className={styles.identityInput}
+            value={gender}
+            onChange={(_, d) => onGenderChange(d.value)}
+            aria-label={t('characters.gender')}
+            placeholder={t('characters.genderPlaceholder')}
           />
-          <SettingsDivider />
-          <SettingsRow
-            title={t('characters.genderLabel')}
-            control={
-              <Input
-                className={styles.metaInput}
-                value={gender}
-                onChange={(_, d) => onGenderChange(d.value)}
-                aria-label={t('characters.gender')}
-                placeholder={t('characters.genderPlaceholder')}
-                onKeyDown={identityKeyDown}
-              />
-            }
+        }
+      />
+      <SettingsDivider />
+      <SettingsRow
+        title={t('characters.ageLabel')}
+        control={
+          <Input
+            className={styles.identityInput}
+            value={age}
+            onChange={(_, d) => onAgeChange(d.value)}
+            aria-label={t('characters.age')}
+            placeholder={t('characters.agePlaceholder')}
           />
-          <SettingsDivider />
-          <SettingsRow
-            title={t('characters.ageLabel')}
-            control={
-              <Input
-                className={styles.ageInput}
-                value={age}
-                onChange={(_, d) => onAgeChange(d.value)}
-                aria-label={t('characters.age')}
-                placeholder={t('characters.agePlaceholder')}
-                onKeyDown={identityKeyDown}
-              />
-            }
-          />
-        </>
-      ) : (
-        <>
-          <SettingsRow title={`${t('characters.nameLabel')}${name}`} />
-          {/* 元数据只展示非空项（用户定稿：空值不占位） */}
-          {gender.trim() ? (
-            <>
-              <SettingsDivider />
-              <SettingsRow title={`${t('characters.genderLabel')}${gender}`} />
-            </>
-          ) : null}
-          {age.trim() ? (
-            <>
-              <SettingsDivider />
-              <SettingsRow title={`${t('characters.ageLabel')}${age}`} />
-            </>
-          ) : null}
-        </>
-      )}
+        }
+      />
+      <SettingsDivider />
+      <SettingsRow
+        title={t('characters.titleLabel')}
+        control={
+          <div className={styles.titlesControl}>
+            {titles.map((title, index) => (
+              <div key={index} className={styles.titleRow}>
+                <Input
+                  className={styles.identityInput}
+                  value={title}
+                  onChange={(_, d) =>
+                    onTitlesChange(titles.map((v, j) => (j === index ? d.value : v)))
+                  }
+                  aria-label={`${t('characters.characterTitle')} ${index + 1}`}
+                  placeholder={t('characters.titlePlaceholder')}
+                />
+                <Tooltip content={t('characters.titleRemove')} relationship="label">
+                  <Button
+                    appearance="subtle"
+                    size="small"
+                    aria-label={t('characters.titleRemove')}
+                    icon={<Dismiss20Regular />}
+                    onClick={() => onTitlesChange(titles.filter((_, j) => j !== index))}
+                  />
+                </Tooltip>
+              </div>
+            ))}
+            <Button
+              appearance="transparent"
+              size="small"
+              icon={<Add20Regular />}
+              onClick={() => onTitlesChange([...titles, ''])}
+            >
+              {t('characters.titleAdd')}
+            </Button>
+          </div>
+        }
+      />
       <SettingsDivider />
       <SettingsRow
         title={t('characters.accentColor')}
@@ -205,9 +196,23 @@ export function IdentityField(props: IdentityFieldProps) {
         }
       />
       <SettingsDivider />
-      <SettingsRow title={t('characters.persona')} />
+      <SettingsRow
+        title={t('characters.persona')}
+        control={
+          <SegmentedControl
+            className={styles.personaMode}
+            ariaLabel={t('characters.personaViewLabel')}
+            value={personaEditing ? 'edit' : 'preview'}
+            onChange={(v) => setPersonaEditing(v === 'edit')}
+            options={[
+              { value: 'preview', label: t('characters.personaModePreview') },
+              { value: 'edit', label: t('characters.personaModeEdit') },
+            ]}
+          />
+        }
+      />
       <div className={styles.personaBody}>
-        {editing ? (
+        {personaEditing ? (
           <Textarea
             className={styles.personaTextarea}
             value={persona}

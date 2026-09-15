@@ -16,7 +16,6 @@ import {
   PreviewBox,
 } from './pieces';
 import { OverrideSection } from './OverrideSection';
-import type { ModelOverrideFields } from './useEditorForm';
 
 function renderUi(node: ReactNode) {
   return render(<FluentProvider theme={webLightTheme}>{node}</FluentProvider>);
@@ -35,15 +34,6 @@ const PROVIDERS: ProviderDto[] = [
   { id: 'p1', name: '主服务', baseUrl: 'https://api.test/v1', apiKey: '', models: [spec('m1'), spec('m2')], api: 'openai' },
   { id: 'p2', name: '备用', baseUrl: 'https://api.test/v2', apiKey: '', models: [spec('m3')], api: 'openai' },
 ];
-
-const EMPTY_OVERRIDE: ModelOverrideFields = {
-  providerId: '',
-  model: '',
-  baseUrl: '',
-  apiKey: '',
-  temperature: null,
-  rest: {},
-};
 
 afterEach(cleanup);
 
@@ -104,6 +94,9 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
   // 全局默认 = 主服务 / m1（跟随态按钮展示值 + 切自定义的写卡落点）。
   const GLOBAL = { globalProviderId: 'p1', globalModelId: 'm1', globalTemperature: 0.7 };
 
+  /** 跟随态基线：模型覆写三扁平字段全空（空串/null = 跟随全局）。 */
+  const FOLLOW = { modelProviderId: '', modelName: '', modelTemperature: null };
+
   /** 点开模型设置的级联菜单（触发钮 aria-label = 模型设置；仅自定义态可用）。 */
   function openModelMenu() {
     fireEvent.click(screen.getByRole('button', { name: /模型设置/ }));
@@ -120,8 +113,9 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
   it('跟随态：级联钮禁用并展示全局默认，分段停在跟随', () => {
     renderUi(
       <OverrideSection
-        override={EMPTY_OVERRIDE}
-        onOverrideChange={vi.fn()}
+        {...FOLLOW}
+        onModelOverrideChange={vi.fn()}
+        onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
@@ -135,31 +129,30 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     ).toContain('跟随全局');
   });
 
-  it('切自定义：以当前展示值（全局默认）写卡——updater 写入全局二元组', () => {
-    const onOverrideChange = vi.fn();
+  it('切自定义：以当前展示值（全局默认）成对写卡', () => {
+    const onModelOverrideChange = vi.fn();
     renderUi(
       <OverrideSection
-        override={EMPTY_OVERRIDE}
-        onOverrideChange={onOverrideChange}
+        {...FOLLOW}
+        onModelOverrideChange={onModelOverrideChange}
+        onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
     );
     switchCustom();
-    expect(onOverrideChange).toHaveBeenCalledTimes(1);
-    const updater = onOverrideChange.mock.calls[0]![0] as (
-      current: ModelOverrideFields,
-    ) => ModelOverrideFields;
-    const next = updater(EMPTY_OVERRIDE);
-    expect(next.providerId).toBe('p1');
-    expect(next.model).toBe('m1');
+    expect(onModelOverrideChange).toHaveBeenCalledTimes(1);
+    expect(onModelOverrideChange).toHaveBeenCalledWith('p1', 'm1');
   });
 
   it('自定义态：级联钮启用并显示覆写值；存量模型不在服务列表时追加为额外叶子', () => {
     renderUi(
       <OverrideSection
-        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'legacy-model' }}
-        onOverrideChange={vi.fn()}
+        modelProviderId="p1"
+        modelName="legacy-model"
+        modelTemperature={null}
+        onModelOverrideChange={vi.fn()}
+        onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
@@ -180,12 +173,15 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     expect(withChildren).not.toContain('m3');
   });
 
-  it('自定义态选叶子：onOverrideChange 收到函数式更新，应用后写入 providerId/model', () => {
-    const onOverrideChange = vi.fn();
+  it('自定义态选叶子：成对上报所选服务与模型', () => {
+    const onModelOverrideChange = vi.fn();
     renderUi(
       <OverrideSection
-        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1' }}
-        onOverrideChange={onOverrideChange}
+        modelProviderId="p1"
+        modelName="m1"
+        modelTemperature={null}
+        onModelOverrideChange={onModelOverrideChange}
+        onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
@@ -193,21 +189,20 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     openModelMenu();
     fireEvent.click(screen.getByRole('option', { name: '备用' }));
     fireEvent.click(screen.getByRole('option', { name: 'm3' }));
-    expect(onOverrideChange).toHaveBeenCalledTimes(1);
-    const updater = onOverrideChange.mock.calls[0]![0] as (
-      current: ModelOverrideFields,
-    ) => ModelOverrideFields;
-    const next = updater({ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1' });
-    expect(next.providerId).toBe('p2');
-    expect(next.model).toBe('m3');
+    expect(onModelOverrideChange).toHaveBeenCalledTimes(1);
+    expect(onModelOverrideChange).toHaveBeenCalledWith('p2', 'm3');
   });
 
-  it('切回跟随：分段清空 providerId/model（不动温度与其余键；菜单内无跟随叶子）', () => {
-    const onOverrideChange = vi.fn();
+  it('切回跟随：上报清空二元组，温度覆写不动（菜单内无跟随叶子）', () => {
+    const onModelOverrideChange = vi.fn();
+    const onTemperatureChange = vi.fn();
     renderUi(
       <OverrideSection
-        override={{ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1', temperature: 1.2 }}
-        onOverrideChange={onOverrideChange}
+        modelProviderId="p1"
+        modelName="m1"
+        modelTemperature={1.2}
+        onModelOverrideChange={onModelOverrideChange}
+        onTemperatureChange={onTemperatureChange}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
@@ -220,21 +215,17 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     fireEvent.click(
       [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '跟随全局')!,
     );
-    const updater = onOverrideChange.mock.calls[0]![0] as (
-      current: ModelOverrideFields,
-    ) => ModelOverrideFields;
-    const next = updater({ ...EMPTY_OVERRIDE, providerId: 'p1', model: 'm1', temperature: 1.2 });
-    expect(next.providerId).toBe('');
-    expect(next.model).toBe('');
-    expect(next.temperature).toBe(1.2);
+    expect(onModelOverrideChange).toHaveBeenCalledWith('', '');
+    expect(onTemperatureChange).not.toHaveBeenCalled();
   });
 
   it('温度行：跟随态滑杆禁用、描述带全局值；切自定义即以当前展示值写卡', () => {
-    const onOverrideChange = vi.fn();
+    const onTemperatureChange = vi.fn();
     renderUi(
       <OverrideSection
-        override={EMPTY_OVERRIDE}
-        onOverrideChange={onOverrideChange}
+        {...FOLLOW}
+        onModelOverrideChange={vi.fn()}
+        onTemperatureChange={onTemperatureChange}
         providers={PROVIDERS}
         {...GLOBAL}
       />,
@@ -246,11 +237,8 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     fireEvent.click(
       [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '自定义')!,
     );
-    expect(onOverrideChange).toHaveBeenCalledTimes(1);
-    const updater = onOverrideChange.mock.calls[0]![0] as (
-      current: ModelOverrideFields,
-    ) => ModelOverrideFields;
-    expect(updater(EMPTY_OVERRIDE).temperature).toBe(0.7);
+    expect(onTemperatureChange).toHaveBeenCalledTimes(1);
+    expect(onTemperatureChange).toHaveBeenCalledWith(0.7);
   });
 });
 

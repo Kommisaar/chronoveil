@@ -66,7 +66,8 @@ pub(super) fn with_call_trace(app: &AppState, llm: LlmClient) -> LlmClient {
 }
 
 /// 两级模型配置解析（INT-002 / 验收 4）多角色裁量版：config.json 全局默认 ←
-/// 「主持实例」模板卡的 model_config 覆写。主持实例 = 首个 LLM 位实例（与
+/// 「主持实例」模板卡的模型覆写三标量（model_provider_id / model_name /
+/// model_temperature）。主持实例 = 首个 LLM 位实例（与
 /// generation::host_instance 同一归属语义）；实例无模板（动态造人）或无 LLM 位
 /// （畸形阵容，存储层已拒绝）→ 不覆写，跟随全局默认。
 fn resolve_llm(app: &AppState, session_id: i64) -> Result<LlmClient, IpcError> {

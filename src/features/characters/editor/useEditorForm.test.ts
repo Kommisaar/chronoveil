@@ -2,8 +2,8 @@
 // 自动保存）、canSave 名称必填、修改即保存（防抖窗口 / 还原取消在途拍 /
 // 串行链在途窗口纠正拍：还原+挂机 / 还原+关闭卸载 / 纠正拍未到即 flushSave /
 // 名称必填挂起 / flushSave 补存 / 失败不推进基线下拍重试 / 卸载补存）、
-// model_config 覆写解析（未知键往返、非法 JSON 回落、trim 归一经上送载荷
-// 断言）、live 派生（强调色/风格标签）、预览动画（遗留风格串回落 fade）。
+// 模型覆写三扁平字段（列值直读预填、空白 trim 归一 null 经上送载荷断言）、
+// live 派生（强调色/风格标签）、预览动画（遗留风格串回落 fade）。
 // 挂 hook 用 renderHook（不挂 Fluent UI，逻辑层无组件依赖）；文案断言走 zh
 // 资源；防抖时序用 fake timers 推进。
 import { act, cleanup, renderHook } from '@testing-library/react';
@@ -21,12 +21,15 @@ const EDIT_CHARACTER: CharacterSummary = {
   persona: '旧书店老板',
   gender: '男',
   age: '31',
+  titles: ['雨夜守夜人', '  '],
   renderStyle: 'ink',
-  modelConfig: '{"providerId":"p1","model":"m1","legacyKey":{"a":1}}',
+  modelProviderId: 'p1',
+  modelName: 'm1',
+  modelTemperature: null,
   accentColor: '#3322ff',
-    animDurationMs: null,
-    animRhythmMs: null,
-    animPunctPause: null,
+  animDurationMs: null,
+  animRhythmMs: null,
+  animPunctPause: null,
   updatedAt: 100,
   sessionCount: 3,
 };
@@ -70,7 +73,7 @@ afterEach(() => {
 });
 
 describe('useEditorForm 挂载与基线', () => {
-  it('全量字段预填 + 覆写解析（未知键进 rest）+ 覆写自动展开', () => {
+  it('全量字段预填：模型覆写三扁平字段直读列值', () => {
     const { result } = renderForm();
     expect(result.current.name).toBe('林深');
     expect(result.current.gender).toBe('男');
@@ -78,9 +81,10 @@ describe('useEditorForm 挂载与基线', () => {
     expect(result.current.persona).toBe('旧书店老板');
     expect(result.current.renderStyle).toBe('ink');
     expect(result.current.accentColor).toBe('#3322ff');
-    expect(result.current.override.providerId).toBe('p1');
-    expect(result.current.override.model).toBe('m1');
-    expect(result.current.override.rest).toEqual({ legacyKey: { a: 1 } });
+    expect(result.current.modelProviderId).toBe('p1');
+    expect(result.current.modelName).toBe('m1');
+    expect(result.current.modelTemperature).toBeNull();
+    expect(result.current.titles).toEqual(['雨夜守夜人', '  ']);
     expect(result.current.canSave).toBe(true);
     expect(result.current.live.nameText).toBe('林深');
   });
@@ -102,7 +106,7 @@ describe('useEditorForm 挂载与基线', () => {
 });
 
 describe('useEditorForm 修改即保存', () => {
-  it('改动经防抖上送整卡载荷：avatar 原样带回、覆写未知键往返保留、voiceConfig 恒 null', async () => {
+  it('改动经防抖上送整卡载荷：avatar 原样带回、模型覆写列值直传、称号原样直传', async () => {
     const { result, onAutosave } = renderForm();
     act(() => result.current.setPersona('夜航西飞'));
     await advance(599);
@@ -117,16 +121,13 @@ describe('useEditorForm 修改即保存', () => {
         gender: '男',
         age: '31',
         renderStyle: 'ink',
-        voiceConfig: null,
+        modelProviderId: 'p1',
+        modelName: 'm1',
+        modelTemperature: null,
+        // 载荷侧逐项 trim 过滤空项（表单态 '  ' 空白项不落库）
+        titles: ['雨夜守夜人'],
       }),
     );
-    // 覆写序列化按语义比较（rest 未知键在序列化后键序不保证与原串一致）
-    const payload = onAutosave.mock.calls[0]?.[0] as CharacterInput;
-    expect(JSON.parse(payload.modelConfig!)).toEqual({
-      providerId: 'p1',
-      model: 'm1',
-      legacyKey: { a: 1 },
-    });
   });
 
   it('连续改动只送最后一拍（防抖重置）', async () => {
@@ -277,98 +278,76 @@ describe('useEditorForm 修改即保存', () => {
   });
 });
 
-describe('useEditorForm model_config 解析边界', () => {
-  it('非对象 JSON（数组）与非法 JSON 均回落空覆写（保存即修复）', () => {
-    for (const raw of ['not json', '[1,2]', '"str"', '{}surplus']) {
-      const { result } = renderForm({ ...EDIT_CHARACTER, modelConfig: raw });
-      expect(result.current.override).toEqual({
-        providerId: '',
-        model: '',
-        baseUrl: '',
-        apiKey: '',
-        temperature: null,
-        rest: {},
-      });
-    }
-  });
-
-  it('已知键非字符串值：不进表单也不留在 rest（保存后被清除）', () => {
-    const { result } = renderForm({ ...EDIT_CHARACTER, modelConfig: '{"model":42}' });
-    expect(result.current.override.model).toBe('');
-    expect(result.current.override.rest).toEqual({});
+describe('useEditorForm 称号载荷归一（经 flushSave 载荷断言）', () => {
+  it('逐项 trim、过滤空项；清空归空数组（0016 恒落 "[]" 语义）', async () => {
+    const { result, onAutosave } = renderForm();
+    act(() => {
+      result.current.setTitles([' 布拉维坎的屠夫 ', '  ', '利维亚的战士']);
+    });
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ titles: ['布拉维坎的屠夫', '利维亚的战士'] }),
+    );
+    act(() => result.current.setTitles([]));
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ titles: [] }),
+    );
+    await advance(2000);
   });
 });
 
-describe('useEditorForm 序列化出口（经 flushSave 载荷断言）', () => {
-  it('setOverride 函数式更新：填值序列化 trim、清空回落 null', async () => {
+describe('useEditorForm 模型覆写序列化出口（经 flushSave 载荷断言）', () => {
+  it('覆写值带空白：上送载荷 trim；全空归一 null（跟随全局）', async () => {
     // 无覆写基线：序列化结果只含本次填值
-    const { result, onAutosave } = renderForm({ ...EDIT_CHARACTER, modelConfig: null });
-    act(() => {
-      result.current.setOverride((o) => ({ ...o, model: ' m2 ', apiKey: ' k ' }));
-    });
-    act(() => result.current.flushSave());
-    await flushMicrotasks();
-    expect(onAutosave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ modelConfig: '{"model":"m2","apiKey":"k"}' }),
-    );
-    act(() => {
-      result.current.setOverride((o) => ({ ...o, model: '', apiKey: '' }));
-    });
-    act(() => result.current.flushSave());
-    await flushMicrotasks();
-    expect(onAutosave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ modelConfig: null }),
-    );
-    await advance(2000);
-  });
-
-  it('rest 未知键单独存在时也序列化（编辑往返不清除遗留键）', () => {
-    const { result, onAutosave } = renderForm({ ...EDIT_CHARACTER, modelConfig: null });
-    act(() => {
-      result.current.setOverride((o) => ({ ...o, rest: { custom: 1 } }));
-    });
-    act(() => result.current.flushSave());
-    return flushMicrotasks().then(() => {
-      expect(onAutosave).toHaveBeenLastCalledWith(
-        expect.objectContaining({ modelConfig: '{"custom":1}' }),
-      );
-    });
-  });
-
-  it('温度覆写（2026-09-14）：自定义写入 temperature 键，回 null 序列化不写键；存量非数字温度被清除', async () => {
-    // 存量坏值（字符串温度）：parse 丢弃、序列化不往返（保存即修复）
     const { result, onAutosave } = renderForm({
       ...EDIT_CHARACTER,
-      modelConfig: '{"temperature":"hot"}',
+      modelProviderId: null,
+      modelName: null,
     });
-    expect(result.current.override.temperature).toBeNull();
     act(() => {
-      result.current.setOverride((o) => ({ ...o, temperature: 1.2 }));
+      result.current.setModelProviderId(' p1 ');
+      result.current.setModelName(' m2 ');
     });
     act(() => result.current.flushSave());
     await flushMicrotasks();
     expect(onAutosave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ modelConfig: '{"temperature":1.2}' }),
+      expect.objectContaining({ modelProviderId: 'p1', modelName: 'm2' }),
     );
-    // 回跟随全局：键从序列化产物消失，无其他覆写时整份回落 null
+    // 清空 → 归一 null（列语义 NULL = 跟随全局），不落空串
     act(() => {
-      result.current.setOverride((o) => ({ ...o, temperature: null }));
+      result.current.setModelProviderId('  ');
+      result.current.setModelName('');
     });
     act(() => result.current.flushSave());
     await flushMicrotasks();
     expect(onAutosave).toHaveBeenLastCalledWith(
-      expect.objectContaining({ modelConfig: null }),
+      expect.objectContaining({ modelProviderId: null, modelName: null }),
     );
     await advance(2000);
   });
 
-  it('覆写值带空白：解析原样保留（序列化 trim）', () => {
-    const { result } = renderForm({
+  it('温度覆写：自定义写数值，回 null 即跟随全局（列语义直传，无 JSON 键拼装）', async () => {
+    const { result, onAutosave } = renderForm({
       ...EDIT_CHARACTER,
-      modelConfig: '{"providerId":"  ","model":" m2 "}',
+      modelProviderId: null,
+      modelName: null,
     });
-    expect(result.current.override.providerId).toBe('  ');
-    expect(result.current.override.model).toBe(' m2 ');
+    act(() => result.current.setModelTemperature(1.2));
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ modelTemperature: 1.2 }),
+    );
+    act(() => result.current.setModelTemperature(null));
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ modelTemperature: null }),
+    );
+    await advance(2000);
   });
 });
 

@@ -9,8 +9,8 @@
  *   语义仅存于全局默认删除路径（解析层）。
  * - 温度行：「跟随|自定义」分段 + 滑杆（AnimParamRows 同法：跟随态滑杆禁用
  *   压暗，切自定义以当前展示值写卡；描述展示当前生效值）。
- * 旧数据里的 baseUrl/apiKey 覆写键不再提供输入框（连接信息归属服务级），但
- * parse/serialize 对未知/遗留键原样保留，编辑往返不丢失。
+ * 覆写值为三扁平字段（modelProviderId / modelName / modelTemperature，
+ * 列语义：空串 / null = 跟随全局）。
  */
 import { makeStyles, tokens } from '@fluentui/react-components';
 import { useTranslation } from 'react-i18next';
@@ -22,7 +22,6 @@ import {
 } from '../../../components/DropdownPushButton';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { TooltipSlider } from '../../../components/TooltipSlider';
-import type { ModelOverrideFields } from './useEditorForm';
 
 // 温度滑杆值域：与 infra/config.rs TEMPERATURE_MIN/MAX（0–2，默认 0.7）及
 // features/settings/preferences.ts 同一约束两端——features 之间禁止互相引用，
@@ -58,10 +57,14 @@ const useStyles = makeStyles({
 });
 
 export function OverrideSection(props: {
-  override: ModelOverrideFields;
-  onOverrideChange: (
-    update: (current: ModelOverrideFields) => ModelOverrideFields,
-  ) => void;
+  /** 模型覆写三扁平字段（空串/null = 跟随全局）。 */
+  modelProviderId: string;
+  modelName: string;
+  modelTemperature: number | null;
+  /** 模型行写入（级联选叶 / 切分段）：providerId 与模型名成对更新。 */
+  onModelOverrideChange: (providerId: string, modelName: string) => void;
+  /** 温度行写入；null = 跟随全局。 */
+  onTemperatureChange: (value: number | null) => void;
   providers: ProviderDto[];
   /** 全局采样温度（animDefaults 派生）：跟随态的展示值与切自定义的落点。 */
   globalTemperature: number;
@@ -72,24 +75,19 @@ export function OverrideSection(props: {
 }) {
   const localStyles = useStyles();
   const { t } = useTranslation();
-  const { override } = props;
-  const selectedProvider = props.providers.find((p) => p.id === override.providerId);
+  const { modelProviderId, modelName } = props;
+  const selectedProvider = props.providers.find((p) => p.id === modelProviderId);
   // 存量覆写里的模型名不在所选服务列表（服务改配/换服务）→ 追加为额外叶子，
   // 避免菜单命中失败而显示成"跟随全局"却实际覆写着旧值。
   const staleModel =
     selectedProvider !== undefined &&
-    override.model !== '' &&
-    !selectedProvider.models.some((m) => m.id === override.model)
-      ? override.model
+    modelName !== '' &&
+    !selectedProvider.models.some((m) => m.id === modelName)
+      ? modelName
       : null;
   // 模型行模式：有覆写即自定义（切自定义瞬间以全局默认写卡，内容即非空，
   // 分段不会弹回）。
-  const hasModelOverride =
-    override.providerId !== '' ||
-    override.model !== '' ||
-    override.baseUrl !== '' ||
-    override.apiKey !== '' ||
-    Object.keys(override.rest).length > 0;
+  const hasModelOverride = modelProviderId !== '' || modelName !== '';
   const modelMode = hasModelOverride ? 'custom' : 'follow';
   // 级联菜单：一级 = 服务（不可选），二级 = 该服务的模型叶子（存量遗留模型
   // 追加为额外叶子，见 staleModel）。跟随/自定义由行内分段托管，菜单里不放
@@ -100,7 +98,7 @@ export function OverrideSection(props: {
     value: p.id,
     label: p.name,
     children: [
-      ...(p.id === override.providerId && staleModel !== null
+      ...(p.id === modelProviderId && staleModel !== null
         ? [{ value: `${p.id}${COMPOSITE_SEP}${staleModel}`, label: staleModel }]
         : []),
       ...p.models.map((m) => ({
@@ -109,19 +107,20 @@ export function OverrideSection(props: {
       })),
     ],
   }));
-  // 触发钮值：自定义显 override 复合键；跟随显全局默认（按钮禁用只作展示，
+  // 触发钮值：自定义显覆写复合键；跟随显全局默认（按钮禁用只作展示，
   // AnimParamRows 的「禁用滑杆显全局值」同法）。全局未配置 → 空串命中跟随叶子。
   const overrideComposite =
-    override.providerId === '' ? '' : `${override.providerId}${COMPOSITE_SEP}${override.model}`;
+    modelProviderId === '' ? '' : `${modelProviderId}${COMPOSITE_SEP}${modelName}`;
   const globalComposite = `${props.globalProviderId}${COMPOSITE_SEP}${props.globalModelId}`;
   const onModelSelect = (composite: string): void => {
     // 叶子恒为「providerId::modelId」形（跟随语义走分段，不经菜单）。
-    props.onOverrideChange((o) => {
-      const sep = composite.indexOf(COMPOSITE_SEP);
-      return { ...o, providerId: composite.slice(0, sep), model: composite.slice(sep + COMPOSITE_SEP.length) };
-    });
+    const sep = composite.indexOf(COMPOSITE_SEP);
+    props.onModelOverrideChange(
+      composite.slice(0, sep),
+      composite.slice(sep + COMPOSITE_SEP.length),
+    );
   };
-  const temperature = override.temperature;
+  const temperature = props.modelTemperature;
   return (
     <>
       {/* 行 1：模型设置——级联菜单按钮 + 跟随|自定义分段（AnimParamRows 版式：
@@ -151,14 +150,10 @@ export function OverrideSection(props: {
                 if (v === 'custom') {
                   // 切自定义：以当前展示值（全局默认）写卡——内容即非空，分段
                   // 稳定停在自定义；全局未配置时写空（仍跟随，按钮不启用）。
-                  props.onOverrideChange((o) => ({
-                    ...o,
-                    providerId: props.globalProviderId,
-                    model: props.globalModelId,
-                  }));
+                  props.onModelOverrideChange(props.globalProviderId, props.globalModelId);
                 } else {
-                  // 切跟随：清模型覆写（温度与其余键不动）。
-                  props.onOverrideChange((o) => ({ ...o, providerId: '', model: '' }));
+                  // 切跟随：清模型覆写（温度不动）。
+                  props.onModelOverrideChange('', '');
                 }
               }}
               options={[
@@ -189,7 +184,7 @@ export function OverrideSection(props: {
               max={TEMPERATURE_MAX}
               step={TEMPERATURE_STEP}
               value={temperature ?? props.globalTemperature}
-              onChange={(value) => props.onOverrideChange((o) => ({ ...o, temperature: value }))}
+              onChange={(value) => props.onTemperatureChange(value)}
               ariaLabel={t('characters.temperature')}
               formatValue={(value) => value.toFixed(1)}
               disabled={temperature === null}
@@ -199,10 +194,7 @@ export function OverrideSection(props: {
               ariaLabel={t('characters.temperature')}
               value={temperature === null ? 'follow' : 'custom'}
               onChange={(v) =>
-                props.onOverrideChange((o) => ({
-                  ...o,
-                  temperature: v === 'custom' ? (o.temperature ?? props.globalTemperature) : null,
-                }))
+                props.onTemperatureChange(v === 'custom' ? (temperature ?? props.globalTemperature) : null)
               }
               options={[
                 { value: 'follow', label: t('characters.animModeFollow') },

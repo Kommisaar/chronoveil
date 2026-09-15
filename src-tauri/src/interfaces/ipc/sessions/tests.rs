@@ -123,12 +123,14 @@ fn session_summary_echoes_roster_instances() {
             gender: llm_card.gender.clone(),
             age: llm_card.age.clone(),
             render_style: Some("ink".into()),
-            model_config: llm_card.model_config.clone(),
+            model_provider_id: llm_card.model_provider_id.clone(),
+            model_name: llm_card.model_name.clone(),
+            model_temperature: llm_card.model_temperature,
             accent_color: llm_card.accent_color.clone(),
             anim_duration_ms: llm_card.anim_duration_ms,
             anim_rhythm_ms: llm_card.anim_rhythm_ms,
             anim_punct_pause: llm_card.anim_punct_pause,
-            voice_config: None,
+            titles: llm_card.titles.clone(),
         },
     ).unwrap();
     let after = list_sessions_impl(&app).unwrap();

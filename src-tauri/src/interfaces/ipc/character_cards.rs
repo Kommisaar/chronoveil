@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn export_character_data_yields_default_name_and_card_json() {
         let (app, dir) = temp_state("export");
-        let created = create_character_impl(
+            let created = create_character_impl(
             &app,
             CharacterInput {
                 name: "苏鸢".into(),
@@ -103,12 +103,14 @@ mod tests {
                 gender: Some("女".into()),
                 age: None,
                 render_style: Some("typewriter".into()),
-                model_config: None,
+                model_provider_id: None,
+                model_name: None,
+                model_temperature: None,
                 accent_color: None,
                 anim_duration_ms: None,
                 anim_rhythm_ms: None,
                 anim_punct_pause: None,
-                voice_config: None,
+                titles: vec!["雨夜守夜人".into()],
             },
         )
         .unwrap();
@@ -119,6 +121,7 @@ mod tests {
         assert_eq!(value["format"], "chronoveil-character");
         assert_eq!(value["version"], 1);
         assert_eq!(value["character"]["name"], "苏鸢");
+        assert_eq!(value["character"]["titles"], serde_json::json!(["雨夜守夜人"]), "称号随卡导出");
 
         // 目标不存在 / 已软删 → NotFound。
         assert!(matches!(
@@ -138,7 +141,8 @@ mod tests {
           "character": {
             "name": "苏鸢", "avatar": null, "persona": "雨夜电话亭的守夜人",
             "gender": "女", "age": "24", "renderStyle": "typewriter",
-            "modelConfig": null, "accentColor": null, "voiceConfig": null
+            "modelProviderId": null, "modelName": null, "modelTemperature": null,
+            "accentColor": null
           }
         }"#;
         let imported = import_character_data(&app, text).unwrap();
@@ -146,6 +150,9 @@ mod tests {
         assert_eq!(imported.persona, "雨夜电话亭的守夜人");
         assert_eq!(imported.render_style.as_deref(), Some("typewriter"));
         assert_eq!(imported.session_count, 0);
+
+        // 旧卡缺 titles 字段 = 空数组（serde default，向前兼容证据）
+        assert!(imported.titles.is_empty());
 
         // 走 create 既有路径：新 id、允许重名（不与既有卡合并）。
         let again = import_character_data(&app, text).unwrap();
@@ -182,30 +189,36 @@ mod tests {
                 gender: None,
                 age: Some("31".into()),
                 render_style: Some("ink".into()),
-                model_config: Some(r#"{"providerId":"p1","model":"m1"}"#.into()),
+                model_provider_id: Some("p1".into()),
+                model_name: Some("m1".into()),
+                model_temperature: Some(0.8),
                 accent_color: Some("#123456".into()),
                 anim_duration_ms: Some(600),
                 anim_rhythm_ms: Some(80),
                 anim_punct_pause: Some(false),
-                voice_config: None,
+                titles: vec!["布拉维坎的屠夫".into(), "利维亚的战士".into()],
             },
         )
         .unwrap();
 
         let (_, json) = export_character_data(&app, created.id).unwrap();
         let imported = import_character_data(&app, &json).unwrap();
-        // 卡内十二字段逐一保真；id / updated_at / session_count 属新卡事实，不保真。
+        // 卡内字段逐一保真；id / updated_at / session_count 属新卡事实，不保真。
         assert_eq!(imported.name, "林深");
         assert_eq!(imported.avatar.as_deref(), Some("data:image/png;base64,AAA"));
         assert_eq!(imported.persona, "旧书店老板");
         assert_eq!(imported.age.as_deref(), Some("31"));
         assert_eq!(imported.render_style.as_deref(), Some("ink"));
-        assert_eq!(imported.model_config.as_deref(), Some(r#"{"providerId":"p1","model":"m1"}"#));
+        assert_eq!(imported.model_provider_id.as_deref(), Some("p1"));
+        assert_eq!(imported.model_name.as_deref(), Some("m1"));
+        assert_eq!(imported.model_temperature, Some(0.8));
         assert_eq!(imported.accent_color.as_deref(), Some("#123456"));
         // 演出参数（0013）随卡保真
         assert_eq!(imported.anim_duration_ms, Some(600));
         assert_eq!(imported.anim_rhythm_ms, Some(80));
         assert_eq!(imported.anim_punct_pause, Some(false));
+        // 称号（0016）随卡保真
+        assert_eq!(imported.titles, ["布拉维坎的屠夫", "利维亚的战士"]);
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
     }

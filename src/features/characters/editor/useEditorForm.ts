@@ -1,7 +1,7 @@
 /**
  * 角色编辑器表单逻辑（2026-09-09 编辑器重做时自旧对话框抽出）：状态、修改即
- * 保存（自动保存）、model_config 覆写序列化、预览动画引擎接线与强调色派生，
- * 供排版壳（CharacterEditorDialog，左海报 + 右面板）单点复用。
+ * 保存（自动保存）、预览动画引擎接线与强调色派生，供排版壳（CharacterEditorDialog，
+ * 左海报 + 右面板）单点复用。
  *
  * - 只服务编辑既有卡（新建由父级「先建卡再进编辑器」）：父组件以 key 重挂
  *   换绑初值；character 是打开时的快照，保存后父级 refresh 不回灌表单
@@ -13,10 +13,9 @@
  *   由排版壳调 flushSave 补存最后一拍；「过期载荷不得落库」覆盖两个窗口：
  *   防抖窗口由还原取消防抖拍保证，串行链在途窗口由落库后的纠正拍补齐
  *   （scheduleCorrectiveBeat——在途期间改回原值/改新的差异不会停在旧拍）；
- * - avatar 不做编辑 UI：编辑原样带回（TASK-008 验收 2）；voiceConfig 恒
- *   null（CON-003 TTS 留缝不留壳）；
- * - model_config 覆写序列化为 camelCase 键 JSON（Rust resolve_effective_llm 消费），
- *   全空序列化为 null，未知键原样往返保留；
+ * - avatar 不做编辑 UI：编辑原样带回（TASK-008 验收 2）；
+ * - 模型覆写为三扁平字段（modelProviderId / modelName / modelTemperature）：
+ *   空串 / null = 跟随全局，上送前空串归一为 null（列语义 NULL = 跟随）；
  * - 历法不属角色卡（2026-09-13 产品裁剪）：会话历法在开局向导按会话配置，
  *   编辑器表单不含历法字段；
  * - 「预览动画」经引擎公开 API 播一次所选风格（createRenderer +
@@ -71,70 +70,6 @@ const TEMPLATE_DEFAULTS: AnimDefaults = {
   defaultModelId: '',
 };
 
-/** model_config JSON 的表单形态（空串 = 该字段跟随全局）。 */
-export interface ModelOverrideFields {
-  providerId: string;
-  model: string;
-  baseUrl: string;
-  apiKey: string;
-  /** 采样温度覆写（2026-09-14）：null = 跟随全局（序列化不写键）。 */
-  temperature: number | null;
-  /** 未知键原样保留（Rust 忽略未知键，编辑往返不清除）。 */
-  rest: Record<string, unknown>;
-}
-
-const OVERRIDE_KEYS = ['providerId', 'model', 'baseUrl', 'apiKey'] as const;
-
-function parseModelOverride(raw: string | null): ModelOverrideFields {
-  const empty: ModelOverrideFields = {
-    providerId: '',
-    model: '',
-    baseUrl: '',
-    apiKey: '',
-    temperature: null,
-    rest: {},
-  };
-  if (!raw) return empty;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return empty;
-    }
-    const obj = { ...(parsed as Record<string, unknown>) };
-    const fields = { ...empty, rest: obj };
-    for (const key of OVERRIDE_KEYS) {
-      const value = obj[key];
-      delete fields.rest[key];
-      if (typeof value === 'string') fields[key] = value;
-    }
-    // temperature 是唯一的数值覆写键：有限数字才取，其余形态删除出 rest 丢弃
-    // （保存即修复，与非字符串的字符串键同法）。
-    const rawTemperature = obj['temperature'];
-    delete fields.rest['temperature'];
-    if (typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)) {
-      fields.temperature = rawTemperature;
-    }
-    return fields;
-  } catch {
-    // 非法 JSON（Rust 生成时会快速失败）：编辑侧按空覆写展示，保存即修复。
-    return empty;
-  }
-}
-
-function serializeModelOverride(fields: ModelOverrideFields): string | null {
-  const obj: Record<string, unknown> = { ...fields.rest };
-  const providerId = fields.providerId.trim();
-  const model = fields.model.trim();
-  const baseUrl = fields.baseUrl.trim();
-  const apiKey = fields.apiKey.trim();
-  if (providerId) obj.providerId = providerId;
-  if (model) obj.model = model;
-  if (baseUrl) obj.baseUrl = baseUrl;
-  if (apiKey) obj.apiKey = apiKey;
-  if (fields.temperature !== null) obj.temperature = fields.temperature;
-  return Object.keys(obj).length > 0 ? JSON.stringify(obj) : null;
-}
-
 export interface EditorForm {
   name: string;
   setName: (value: string) => void;
@@ -142,6 +77,9 @@ export interface EditorForm {
   setGender: (value: string) => void;
   age: string;
   setAge: (value: string) => void;
+  /** 称号集合（0016）：可多个，空项在载荷处过滤。 */
+  titles: string[];
+  setTitles: (value: string[]) => void;
   persona: string;
   setPersona: (value: string) => void;
   renderStyle: string | null;
@@ -155,10 +93,14 @@ export interface EditorForm {
   setAnimPunctPause: (value: boolean | null) => void;
   accentColor: string | null;
   setAccentColor: (value: string | null) => void;
-  override: ModelOverrideFields;
-  setOverride: (
-    update: (current: ModelOverrideFields) => ModelOverrideFields,
-  ) => void;
+  /** 模型覆写三扁平字段（2026-09-15）：空串 = 跟随全局（providerId / 模型名），
+   *  null = 跟随全局（温度）。 */
+  modelProviderId: string;
+  setModelProviderId: (value: string) => void;
+  modelName: string;
+  setModelName: (value: string) => void;
+  modelTemperature: number | null;
+  setModelTemperature: (value: number | null) => void;
   /** 名称必填门槛：为空时自动保存挂起（IdentityField 出必填提示）。 */
   canSave: boolean;
   /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送。 */
@@ -191,11 +133,11 @@ export function useEditorForm(props: {
 
   // 目标角色由父组件 key 重挂保证不变，初值只取一次。
   const initial = useMemo(() => {
-    const override = parseModelOverride(character?.modelConfig ?? null);
     return {
       name: character?.name ?? '',
       gender: character?.gender ?? '',
       age: character?.age ?? '',
+      titles: character?.titles ?? [],
       persona: character?.persona ?? '',
       // 新建默认与 Rust NewCharacter::default 一致：null = 跟随全局（0014）。
       renderStyle: character?.renderStyle ?? null,
@@ -205,20 +147,26 @@ export function useEditorForm(props: {
       animDurationMs: character?.animDurationMs ?? null,
       animRhythmMs: character?.animRhythmMs ?? null,
       animPunctPause: character?.animPunctPause ?? null,
-      override,
+      // 模型覆写三扁平字段（迁移 0015）：空串/null = 跟随全局。
+      modelProviderId: character?.modelProviderId ?? '',
+      modelName: character?.modelName ?? '',
+      modelTemperature: character?.modelTemperature ?? null,
     };
   }, [character]);
 
   const [name, setName] = useState(initial.name);
   const [gender, setGender] = useState(initial.gender);
   const [age, setAge] = useState(initial.age);
+  const [titles, setTitles] = useState(initial.titles);
   const [persona, setPersona] = useState(initial.persona);
   const [renderStyle, setRenderStyle] = useState(initial.renderStyle);
   const [animDurationMs, setAnimDurationMs] = useState<number | null>(initial.animDurationMs);
   const [animRhythmMs, setAnimRhythmMs] = useState<number | null>(initial.animRhythmMs);
   const [animPunctPause, setAnimPunctPause] = useState<boolean | null>(initial.animPunctPause);
   const [accentColor, setAccentColor] = useState<string | null>(initial.accentColor);
-  const [override, setOverrideState] = useState<ModelOverrideFields>(initial.override);
+  const [modelProviderId, setModelProviderId] = useState(initial.modelProviderId);
+  const [modelName, setModelName] = useState(initial.modelName);
+  const [modelTemperature, setModelTemperature] = useState<number | null>(initial.modelTemperature);
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
@@ -233,14 +181,17 @@ export function useEditorForm(props: {
     // 空串归一为 null（列语义：NULL = 未设置）。
     gender: gender.trim() || null,
     age: age.trim() || null,
+    // 称号逐项 trim 过滤空项（UI 允许临时空行，落库不留垃圾项）。
+    titles: titles.map((v) => v.trim()).filter((v) => v !== ''),
     renderStyle,
     accentColor,
     animDurationMs,
     animRhythmMs,
     animPunctPause,
-    modelConfig: serializeModelOverride(override),
-    // TTS 预留缝恒 null（CON-003）。
-    voiceConfig: null,
+    // 模型覆写（0015 扁平化）：空串归一为 null（列语义：NULL = 跟随全局）。
+    modelProviderId: modelProviderId.trim() || null,
+    modelName: modelName.trim() || null,
+    modelTemperature,
   });
 
   // ---- 修改即保存（自动保存）----
@@ -417,6 +368,8 @@ export function useEditorForm(props: {
     setGender,
     age,
     setAge,
+    titles,
+    setTitles,
   persona,
   setPersona,
   renderStyle,
@@ -429,8 +382,12 @@ export function useEditorForm(props: {
   setAnimPunctPause,
     accentColor,
     setAccentColor,
-    override,
-    setOverride: (update) => setOverrideState(update),
+    modelProviderId,
+    setModelProviderId,
+    modelName,
+    setModelName,
+    modelTemperature,
+    setModelTemperature,
     canSave,
     flushSave,
     previewRef: (node) => {

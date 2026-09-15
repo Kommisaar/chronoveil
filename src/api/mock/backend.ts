@@ -389,8 +389,11 @@ export async function createCharacter(
     persona: input.persona,
     gender: input.gender,
     age: input.age,
+    titles: input.titles,
     renderStyle: input.renderStyle,
-    modelConfig: input.modelConfig,
+    modelProviderId: input.modelProviderId,
+    modelName: input.modelName,
+    modelTemperature: input.modelTemperature,
     accentColor: input.accentColor,
     animDurationMs: input.animDurationMs,
     animRhythmMs: input.animRhythmMs,
@@ -418,8 +421,11 @@ export async function updateCharacter(
   character.persona = input.persona;
   character.gender = input.gender;
   character.age = input.age;
+  character.titles = input.titles;
   character.renderStyle = input.renderStyle;
-  character.modelConfig = input.modelConfig;
+  character.modelProviderId = input.modelProviderId;
+  character.modelName = input.modelName;
+  character.modelTemperature = input.modelTemperature;
   character.accentColor = input.accentColor;
   character.animDurationMs = input.animDurationMs;
   character.animRhythmMs = input.animRhythmMs;
@@ -444,13 +450,15 @@ const SAMPLE_IMPORT: CharacterInput = {
   persona: '提灯走巷的织灯匠，替人修补熄灭的旧灯，也顺路收集灯下没人认领的故事。',
   gender: '女',
   age: '不详',
+  titles: [],
   renderStyle: 'rise',
-  modelConfig: null,
+  modelProviderId: null,
+  modelName: null,
+  modelTemperature: null,
   accentColor: null,
   animDurationMs: null,
   animRhythmMs: null,
   animPunctPause: null,
-  voiceConfig: null,
 };
 
 /** 导出 mock：不弹对话框，返回模拟路径串供界面演示（数据不变）。 */

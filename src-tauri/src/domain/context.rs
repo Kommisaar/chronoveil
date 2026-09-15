@@ -330,7 +330,7 @@ mod tests {
     /// 保底：最新一条自身超预算时仍保留（不产生空上下文）。
     #[test]
     fn near_view_keeps_newest_message_even_if_it_alone_exceeds_budget() {
-        let ongoing = vec![msg(0, "旧的长消息"), msg(1, &"巨".repeat(3_000))];
+        let ongoing = [msg(0, "旧的长消息"), msg(1, &"巨".repeat(3_000))];
         let spans = SceneSpans {
             closed: vec![],
             ongoing: &ongoing[..],

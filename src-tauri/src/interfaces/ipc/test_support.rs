@@ -42,11 +42,13 @@ pub(super) fn upd_input(name: &str, base: &CharacterInput) -> CharacterInput {
         gender: base.gender.clone(),
         age: base.age.clone(),
         render_style: base.render_style.clone(),
-        model_config: base.model_config.clone(),
+        model_provider_id: base.model_provider_id.clone(),
+        model_name: base.model_name.clone(),
+        model_temperature: base.model_temperature,
         accent_color: base.accent_color.clone(),
         anim_duration_ms: base.anim_duration_ms,
         anim_rhythm_ms: base.anim_rhythm_ms,
         anim_punct_pause: base.anim_punct_pause,
-        voice_config: base.voice_config.clone(),
+        titles: base.titles.clone(),
     }
 }

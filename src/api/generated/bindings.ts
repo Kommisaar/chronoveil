@@ -256,7 +256,13 @@ gender: string | null; age: string | null;
 /**
  * 出场动画风格；None = 跟随全局设置（2026-09-14，config.json render_style）。
  */
-renderStyle: string | null; modelConfig: string | null; 
+renderStyle: string | null; 
+/**
+ * 模型覆写三标量（2026-09-15 自 JSON 串列扁平化）：provider id / 模型名 /
+ * 采样温度，None = 跟随全局设置；temperature 范围越界经
+ * [`CharacterInput::validate`] 快速失败。
+ */
+modelProviderId: string | null; modelName: string | null; modelTemperature: number | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
  */
@@ -267,9 +273,10 @@ accentColor: string | null;
  */
 animDurationMs: number | null; animRhythmMs: number | null; animPunctPause: boolean | null; 
 /**
- * TTS 预留缝（CON-003），前端恒传 null。
+ * 称号集合（2026-09-15）：自由文本，可多个；空项过滤属前端表单职责，
+ * 与 gender/age 同为零校验展示元数据。
  */
-voiceConfig: string | null }
+titles: string[] }
 /**
  * 人物状态（FR-012）：会话内「这个角色实例」的状态 / 关系条目，
  * `list_character_states` 按 id 升序返回全部在世行。不含 `session_id` /
@@ -306,7 +313,7 @@ export type CharacterStateScope = "state" | "relation"
 /**
  * 角色卡摘要（角色页卡片；session_count 为关系侧汇总）。
  * 
- * TASK-008 起 `persona` / `model_config` 随列表返回：编辑表单点选即载入全量
+ * TASK-008 起 `persona` / 模型覆写三标量随列表返回：编辑表单点选即载入全量
  * 字段（UI-002），避免为预填再发一次单条查询。
  */
 export type CharacterSummary = { id: number; name: string; 
@@ -331,10 +338,10 @@ age: string | null;
  */
 renderStyle: string | null; 
 /**
- * 每角色模型覆写 JSON（camelCase 键，`resolve_effective_llm` 消费）；
- * None = 跟随全局默认。
+ * 模型覆写三标量（2026-09-15 自 JSON 串列扁平化；`resolve_effective_llm`
+ * 消费）；None = 跟随全局默认。
  */
-modelConfig: string | null; 
+modelProviderId: string | null; modelName: string | null; modelTemperature: number | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
  */
@@ -343,7 +350,11 @@ accentColor: string | null;
  * 演出参数覆写（2026-09-13）：None = 跟随全局设置；聊天流按卡现值实时
  * 读取（不随建会话快照，区别于 name / persona / render_style 的 D1）。
  */
-animDurationMs: number | null; animRhythmMs: number | null; animPunctPause: boolean | null; updatedAt: number; 
+animDurationMs: number | null; animRhythmMs: number | null; animPunctPause: boolean | null; 
+/**
+ * 称号集合（2026-09-15，展示元数据）。
+ */
+titles: string[]; updatedAt: number; 
 /**
  * 该角色开启的会话数（在世会话）。
  */

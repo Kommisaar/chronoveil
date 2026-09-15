@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::infra::config::{TEMPERATURE_MAX, TEMPERATURE_MIN};
 use crate::services::character_card_file;
 
 /// 动效时长可覆写范围（ms）。与 TS 引擎常量互指（同一约束两端）：
@@ -32,7 +33,12 @@ pub struct CharacterInput {
     pub age: Option<String>,
     /// 出场动画风格；None = 跟随全局设置（2026-09-14，config.json render_style）。
     pub render_style: Option<String>,
-    pub model_config: Option<String>,
+    /// 模型覆写三标量（2026-09-15 自 JSON 串列扁平化）：provider id / 模型名 /
+    /// 采样温度，None = 跟随全局设置；temperature 范围越界经
+    /// [`CharacterInput::validate`] 快速失败。
+    pub model_provider_id: Option<String>,
+    pub model_name: Option<String>,
+    pub model_temperature: Option<f64>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13）：None = 跟随全局设置；范围越界经
@@ -40,12 +46,9 @@ pub struct CharacterInput {
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
     pub anim_punct_pause: Option<bool>,
-    /// TTS 预留缝（CON-003），前端恒传 null。
-    // 一次性系统槽位：仅 create / import（卡文件导入复用 create 路径）写入；
-    // update 路径忽略此字段、保留库中原值（见 characters::update_character_impl），
-    // 传任意值均无效。此口径用普通注释承载——`///` 文档会被 tauri-specta 原样
-    // 发射进 src/api/generated/bindings.ts，扩写会造成生成物非零 diff。
-    pub voice_config: Option<String>,
+    /// 称号集合（2026-09-15）：自由文本，可多个；空项过滤属前端表单职责，
+    /// 与 gender/age 同为零校验展示元数据。
+    pub titles: Vec<String>,
 }
 
 impl CharacterInput {
@@ -57,6 +60,13 @@ impl CharacterInput {
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {
             return Err("名称不能为空白".to_string());
+        }
+        if let Some(t) = self.model_temperature {
+            if !(TEMPERATURE_MIN..=TEMPERATURE_MAX).contains(&t) {
+                return Err(format!(
+                    "采样温度 {t} 越界（允许 {TEMPERATURE_MIN}–{TEMPERATURE_MAX}）"
+                ));
+            }
         }
         if let Some(ms) = self.anim_duration_ms {
             if !(ANIM_DURATION_MIN_MS..=ANIM_DURATION_MAX_MS).contains(&ms) {
@@ -77,7 +87,7 @@ impl CharacterInput {
 }
 
 impl From<character_card_file::CharacterCardPayload> for CharacterInput {
-    /// 卡文件负载（Task-04 导入）→ create 负载：同形十二字段直移，不复用旧 id。
+    /// 卡文件负载（Task-04 导入）→ create 负载：同形字段直移，不复用旧 id。
     fn from(p: character_card_file::CharacterCardPayload) -> Self {
         Self {
             name: p.name,
@@ -86,12 +96,14 @@ impl From<character_card_file::CharacterCardPayload> for CharacterInput {
             gender: p.gender,
             age: p.age,
             render_style: p.render_style,
-            model_config: p.model_config,
+            model_provider_id: p.model_provider_id,
+            model_name: p.model_name,
+            model_temperature: p.model_temperature,
             accent_color: p.accent_color,
             anim_duration_ms: p.anim_duration_ms,
             anim_rhythm_ms: p.anim_rhythm_ms,
             anim_punct_pause: p.anim_punct_pause,
-            voice_config: p.voice_config,
+            titles: p.titles,
         }
     }
 }

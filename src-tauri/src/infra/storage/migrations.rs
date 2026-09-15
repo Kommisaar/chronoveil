@@ -50,6 +50,13 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // 可空（NULL = 跟随全局 config.json render_style），整表重建去 NOT NULL；
     // 实例快照在建会话时解析为具体值，instances.render_style 保持 NOT NULL
     (14, include_str!("../../../migrations/0014_character_render_style_follow.sql")),
+    // 模型覆写扁平化（2026-09-15 数据模型统一）：model_config JSON 串列拆为
+    // model_provider_id / model_name / model_temperature 三列（NULL = 跟随全局，
+    // 与 0013 演出参数同族），顺带删除恒 NULL 死列 voice_config
+    (15, include_str!("../../../migrations/0015_flatten_model_override.sql")),
+    // 角色称号集合（2026-09-15）：titles 单列 JSON 字符串数组（真集合形态，
+    // 与 scenes.present 同族；写侧恒落 "[]"，读侧 NULL 视作空数组）
+    (16, include_str!("../../../migrations/0016_character_titles.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

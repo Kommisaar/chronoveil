@@ -65,6 +65,16 @@ describe('IdentityField 常驻编辑（2026-09-15 重设计）', () => {
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
   });
 
+  it('名称全宽身份块置顶（2026-09-15 晚间重设计）：先于性别行渲染，label 仍为「名称」', () => {
+    renderUi(<FormHarness />);
+    const name = screen.getByLabelText('名称');
+    // 卡内首个输入是名称（身份首键置顶），性别次级行跟随其后；宽度无法在
+    // jsdom 断言（无布局引擎），置顶以文档顺序为准
+    expect(
+      screen.getByLabelText('性别').compareDocumentPosition(name) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+
   it('改名称即上报（无提交动作，改动直传父级表单）', () => {
     renderUi(<FormHarness />);
     const name = screen.getByLabelText('名称');

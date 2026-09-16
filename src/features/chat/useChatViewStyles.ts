@@ -120,7 +120,7 @@ const useChatViewBaseStyles = makeStyles({
   },
   // 输入卡（2026-09-08 用户参照图样式）：大圆角卡片，文本域无边框融入
   // 卡片，底部动作行只留发送按钮。16px 是「页面级卡面」档（与角色编辑器
-  // 面板、海报卡同层），单一事实源见 src/components/surfaceSpec.ts 的两档
+  // 面板、列表卡面同层），单一事实源见 src/components/surfaceSpec.ts 的两档
   // 规范——分组卡（SettingsCard）走 token 阶梯，不属本档
   composerCard: {
     display: 'flex',

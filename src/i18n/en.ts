@@ -141,9 +141,10 @@ export const en = {
       forkFailed: 'Fork failed',
     },
   },
-  // Card-direction switch (three-way comparison scaffolding): one shared
-  // preference for the Characters and Worlds toolbars (store: useUiStore.
-  // cardDirection); removed together with the switchers once a direction wins.
+  // Card-direction switch (comparison scaffolding): the Worlds toolbar
+  // preference (store: useUiStore.cardDirection); removed together with the
+  // switcher once a direction wins. The Characters page settled on a single
+  // collectible card on 2026-09-16 and no longer has a switcher.
   cardStyle: {
     label: 'Card style',
     gallery: 'Gallery',
@@ -202,6 +203,8 @@ export const en = {
     import: 'Import character card',
     export: 'Export character card',
     cardMenu: 'Card menu',
+    // Collectible card footer CTA pill (same destination as the card click)
+    editCard: 'Edit',
     editTitle: 'Edit character',
     name: 'Name',
     gender: 'Gender',

@@ -4,11 +4,10 @@
 // 破坏性操作放最后（ADR-010 双模式允许 UI 层直接对 mock 断言）。
 // 角色列表异步加载：交互前一律先 findByText 等卡片上屏。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { sessions } from '../../api/mock/data';
 import '../../i18n';
-import { useUiStore } from '../../stores/ui';
 import { CharactersView } from './CharactersView';
 
 // 本文件渲染重（卡片网格 + 18 项下拉全量渲染），全量并行负载下 jsdom 单用例
@@ -50,106 +49,35 @@ it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
   expect(
     suy.compareDocumentPosition(lin) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  // 卡面信息层级（Task-02，林深种子带 titles + markdown persona）：身份信息
-  // 上卡——称号行整串（「」包裹、「·」连接）与人设摘录行（excerptOf 已剥
-  // ** 加粗标记，48 字档无省略号）；配置元信息退居其下
-  expect(screen.getByText('「守夜人 · 旧书店主」')).toBeTruthy();
+  // 卡面信息层级（2026-09-16 典藏卡定稿，林深种子带 titles + markdown
+  // persona）：身份信息上卡——称号（多称号轮换单显，初始第一个）与人设摘录
+  // 行（excerptOf 已剥 ** 加粗标记，48 字档无省略号）；配置元信息退居其下
+  expect(screen.getByText('「守夜人」')).toBeTruthy();
   expect(screen.getByText('旧书店老板，雨天总在擦一盏灯。')).toBeTruthy();
 });
 
-// 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
-// 原生 button，天然可键盘操作），点「名册」落全局档位。
-it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 useUiStore.cardDirection', async () => {
+// 卡面单一形态（2026-09-16 典藏卡定稿，对比期四档随拍板裁撤归一）：角色页
+// 只有一种卡——名字/称号/人设摘录常显 + 元信息行与「编辑」pill，点 pill 进
+// 编辑。只读用例，排破坏性用例之前。
+it('典藏卡：常显身份与元信息，底部「编辑」pill 进编辑恰好一次', async () => {
   renderView();
-  await screen.findByText('苏鸢');
-
-  const group = screen.getByRole('radiogroup', { name: '卡面风格' });
-  const segments = [...group.querySelectorAll('[role="radio"]')];
-  expect(segments).toHaveLength(3);
-
-  try {
-    fireEvent.click(segments.find((r) => r.textContent === '名册')!);
-    expect(useUiStore.getState().cardDirection).toBe('ledger');
-  } finally {
-    // 还原共享 store 必须在 finally（Task-01 reviewer 转入）：shared 组
-    // isolate:false，模块级 store 跨用例/跨文件驻留——断言失败时 'ledger'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
-});
-
-// 名册档（Task-04）：切 ledger 后单列名册行上屏——名字/称号/人设摘录同行
-// 承载，点行进编辑；gallery 档由本文件其余用例默认覆盖（store 初值 gallery，
-// 不受本用例影响——还原在 finally）。
-it('名册档：单列名册行承载名字/称号/人设摘录与元信息，点行进编辑', async () => {
-  useUiStore.setState({ cardDirection: 'ledger' });
-  try {
-    renderView();
-    // 林深种子带 titles + markdown persona（断言素材同 gallery 首用例）。以
-    // 林深行 button 为界做行内断言（不全局 getByText——「N 个会话」在多张
-    // 种子卡上同文案）：称号整串 + 人设摘录（excerptOf 剥 ** 加粗标记，
-    // 64 字档全文无省略号）+ 元信息同行承载。会话数是 0 而非种子静态值 1：
-    // mock listCharacters 实时统计 is_user 扮演位会话数（backend.ts），林深
-    // 从未作扮演位（苏鸢才是），静态 sessionCount 被覆写
-    const nameText = await screen.findByText('林深');
-    const row = nameText.closest('button');
-    expect(row).toBeTruthy();
-    expect(row?.textContent).toContain('「守夜人 · 旧书店主」');
-    expect(row?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
-    expect(row?.textContent).toContain('动画样式 · ink');
-    expect(row?.textContent).toContain('0 个会话');
-    // 行内 ⋯ 菜单导出（T4 reviewer LOW 补名册路径直接断言）：菜单项
-    // stopPropagation 不冒泡回行 button，导出不打开编辑器——与 gallery 导出
-    // 用例同契约，此前名册行这一处修复无直接回归断言
-    const menuTrigger = screen.getAllByRole('button', { name: '卡片菜单' })[0];
-    expect(menuTrigger).toBeTruthy();
-    fireEvent.click(menuTrigger!);
-    fireEvent.click(await screen.findByRole('menuitem', { name: '导出角色卡' }));
-    await waitFor(() => {
-      expect(screen.queryByRole('menuitem', { name: '导出角色卡' })).toBeNull();
-    });
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.queryByRole('heading', { name: '编辑角色' })).toBeNull();
-    // 点行（名字在行 button 内，点击冒泡）进编辑
-    fireEvent.click(screen.getByText('林深'));
-    expect(
-      await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
-    ).toBeTruthy();
-  } finally {
-    // 还原共享 store 必须在 finally（口径同上一用例）：断言失败时 'ledger'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
-});
-
-// 舞台档（Task-05）：切 stage 后满幅色面舞台卡上屏——静息态名字 + 会话数，
-// 称号/人设摘录常驻 DOM（opacity 揭示不影响测试可达），点卡进编辑。只读
-// 用例，排破坏性用例之前（口径同名册档用例）。
-it('舞台档：舞台卡静息态承载名字/会话数，称号与人设常驻 DOM，点卡进编辑', async () => {
-  useUiStore.setState({ cardDirection: 'stage' });
-  try {
-    renderView();
-    // 林深种子带 titles + markdown persona（断言素材同名册档用例）；会话数
-    // 是 0 而非种子静态值 1：mock listCharacters 实时统计 is_user 扮演位会话
-    // 数（backend.ts），林深从未作扮演位，静态 sessionCount 被覆写
-    const nameText = await screen.findByText('林深');
-    const card = nameText.closest('button');
-    expect(card).toBeTruthy();
-    expect(card?.textContent).toContain('「守夜人 · 旧书店主」');
-    expect(card?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
-    expect(card?.textContent).toContain('0 个会话');
-    // 舞台卡不带导出菜单（设计拍板：纯净展示面；导出经 gallery/ledger 可达）
-    expect(screen.queryByRole('button', { name: '卡片菜单' })).toBeNull();
-    // 点卡进编辑
-    fireEvent.click(nameText);
-    expect(
-      await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
-    ).toBeTruthy();
-  } finally {
-    // 还原共享 store 必须在 finally（口径同名册档用例）：断言失败时 'stage'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
+  // 林深种子带 titles + markdown persona（断言素材同首用例）；会话数是 0
+  // 而非种子静态值 1：mock listCharacters 实时统计 is_user 扮演位会话数
+  // （backend.ts），林深从未作扮演位（苏鸢才是），静态 sessionCount 被覆写
+  const nameText = await screen.findByText('林深');
+  const card = nameText.closest('[data-editor-trigger]') as HTMLElement;
+  expect(card?.textContent).toContain('「守夜人」');
+  expect(card?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
+  expect(card?.textContent).toContain('0 个会话');
+  // 典藏卡带图框角标导出菜单（导出经卡内可达）；多卡同名钮按林深卡作用域
+  // 查询（getAll 全局会撞多卡）
+  expect(within(card).getByRole('button', { name: '卡片菜单' })).toBeTruthy();
+  // 点底部「编辑」pill 进编辑器；pill 与整卡 click 同义但恰好一次
+  // （截断冒泡，双触发回归见 CharacterCollectCard.test）
+  fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
+  expect(
+    await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
+  ).toBeTruthy();
 });
 
 it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {

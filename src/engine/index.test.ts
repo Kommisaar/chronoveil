@@ -343,9 +343,17 @@ describe('回合控制与口径补遗（TASK-06）', () => {
     r.enqueue('兜底');
     expect(container.querySelectorAll('.tok')).toHaveLength(0); // 无消费者：未开演不上屏
     r.finish(); // 队列非空、无思考、正文未开演 → 兜底 beginBody 排空
-    await vi.waitFor(() => {
-      expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['兜底']);
-    });
+    // 真实定时器档（msPerChar 10）在 shared worker 饥饿时 tick 会迟到秒级：
+    // 默认 1s 等待窗曾三轮全量跑超窗失败（2026-09-16 实测，隔离跑恒绿，
+    // 暂存改动基线同样失败——负载形态非产品回归）——与 Task-09 两处
+    // waitFor 超时上限同款处置，放宽到 5s 吸收负载毛刺，断言不变；移除
+    // 条件：测试基建（渲染分片/环境复用）落地、全量跑不再饥饿后收回默认窗
+    await vi.waitFor(
+      () => {
+        expect([...container.querySelectorAll('.tok')].map((t) => t.textContent)).toEqual(['兜底']);
+      },
+      { timeout: 5000 },
+    );
     expect(onFinish).toHaveBeenCalledWith({ chars: 2 });
   });
 

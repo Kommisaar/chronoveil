@@ -137,8 +137,9 @@ export const zh = {
       forkFailed: '分叉失败',
     },
   },
-  // 卡面风格切换（三方向对比期基建）：角色页与世界页工具栏共用同一档位
-  // （store：useUiStore.cardDirection），对比期结束拍板后随切换器一并裁撤。
+  // 卡面风格切换（对比期基建）：世界页工具栏档位（store：
+  // useUiStore.cardDirection），对比期结束拍板后随切换器一并裁撤。角色页
+  // 卡面 2026-09-16 定稿典藏卡单一形态，不再有切换器。
   cardStyle: {
     label: '卡面风格',
     gallery: '陈列馆',
@@ -192,6 +193,8 @@ export const zh = {
     import: '导入角色卡',
     export: '导出角色卡',
     cardMenu: '卡片菜单',
+    // 典藏卡底部主操作 pill（与整卡点击同义进编辑，显式动作位）
+    editCard: '编辑',
     renderStyle: '动画样式',
     sessionCount: '{{count}} 个会话',
     empty: '还没有角色。新建一位，或导入一张角色卡开始。',

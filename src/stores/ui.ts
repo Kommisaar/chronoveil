@@ -4,7 +4,11 @@ import type { LanguageSetting, SessionSummary, ThemeSetting } from '../api/types
 
 export type View = 'chat' | 'characters' | 'worlds' | 'settings';
 
-/** 卡面视觉方向（角色页/世界页三方向对比期）：gallery 陈列馆 / ledger 名册 / stage 舞台。 */
+/**
+ * 卡面视觉方向（世界页对比期档位）：gallery 陈列馆（图版卡）/ ledger 名册 /
+ * stage 舞台（满幅深底卡）。角色页典藏卡 2026-09-16 用户定稿为单一形态，
+ * 不再经此档位（败者三档与切换器已随拍板裁撤）。
+ */
 export type CardDirection = 'gallery' | 'ledger' | 'stage';
 
 /** 会话清单排序约定（FR-007）：updated_at 倒序，落 store 前统一保证。 */

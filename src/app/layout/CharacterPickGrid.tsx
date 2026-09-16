@@ -1,6 +1,6 @@
 /**
- * 新建会话对话框两步共用的选人迷你海报卡网格（从 NewSessionDialog 抽出的
- * 纯展示件，行为零变化）：复用角色页海报卡视觉（posterGradientOf 海报渐变 +
+ * 新建会话对话框两步共用的选人迷你卡网格（从 NewSessionDialog 抽出的
+ * 纯展示件，行为零变化）：复用角色页卡面视觉（posterGradientOf 海报渐变 +
  * 首字/头像 + 名字条，与 CharactersView 同一事实源），适配为对话框内的可选
  * 中迷你卡（aria-pressed 表达选中态）。加载中出 StateBlock loading 占位
  * （A1 收编，此前不出网格直接留白），空库出一行提示；
@@ -26,9 +26,10 @@ import { posterGradientOf } from '../../features/characters/posterGradient';
  * 与原 scrim 底端 0.65 同档观感）。实底再叠 scrim 时总压暗
  * = 1 − (1−0.62)(1−s) ≥ 0.62，下限不受下层影响。
  *
- * 与角色页海报卡 CharacterPosterCard.tsx 的 POSTER_SCRIM_ALPHA 同值同语义
- * （同为「OnBrand 文字压暗下限」，互指）：那边是完整海报卡底部文字区整块
- * 实底，这边是迷你卡逐元素实底；最坏合成数学相同（97 灰 → ≈6.2:1）故同值。
+ * 与世界页满幅卡 WorldFullBleedCard.tsx 的 WORLD_BLEED_SCRIM_ALPHA 同值同
+ * 语义（同为「OnBrand 文字压暗下限」，互指；角色页海报卡 2026-09-16 随
+ * 典藏卡定稿裁撤）：那边是满幅卡底部文字区整块实底，这边是迷你卡逐元素
+ * 实底；最坏合成数学相同（97 灰 → ≈6.2:1）故同值。
  * 不共享常量：两处视觉语境不同，各自文件内单一事实源 + 守卫文本锚定
  * （跨文件 import 会让锚定常量从源文件消失，反而破坏守卫惯例）。
  */
@@ -40,7 +41,7 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
   },
-  // 选人卡网格（两步共用）：三列迷你海报卡，限高滚动（卡库可多于首屏）
+  // 选人卡网格（两步共用）：三列迷你卡，限高滚动（卡库可多于首屏）
   cardGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
@@ -50,7 +51,7 @@ const useStyles = makeStyles({
     overflowY: 'auto',
     paddingRight: tokens.spacingHorizontalXXS,
   },
-  // 迷你海报卡：复用角色页海报视觉（渐变底 + 首字/头像 + 名字条），适配选中态
+  // 迷你卡：复用角色页卡面视觉（渐变底 + 首字/头像 + 名字条），适配选中态
   card: {
     position: 'relative',
     display: 'flex',
@@ -165,7 +166,7 @@ export interface CharacterPickGridProps {
   disabled: boolean;
 }
 
-/** 选人迷你海报卡网格（FR-014 两步选人共用）。 */
+/** 选人迷你卡网格（FR-014 两步选人共用）。 */
 export function CharacterPickGrid(props: CharacterPickGridProps) {
   const styles = useStyles();
   const { t } = useTranslation();

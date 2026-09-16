@@ -1,23 +1,20 @@
 /**
  * 世界页满幅深底卡（stage 档，三方向对比期第三档，2026-09-15）：整卡即
- * worldGradientOf 世界色深底白字，文字全部落在底部黑实底带上。与角色页
- * 舞台卡（CharacterStageCard）同族的「全幅色面」语言——竖色面是角色域、
- * 世界同为整块色面但**内容全部常显**：揭示（hover 浮出称号/人设）是角色
- * stage 卡的专属语言，世界卡无 hover 揭示层。
+ * worldGradientOf 世界色深底白字，文字全部落在底部黑实底带上。「全幅色面」
+ * 语言：整块色面、内容全部常显、无 hover 揭示层（揭示是角色页专属语言，
+ * 本卡不采用；角色页 2026-09-16 定稿典藏卡后角色侧已无同族卡）。
  *
  * - 内容层级（设计主张同两档：卡面承载身份）：世界名（大字主角）/
  *   历法徽章 pill + 更新日期（配置退居次位）/ 世界观摘录（excerptOf 64
  *   字档两行 clamp；空则渲染「还没有世界观」占位——满幅卡有正文区，占位
  *   是行动邀请，同 WorldPlateCard 拍板）；
- * - 原生 button（非 Fluent Card，同 WorldPlateCard / CharacterStageCard
- *   选型）：裸 button + Griffel 类即测试契约「点击进编辑」，Enter/Space
- *   原生自带；
+ * - 原生 button（非 Fluent Card，同 WorldPlateCard 选型）：裸 button +
+ *   Griffel 类即测试契约「点击进编辑」，Enter/Space 原生自带；
  * - 文字对比度（新 scrim 常量，本文件单一事实源）：WORLD_BLEED_SCRIM_
  *   ALPHA=0.62 黑实底 + WORLD_BLEED_META_TEXT_ALPHA=0.8 次级白，最坏
- *   合成数学与 CharacterPosterCard 的 POSTER_SCRIM_ALPHA / POSTER_META_
- *   TEXT_ALPHA、CharacterStageCard 的同名约束相同（互指见常量注释），
- *   守卫断言组见 src/components/contrastGuard.test.ts 的 WORLD_BLEED_*
- *   组（结构断言 + 最坏合成计算）；
+ *   合成数学与 CharacterPickGrid 的 PICK_SCRIM_ALPHA 同口径（0.62 家族
+ *   互指见常量注释），守卫断言组见 src/components/contrastGuard.test.ts
+ *   的 WORLD_BLEED_* 组（结构断言 + 最坏合成计算）；
  * - hover 仅底色微变无位移：白色 5% 薄纱叠层（sheen）自身 :hover 提亮
  *   ——Griffel 无「卡 hover → 子元素变化」的选择器保障，薄纱满幅铺卡且
  *   在 button 内（点击自然冒泡进编辑），装饰层 aria-hidden；只动 opacity，
@@ -35,23 +32,24 @@ import { excerptOf } from '../../lib/excerpt';
 import { worldGradientOf } from './worldGradient';
 
 /**
- * 世界满幅卡文字区压暗下限（本文件单一事实源）：与 CharacterPosterCard 的
- * POSTER_SCRIM_ALPHA（0.62）、CharacterStageCard 的 STAGE_SCRIM_ALPHA（0.62）
- * 同值同语义互指——同为「白字 × 世界色深底」的实底下限，最坏合成数学相同：
+ * 世界满幅卡文字区压暗下限（本文件单一事实源）：与 CharacterPickGrid 的
+ * PICK_SCRIM_ALPHA（0.62）同值同语义互指——角色页 2026-09-16 定稿典藏卡
+ * 后，海报/舞台侧同名常量随卡片裁撤，0.62 家族现余 pick + world + collect
+ * 图标三锚。同为「白字 × 深色底」的实底下限，最坏合成数学相同：
  * 实底之下合成灰 = ceil(255 × 0.38) = 97（取整保守）→ 白字对比 ≈6.19:1 ≥
  * AA 4.5:1。守卫断言组：src/components/contrastGuard.test.ts 的
- * WORLD_BLEED_TEXT_SCRIM_FLOOR；改值须四处同步（含守卫）。
+ * WORLD_BLEED_TEXT_SCRIM_FLOOR；改值须两处同步（本文件 + 守卫，pick/collect
+ * 侧由守卫同值锚联动）。
  */
 const WORLD_BLEED_SCRIM_ALPHA = 0.62;
 
 /**
- * 世界满幅卡次级文字（徽章/日期/摘录）不透明度（本文件单一事实源）：与
- * CharacterPosterCard 的 POSTER_META_TEXT_ALPHA（0.8）、CharacterStageCard
- * 的 STAGE_META_TEXT_ALPHA（0.8）同值同语义互指——半透明白按「合成像素 ×
- * 背景」计对比：0.8 合成 = 223 → ≈4.65:1 ≥ 4.5（0.66 档 ≈3.74:1 不达标，
- * 故空态占位也停在 0.8 档——实底上不存在更低的合法示弱档）。守卫断言组：
+ * 世界满幅卡次级文字（徽章/日期/摘录）不透明度（本文件单一事实源）：
+ * 半透明白按「合成像素 × 背景」计对比：0.8 合成 = 223 → ≈4.65:1 ≥ 4.5
+ * （0.66 档 ≈3.74:1 不达标，故空态占位也停在 0.8 档——实底上不存在更低
+ * 的合法示弱档）。守卫断言组：
  * src/components/contrastGuard.test.ts 的 WORLD_BLEED_TEXT_META_ALPHA；
- * 改值须四处同步（含守卫）。
+ * 改值须两处同步（本文件 + 守卫）。
  */
 const WORLD_BLEED_META_TEXT_ALPHA = 0.8;
 
@@ -108,7 +106,7 @@ const useStyles = makeStyles({
     padding: `${tokens.spacingVerticalL} ${tokens.spacingHorizontalXL}`,
     backgroundColor: `rgba(0, 0, 0, ${WORLD_BLEED_SCRIM_ALPHA})`,
   },
-  // 世界名大字主角：base500「详情头大标题」档（同 CharacterStageCard.name）
+  // 世界名大字主角：base500「详情头大标题」档
   name: {
     fontSize: tokens.fontSizeBase500,
     fontWeight: tokens.fontWeightSemibold,

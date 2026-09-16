@@ -1,4 +1,4 @@
-// 海报渐变调色板（角色页海报卡与编辑器迷你预览共用）：深色低饱和、
+// 海报渐变调色板（角色页典藏卡图框与编辑器迷你预览共用）：深色低饱和、
 // 呼应应用图标的靛紫系，扩展邻近色共 6 组。
 export const POSTER_GRADIENTS: ReadonlyArray<readonly [string, string]> = [
   ['#332a6e', '#6b46b8'], // 靛紫

@@ -88,7 +88,7 @@ const useStyles = makeStyles({
     // 页面级卡片表面 16px（三档圆角规范最上一档：分组卡 = Large 6px、
     // 行内 = Medium 4px，Fluent token 实测值见 SettingsCard / ProviderCard
     // 同款注释）：Fluent 默认 XLarge(8px) 在 880px 宽的面板上太方，海报
-    // 贴边时几乎不可见；16px 与海报卡（CharacterPosterCard cardB，含
+    // 贴边时几乎不可见；16px 与典藏卡（CharacterCollectCard 卡面，含
     // --fui-Card--border-radius 变量同步）、聊天 composerCard 同档，规范
     // 常量见 src/components/surfaceSpec.ts 的 SURFACE_RADIUS_PAGE_CARD；
     // overflow hidden 已有，海报随曲面裁切

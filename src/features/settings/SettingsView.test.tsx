@@ -6,12 +6,18 @@
 // 改动即时生效、非法草稿不落盘、系统提示词预览/编辑切换与自动落盘。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getConfig, saveConfig } from '../../api/commands';
 import { DEFAULT_CONFIG } from '../../api/mock/backend';
 import type { ConfigDto, ModelSpecDto, ProviderDto } from '../../api/types';
 import { useUiStore } from '../../stores/ui';
 import { SettingsView } from './SettingsView';
+
+// 本文件经真实父级挂载全量渲染，是全量跑的慢性超时位（2026-09-16 实测：
+// 隔离跑恒绿但 4 核机 maxWorkers 自适应后仍偶发擦碰 vitest 默认 5s——隔离
+// 耗时 4-6s 贴线）。文件级放宽时间预算（20s），断言逻辑不变；根修（渲染
+// 分片/环境复用）留待测试基建任务，移除条件：该任务落地后本配置可删。
+vi.setConfig({ testTimeout: 20_000 });
 
 /** 模型元数据夹具：id 之外取缺省（1M 上下文 / 128K 输出 / 仅文本）。 */
 const spec = (id: string): ModelSpecDto => ({

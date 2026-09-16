@@ -3,9 +3,9 @@
  * 上图下文——顶部 96px 世界色画布（worldGradientOf 渐变 + 首字水印）+
  * 信息体（世界名 / 历法徽章·更新日期 / 世界观摘录）。设计主张：卡面承载
  * 身份（世界观正文是主角），配置信息（历法/日期）退居次位；竖=角色域、
- * 横=世界域，形态即域别——横版图版卡对齐角色页海报墙的视觉分量，替代
- * 同日早前的「6px 色带 + 两行字」档案卡定稿（后者已于 Task-05 随 stage
- * 满幅卡接管无消费方而裁撤）。
+ * 横=世界域，形态即域别（角色页 2026-09-16 定稿竖版典藏卡后此域别仍
+ * 成立），替代同日早前的「6px 色带 + 两行字」档案卡定稿（后者已于
+ * Task-05 随 stage 满幅卡接管无消费方而裁撤）。
  *
  * - 原生 button（非 Fluent Card，同档案卡先例）：宽扁信息卡不需要 Card 的
  *   interactive 语义栈，裸 button + Griffel 类即测试契约「点击进编辑」，
@@ -14,14 +14,13 @@
  *   现测本卡矩形做 FLIP 共享元素过渡（Task-08 编辑器接线依赖，替换旧档案
  *   卡时不可丢）；
  * - 圆角 SURFACE_RADIUS_PAGE_CARD（16px，页级卡面规范见 surfaceSpec.ts）：
- *   图版卡与海报卡同升页面级卡面档；overflow hidden 让色画布裁进圆角；
+ *   图版卡升页面级卡面档（同角色页典藏卡）；overflow hidden 让色画布裁进圆角；
  * - 悬停无位移（仅底色变化）：lift 的 translateY/scale 在宽扁信息卡上观感
  *   浮动（用户定稿，沿档案卡口径），hover/pressed 只换底色，不 lift；
- * - 世界观摘录空态渲染占位（worldbookEmpty）：与海报卡「空则整行不渲染」
- *   是有意的拍板差异——图版卡有独立正文区（摘录是身份主角），空态占位是
- *   「去写下世界观」的行动邀请而非噪声；海报卡无正文区，占位只会挤占
- *   海报视觉（差异决策记录于两卡文件头）；
- * - 入场动画与档案卡/海报卡同款（card-enter-pop 弹簧 + useRevealOnScroll
+ * - 世界观摘录空态渲染占位（worldbookEmpty）：图版卡有独立正文区（摘录
+ *   是身份主角），空态占位是「去写下世界观」的行动邀请而非噪声（对比期
+ *   海报卡「空则整行不渲染」是有意的拍板差异；该卡 2026-09-16 裁撤）；
+ * - 入场动画与角色页典藏卡同款（card-enter-pop 弹簧 + useRevealOnScroll
  *   视口揭示批内错峰）。
  */
 import { makeStyles, mergeClasses, tokens } from '@fluentui/react-components';
@@ -67,7 +66,7 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 首字水印：同海报卡 letterB 的色档与 userSelect 档，字号按横版矮画布收窄
+  // 首字水印：白 24% 色档与 userSelect none（全仓水印通用档），字号按横版矮画布收窄
   letter: {
     fontSize: '48px',
     fontWeight: tokens.fontWeightSemibold,
@@ -116,12 +115,12 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
   },
   // 空态占位（worldbookEmpty）：同款两行 clamp，色档降一档示弱（见文件头
-  // 与海报卡的拍板差异）
+  // 空态拍板）
   excerptEmpty: {
     color: tokens.colorNeutralForeground3,
   },
 
-  // —— 入场动画（与档案卡/海报卡同款；keyframes 在 app.css；reduced-motion
+  // —— 入场动画（与角色页典藏卡同款；keyframes 在 app.css；reduced-motion
   //    门控在 @media 内）。揭示前占位：滚入视口前以透明等待；揭示后换动画类，
   //    backwards fill 在批内延迟期接手维持 from 态，动画止于自然态。 ——
   preReveal: {

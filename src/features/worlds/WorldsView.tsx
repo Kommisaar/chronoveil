@@ -2,9 +2,9 @@
  * 世界页（0017 世界卡特性）：与角色页同款的列表三态 + 卡网格 + 编辑器形态。
  * 卡面口径（2026-09-15 晚间用户批准重设计定稿）：gallery 档用 WorldPlateCard
  * 横版「图版卡」（上图下文，卡面承载身份——世界观摘录是主角，历法/日期退居
- * 次位；竖=角色域、横=世界域，对齐角色页海报墙的视觉分量），替代同日早前
- * 的档案卡定稿；ledger 档落单列名册行（WorldLedgerRow，Task-04，与角色页
- * CharacterLedgerRow 同族）；stage 档落满幅深底卡（WorldFullBleedCard，
+ * 次位；竖=角色域、横=世界域，角色页 2026-09-16 定稿竖版典藏卡后此域别
+ * 仍成立），替代同日早前的档案卡定稿；ledger 档落单列名册行（WorldLedgerRow，
+ * Task-04）；stage 档落满幅深底卡（WorldFullBleedCard，
  * Task-05：整卡世界色深底白字 + 页头青绿环境光晕），旧档案卡随 stage 接管
  * 无消费方而裁撤（拍板后败者随代码一并裁撤）。
  *
@@ -25,7 +25,7 @@
  *   （world_instances，D1 冻结语义）不受影响——文案明示该语义；
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
- * - 工具栏卡面风格切换器（三方向对比期基建）：与角色页共用全局
+ * - 工具栏卡面风格切换器（对比期基建）：与角色页共用全局
  *   cardDirection 档位——gallery 落图版卡网格，ledger 落单列名册行
  *   （Task-04），stage 落满幅深底卡网格 + 环境光晕（Task-05），拍板胜出
  *   方向后随败者裁撤。
@@ -142,8 +142,9 @@ export function WorldsView() {
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
-  // 卡面方向档位（三方向对比期基建，与角色页共用）：gallery 落图版卡，
-  // ledger 落名册行（Task-04），stage 落满幅深底卡 + 环境光晕（Task-05）
+  // 卡面方向档位（对比期基建，角色页典藏卡 2026-09-16 定稿后为本页专用）：
+  // gallery 落图版卡，ledger 落名册行（Task-04），stage 落满幅深底卡 +
+  // 环境光晕（Task-05），拍板胜出方向后随败者裁撤。
   const cardDirection = useUiStore((s) => s.cardDirection);
   const setCardDirection = useUiStore((s) => s.setCardDirection);
 
@@ -273,7 +274,8 @@ export function WorldsView() {
               ariaLabel={t('cardStyle.label')}
               value={cardDirection}
               // SegmentedControl 回调给宽化 string（组件按通用选项值设计），
-              // 收窄回 CardDirection；不可达兜底分支按初值 gallery（选项集即三方向全集）
+              // 收窄回 CardDirection；不可达兜底分支按初值 gallery（选项集即
+              // 本页三档全集；角色页专属的 collect 不入选项，读侧已收敛）
               onChange={(v) => setCardDirection(v === 'ledger' || v === 'stage' ? v : 'gallery')}
               options={[
                 { value: 'gallery', label: t('cardStyle.gallery') },

@@ -11,6 +11,12 @@ import type { CharacterSummary, ConfigDto } from '../../api/types';
 import '../../i18n';
 import { CharactersView } from './CharactersView';
 
+// 本文件经真实父级挂载全量渲染，是全量跑的慢性超时位（2026-09-16 实测：
+// 隔离跑恒绿但 4 核机 maxWorkers 自适应后仍偶发擦碰 vitest 默认 5s——隔离
+// 耗时 4-6s 贴线）。文件级放宽时间预算（20s），断言逻辑不变；根修（渲染
+// 分片/环境复用）留待测试基建任务，移除条件：该任务落地后本配置可删。
+vi.setConfig({ testTimeout: 20_000 });
+
 const mocks = vi.hoisted(() => ({
   listCharacters: vi.fn(),
   getConfig: vi.fn(),

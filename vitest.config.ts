@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vitest/config';
 
 // 依赖预打包清单：两个 project 都要引用（project 不继承顶层 test.deps，
@@ -27,14 +28,16 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
-    // 多 worktree 并行开发场景（2026-09-13 定值 6）：本机 22 核，默认全核
-    // (~21 worker) 全量墙钟 48.5s / 累计 CPU ~770s；6 worker 墙钟 52s
-    // （+7% 几乎无损）而累计 CPU ~259s（-66%）——isolate:false 分组后
-    // 每 worker 的一次性成本（jsdom + 依赖树）不再随 worker 数重复放大，
-    // 6 路已接近 tests 真执行/6 的并行下限，更多 worker 只是重复一次性
-    // 成本。多个 worktree 同时跑测试时（3×6=18 进程）22 核内不争抢。
-    // 单跑求极速可 CLI 覆盖：pnpm vitest run --maxWorkers=21。
-    maxWorkers: 6,
+    // 多 worktree 并行开发场景（2026-09-13 定值 6；2026-09-16 改核数自适应）：
+    // 定值 6 按当时 22 核机调优（全量墙钟 52s / 累计 CPU ~259s，isolate:false
+    // 分组后每 worker 的一次性成本不随 worker 数重复放大，6 路已接近真执行
+    // 并行下限）。换 4 核机（i5-7400）后定值 6 超订阅：jsdom+Fluent 重 worker
+    // 互相饥饿，全量跑每轮随机 1-15 个用例撞 5s/20s 超时、失败集逐轮漂移
+    // （隔离跑全绿、暂存改动基线同样失败——负载形态非产品回归，2026-09-16
+    // 实测录得）。故改 availableParallelism 自适应：>7 核机维持 6 路不变，
+    // 低核机收窄到核数-1（4 核 → 3 路），多 worktree 同时跑时仍受核数上限
+    // 天然约束。单跑求极速可 CLI 覆盖：pnpm vitest run --maxWorkers=21。
+    maxWorkers: Math.max(2, Math.min(6, availableParallelism() - 1)),
     // projects 分两组（2026-09-13）。注意：project 不继承顶层 test 的
     // environment/deps 等，必须逐 project 显式写（漏写 environment 会
     // 静默回落 node 环境、漏写 deps 会让 collect 暴涨回 ~1700s）。

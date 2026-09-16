@@ -3,13 +3,13 @@
 // - 卡面定稿典藏卡单一形态（2026-09-16 用户拍板，四方向对比期收束）：亮色
 //   收藏卡形——主题面卡内嵌留白图框 + 下方正文 + 元信息/主操作行，渲染与
 //   卡内交互独立在 CharacterCollectCard，本视图管数据流与对话框接线；对比
-//   期的陈列馆（海报）/舞台/名册三档与切换器随败者裁撤（切换器基建拆除，
-//   cardDirection 档位归世界页对比期继续使用）；
+//   期的陈列馆（海报）/舞台/名册三档与切换器随败者裁撤（切换器基建拆除；
+//   世界页同日定稿典藏形卡单一形态，cardDirection 档位整体出 store）；
 // - 入场动画定稿弹性（card-enter-pop）：视口内触发（useRevealOnScroll），
 //   首屏手动判交立即成批、折叠线以下滚入才播，批内 60ms 错峰；
 // - 交互与测试契约：点击进编辑；修改即保存（2026-09-13 用户定稿），无
-//   脏守卫与丢弃确认；本视图仅服务编辑既有卡，新建 = 先以默认名落库再
-//   进编辑器（handleNew）。
+//   脏守卫与丢弃确认；新建 = 打开空草稿编辑器（2026-09-16 用户拍板改
+//   「先编辑后落库」：保存才创建进列表，放弃/关闭即弃稿，handleNew）。
 import {
   Button,
   Text,
@@ -18,7 +18,7 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { ArrowUploadRegular } from '@fluentui/react-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
@@ -39,16 +39,22 @@ import { CharacterCollectCard } from './CharacterCollectCard';
 import { CharacterEditorDialog } from './CharacterEditorDialog';
 import type { AnimDefaults } from './editor/useEditorForm';
 
-/** 新建卡的默认负载：先落库再进编辑器（修改即保存），后续编辑自动保存到该卡。 */
-function newCharacterInput(name: string): CharacterInput {
+/** 新建草稿哨兵 id（2026-09-16 创建流程）：真实卡 id 自 1 起（SQLite 自增 +
+ *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式与
+ *  FLIP 触发锚回退（草稿无卡，从工具栏新建钮量矩形）。 */
+const DRAFT_ID = 0;
+
+/** 新建草稿（不落库不入列，保存成功前仅存在于编辑器状态里）：字段全空 =
+ *  「跟随全局」列语义默认，与 Rust NewCharacter::default 同口径。 */
+function newDraftCharacter(): CharacterSummary {
   return {
-    name,
+    id: DRAFT_ID,
+    name: '',
     avatar: null,
     persona: '',
     gender: null,
     age: null,
     titles: [],
-    // 新建卡默认跟随全局（0014 列语义，与 Rust NewCharacter::default 一致）。
     renderStyle: null,
     modelProviderId: null,
     modelName: null,
@@ -57,6 +63,8 @@ function newCharacterInput(name: string): CharacterInput {
     animDurationMs: null,
     animRhythmMs: null,
     animPunctPause: null,
+    updatedAt: 0,
+    sessionCount: 0,
   };
 }
 
@@ -119,14 +127,15 @@ export function CharactersView() {
   // 与「未配置 provider」的空列表可区分；落到编辑器「其他配置」卡的就地
   // 红字，不引入全局错误态（角色列表主功能不受累）。
   const [providersError, setProvidersError] = useState<string | null>(null);
-  // 编辑目标（既有卡）：新建走「先建卡再编辑」，本视图不再有 create 模式。
+  // 编辑目标（既有卡或新建草稿）：create/edit 模式由 id === DRAFT_ID 派生。
   const [editor, setEditor] = useState<CharacterSummary | null>(null);
   // 可见性与挂载分离：editorOpen=false 只触发退场动画，播完 onClosed 才卸载。
   const [editorOpen, setEditorOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CharacterSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // 工具栏「新建角色」钮：新建草稿的 FLIP 触发锚（草稿无卡可量）。
+  const newButtonRef = useRef<HTMLButtonElement | null>(null);
   // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
   // 以下滚入才播；同批 60ms 级错峰。卡面已定稿单一形态，resetKey 恒定
   //（常量仅为满足签名——无切档重挂场景，揭示状态只随列表增删增量更新）。
@@ -188,31 +197,45 @@ export function CharactersView() {
 
   const closeEditor = useCallback(() => setEditorOpen(false), []);
 
-  /** 共享元素过渡用：当前编辑目标对应的触发元素（卡片）矩形。
-      关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
-      自行退化为纯淡出。 */
+  /** 共享元素过渡用：当前编辑目标对应的触发元素矩形。编辑既有卡查卡片；
+   *  新建草稿无卡可查，从工具栏「新建角色」钮量矩形（FLIP 从钮长出）。
+   *  关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
+   *  自行退化为纯淡出。 */
   const getTriggerRect = useCallback(() => {
+    if (editor?.id === DRAFT_ID) {
+      return newButtonRef.current?.getBoundingClientRect() ?? null;
+    }
     const el = editor
       ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
       : null;
     return el ? el.getBoundingClientRect() : null;
   }, [editor]);
 
-  /** 新建 = 先以默认名落库再进编辑器（修改即保存，无独立 create 表单态）。 */
-  const handleNew = useCallback(async () => {
-    setCreating(true);
+  /** 新建 = 打开空草稿编辑器（2026-09-16 用户拍板「先编辑后落库」）：不落库，
+   *  编辑器动作行「保存」才创建进列表；放弃/关闭即弃稿。 */
+  const handleNew = useCallback(() => {
     setActionError(null);
-    try {
-      const created = await createCharacter(newCharacterInput(t('characters.new')));
-      await refresh();
-      setEditor(created);
-      setEditorOpen(true);
-    } catch (e) {
-      setActionError(`${t('characters.saveFailed')}：${describeError(e)}`);
-    } finally {
-      setCreating(false);
-    }
-  }, [refresh, t]);
+    setEditorError(null);
+    setEditor(newDraftCharacter());
+    setEditorOpen(true);
+  }, []);
+
+  /** 创建出口（编辑器 create 模式「保存」）：落库 + refresh；失败就地红字
+   *  并上抛——编辑器保持打开（契约同 handleAutosave），成功由编辑器自行
+   *  请求关闭。 */
+  const handleCreate = useCallback(
+    async (input: CharacterInput) => {
+      setEditorError(null);
+      try {
+        await createCharacter(input);
+        await refresh();
+      } catch (e) {
+        setEditorError(`${t('characters.saveFailed')}：${describeError(e)}`);
+        throw e;
+      }
+    },
+    [refresh, t],
+  );
 
   /** 修改即保存的上送出口：落库 + refresh；失败就地红字并上抛——编辑器
    *  表单钩子据此不推进已保存基线，下一拍改动自然重试。 */
@@ -288,9 +311,12 @@ export function CharactersView() {
               {t('characters.import')}
             </Button>
             <Button
+              // Fluent 插槽 ref 类型推导为 Ref<never>（同 DialogSurface 坑位，
+              // 断言收窄先例见 CharacterEditorDialog.surface）：运行时转发到
+              // 原生 button 元素——新建草稿的 FLIP 触发锚量矩形用
+              ref={newButtonRef as never}
               appearance="primary"
-              disabled={creating}
-              onClick={() => void handleNew()}
+              onClick={handleNew}
             >
               {t('characters.new')}
             </Button>
@@ -349,6 +375,7 @@ export function CharactersView() {
       {editor ? (
         <CharacterEditorDialog
           key={`edit-${editor.id}`}
+          mode={editor.id === DRAFT_ID ? 'create' : 'edit'}
           open={editorOpen}
           character={editor}
           getTriggerRect={getTriggerRect}
@@ -357,6 +384,7 @@ export function CharactersView() {
           animDefaults={animDefaults}
           errorText={editorError}
           onAutosave={handleAutosave}
+          onCreate={handleCreate}
           onClose={closeEditor}
           onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}

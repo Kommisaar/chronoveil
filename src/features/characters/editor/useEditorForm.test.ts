@@ -36,7 +36,9 @@ const EDIT_CHARACTER: CharacterSummary = {
 
 function renderForm(character: CharacterSummary = EDIT_CHARACTER) {
   const onAutosave = vi.fn().mockResolvedValue(undefined);
-  const rendered = renderHook(() => useEditorForm({ character, onAutosave }));
+  // 本文件测「修改即保存」机制，autosave 开true（create 模式的静默形态在
+  // 编辑器交互测试覆盖）。
+  const rendered = renderHook(() => useEditorForm({ character, onAutosave, autosave: true }));
   return { ...rendered, onAutosave };
 }
 
@@ -410,6 +412,7 @@ describe('useEditorForm 预览动画', () => {
       useEditorForm({
         character: { ...EDIT_CHARACTER, animDurationMs: 700, animRhythmMs: 120, animPunctPause: false },
         onAutosave,
+        autosave: true,
         animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type', temperature: 0.7, defaultProviderId: '', defaultModelId: '' },
       }),
     );
@@ -431,7 +434,7 @@ describe('useEditorForm 预览动画', () => {
 
   it('演出参数进整卡载荷：覆写随上送，null 即跟随全局（迁移 0013 wire）', async () => {
     const onAutosave = vi.fn().mockResolvedValue(undefined);
-    const rendered = renderHook(() => useEditorForm({ character: EDIT_CHARACTER, onAutosave }));
+    const rendered = renderHook(() => useEditorForm({ character: EDIT_CHARACTER, onAutosave, autosave: true }));
     const { result } = rendered;
     act(() => {
       result.current.setAnimDurationMs(900);

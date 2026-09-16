@@ -21,7 +21,9 @@ const EDIT_WORLD: WorldSummary = {
 
 function renderForm(world: WorldSummary = EDIT_WORLD) {
   const onAutosave = vi.fn().mockResolvedValue(undefined);
-  const rendered = renderHook(() => useWorldForm({ world, onAutosave }));
+  // 本文件测「修改即保存」机制，autosave 开true（create 模式的静默形态在
+  // 编辑器交互测试覆盖）。
+  const rendered = renderHook(() => useWorldForm({ world, onAutosave, autosave: true }));
   return { ...rendered, onAutosave };
 }
 
@@ -182,7 +184,7 @@ describe('useWorldForm 修改即保存', () => {
       .fn<(input: WorldInput) => Promise<void>>()
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValue(undefined);
-    const { result } = renderHook(() => useWorldForm({ world: EDIT_WORLD, onAutosave }));
+    const { result } = renderHook(() => useWorldForm({ world: EDIT_WORLD, onAutosave, autosave: true }));
     act(() => result.current.setName('改名'));
     await advance(600);
     await flushMicrotasks();

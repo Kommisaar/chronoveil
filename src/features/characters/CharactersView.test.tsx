@@ -77,26 +77,47 @@ it('典藏卡：常显身份与元信息，整卡点击进编辑恰好一次', a
   ).toBeTruthy();
 });
 
-it('新建 = 先建卡再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
+// 创建流程「先编辑后落库」（2026-09-16 用户拍板）：新建直接开在空草稿上，
+// 保存前不落库不入列；放弃/关闭即弃稿；保存才创建进列表。
+it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存进列表', async () => {
   renderView();
   await screen.findByText('苏鸢');
+  // 「保存前不入列」判据基线：网格卡都挂 data-editor-trigger（对话框没有），
+  // 开草稿前后计数不变 = 无卡落库（旧「先落库」流程会多出一张默认名卡）
+  const triggersBefore = document.querySelectorAll('[data-editor-trigger]').length;
 
   fireEvent.click(screen.getByRole('button', { name: '新建角色' }));
-  // 先建卡（异步）再进编辑器：编辑既有卡形态，标题「编辑角色」
+  // 编辑器直接开在草稿上：标题「新建角色」，名称空（必填门槛生效）
   expect(
-    await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
+    await screen.findByRole('heading', { name: '新建角色' }, { timeout: 3000 }),
   ).toBeTruthy();
-  // 新卡已落库入列（网格卡 + 编辑器展示 ≥2 处同名）
-  const newCard = await screen.findAllByText('新建角色', undefined, { timeout: 3000 });
-  expect(newCard.length).toBeGreaterThanOrEqual(2);
+  expect(document.querySelectorAll('[data-editor-trigger]').length).toBe(triggersBefore);
+  expect(inputOf('名称').value).toBe('');
+  // 名称必填：空名时保存禁用
+  expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true);
 
-  // 身份行常驻输入态（2026-09-15 重设计）：输入框直接在（预填默认名），改名
-  // → 防抖后自动保存
-  expect(inputOf('名称').value).toBe('新建角色');
-  fireEvent.change(inputOf('名称'), { target: { value: '乌鸦' } });
+  // 放弃：草稿丢弃不落库（无卡出现），编辑器关闭
+  fireEvent.change(inputOf('名称'), { target: { value: '放弃卡' } });
+  fireEvent.click(screen.getByRole('button', { name: '放弃' }));
   await waitFor(
     () => {
-      expect(screen.getAllByText('乌鸦').length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByRole('heading', { name: '新建角色' })).toBeNull();
+    },
+    { timeout: 3000 },
+  );
+  expect(screen.queryByText('放弃卡')).toBeNull();
+
+  // 再开草稿、填名保存：创建落库进列表（编辑器关闭）
+  fireEvent.click(screen.getByRole('button', { name: '新建角色' }));
+  expect(
+    await screen.findByRole('heading', { name: '新建角色' }, { timeout: 3000 }),
+  ).toBeTruthy();
+  fireEvent.change(inputOf('名称'), { target: { value: '乌鸦' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  expect(await screen.findByText('乌鸦', undefined, { timeout: 3000 })).toBeTruthy();
+  await waitFor(
+    () => {
+      expect(screen.queryByRole('heading', { name: '新建角色' })).toBeNull();
     },
     { timeout: 3000 },
   );

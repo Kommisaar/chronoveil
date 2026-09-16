@@ -3,10 +3,12 @@
  * 保存（自动保存）、预览动画引擎接线与强调色派生，供排版壳（CharacterEditorDialog，
  * 左海报 + 右面板）单点复用。
  *
- * - 只服务编辑既有卡（新建由父级「先建卡再进编辑器」）：父组件以 key 重挂
- *   换绑初值；character 是打开时的快照，保存后父级 refresh 不回灌表单
- *   （避免覆盖输入中的值）；
- * - 修改即保存（2026-09-13 用户定稿，取消/保存按钮移除）：任一字段改动经
+ * - 服务两种模式（2026-09-16 创建流程改「先编辑后落库」）：edit = 编辑既有卡
+ *   （父组件以 key 重挂换绑初值；character 是打开时的快照，保存后父级
+ *   refresh 不回灌表单）；create = 新建草稿（autosave=false：不排防抖拍、
+ *   不上送，载荷经 buildInput 由排版壳「保存」点击时一次性取用）；
+ * - 修改即保存（2026-09-13 用户定稿，取消/保存按钮移除；仅 edit 模式）：任一
+ *   字段改动经
  *   600ms 防抖后串行上送（上一拍完成才发下一拍，防乱序覆盖）；载荷与上次
  *   已保存值相同则跳过；名称为空（canSave=false）暂不发送，恢复有效名后
  *   随下一拍落库（清空期间在途的旧有效载荷照发，避免丢用户输入）；关闭前
@@ -103,7 +105,10 @@ export interface EditorForm {
   setModelTemperature: (value: number | null) => void;
   /** 名称必填门槛：为空时自动保存挂起（IdentityField 出必填提示）。 */
   canSave: boolean;
-  /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送。 */
+  /** 当前表单 → 整卡 wire 载荷（create 模式「保存」点击时由排版壳取用；
+   *  edit 模式内部自动保存链自用）。 */
+  buildInput: () => CharacterInput;
+  /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送（仅 edit 模式）。 */
   flushSave: () => void;
   /** 预览动画渲染容器（引擎惰性创建，卸载即 cancel）。 */
   previewRef: (node: HTMLDivElement | null) => void;
@@ -124,12 +129,19 @@ export function useEditorForm(props: {
   character: CharacterSummary;
   /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示）。 */
   onAutosave: (input: CharacterInput) => Promise<void>;
+  /** 自动保存开关（2026-09-16 创建流程）：create 模式 false——全链路静默
+   *  （不排防抖拍、不上送、flushSave no-op），载荷经 buildInput 手动取用。 */
+  autosave: boolean;
   /** 演出参数「跟随全局」基准（全局配置派生）；缺省回落模板默认。 */
   animDefaults?: AnimDefaults | undefined;
 }): EditorForm {
   const { character, onAutosave } = props;
   const animDefaults = props.animDefaults ?? TEMPLATE_DEFAULTS;
   const { t } = useTranslation();
+  // latest-ref（模式随 key 重挂恒定，ref 仅为与文件内其余 latest-ref 纪律
+  // 一致的闭包安全读法）
+  const autosaveRef = useRef(props.autosave);
+  autosaveRef.current = props.autosave;
 
   // 目标角色由父组件 key 重挂保证不变，初值只取一次。
   const initial = useMemo(() => {
@@ -235,8 +247,10 @@ export function useEditorForm(props: {
 
   /** 上送一拍：入链串行执行；成功后推进已保存基线并按需排纠正拍。失败已
    *  在父级就地红字展示，链吞掉 rejection 不断链（下一拍改动自然重试——
-   *  失败拍不排纠正拍，避免失败后无限自动重试）。 */
+   *  失败拍不排纠正拍，避免失败后无限自动重试）。create 模式（autosave
+   *  关闭）全链路静默：本函数是唯一上送咽喉，在此掐断。 */
   const persist = (input: CharacterInput, json: string): void => {
+    if (!autosaveRef.current) return;
     // 调用时 + 执行时双重比较：纠正拍与手动拍并发排布时可能排出载荷已被
     // 更晚一拍覆盖的重复上送，执行时比较兑现「与已保存值相同则跳过」。
     if (json === lastSavedRef.current) return;
@@ -252,7 +266,9 @@ export function useEditorForm(props: {
 
   // 修改即保存：无依赖数组 = 每次渲染重新比对（刻意为之，注释见文件头——
   // 表单字段集即全部状态，穷举依赖与逐字段等价且更脆；此处置需要最新闭包）。
+  // create 模式（autosave 关闭）直接短路：不排防抖拍，载荷由「保存」手动取。
   useEffect(() => {
+    if (!autosaveRef.current) return;
     const json = JSON.stringify(buildInputRef.current());
     if (json === lastSavedRef.current) {
       // 改回已保存值（防抖窗口内还原）：取消在途拍。若已有拍停在串行链
@@ -389,6 +405,7 @@ export function useEditorForm(props: {
     modelTemperature,
     setModelTemperature,
     canSave,
+    buildInput,
     flushSave,
     previewRef: (node) => {
       previewNodeRef.current = node;

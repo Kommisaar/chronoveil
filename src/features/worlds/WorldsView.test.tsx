@@ -3,11 +3,12 @@
 // 本文件内跨用例共享——用例按「只读 → 新建 → 编辑 → 软删」顺序排列，破坏性
 // 操作放最后（ADR-010 双模式允许 UI 层直接对 mock 断言）。
 // 世界列表异步加载：交互前一律先 findByText 等卡片上屏。
+// 卡面 2026-09-16 定稿典藏形卡单一形态（对比期三档与切换器已裁撤，
+// cardDirection 出 store），本文件只剩 gallery 档用例。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import '../../i18n';
-import { useUiStore } from '../../stores/ui';
 import { WorldsView } from './WorldsView';
 
 function renderView() {
@@ -24,121 +25,68 @@ function inputOf(label: string): HTMLInputElement {
 
 afterEach(cleanup);
 
-it('渲染现有世界图版卡网格：名称 + 历法徽章 + 世界观摘录/空态占位', async () => {
+it('渲染现有世界典藏形卡网格：名称 + 历法徽章 + 世界观摘录/空态占位', async () => {
   renderView();
   expect(await screen.findByText('空白舞台')).toBeTruthy();
   // null 历法卡的徽章显示「默认数字历」
   expect(screen.getAllByText('默认数字历').length).toBeGreaterThanOrEqual(1);
   // 带历法卡显示历法名（七曜和历，种子与 calendarPresets seven 预设一致）
   expect(await screen.findByText('七曜和历')).toBeTruthy();
-  // 图版卡世界观摘录（gallery 档身份主角，excerptOf 64 字档）：雾灯航线
+  // 典藏形卡世界观摘录（gallery 档身份主角，excerptOf 64 字档）：雾灯航线
   // 种子 worldbook 44 字 ≤ 64，摘录即全文无省略号
   expect(
     screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
   ).toBeTruthy();
-  // 空 worldbook 卡（空白舞台）显示空态占位：图版卡有正文区，占位是行动
-  // 邀请（与海报卡「空则不渲染」的拍板差异，见 WorldPlateCard 文件头）
+  // 空 worldbook 卡（空白舞台）显示空态占位：卡面有正文区，占位是行动
+  // 邀请（与角色卡「空则不渲染」的拍板差异，见 WorldGalleryCard 文件头）
   expect(screen.getByText('还没有世界观')).toBeTruthy();
 });
 
-// 卡面风格切换器（三方向对比期基建）：radiogroup 语义（SegmentedControl 段为
-// 原生 button，天然可键盘操作），点「名册」落全局档位（与角色页共用同一 store）。
-it('工具栏卡面风格切换器：radiogroup 三选项，点「名册」落 useUiStore.cardDirection', async () => {
+// 创建流程「先编辑后落库」（2026-09-16 用户拍板，与角色页同构）：新建直接
+// 开在空草稿上，保存前不落库不入列；放弃/关闭即弃稿；保存才创建进列表
+//（回声荒原卡供后续「删除」用例作素材）。
+it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存进列表', async () => {
   renderView();
   await screen.findByText('空白舞台');
-
-  const group = screen.getByRole('radiogroup', { name: '卡面风格' });
-  const segments = [...group.querySelectorAll('[role="radio"]')];
-  expect(segments).toHaveLength(3);
-
-  try {
-    fireEvent.click(segments.find((r) => r.textContent === '名册')!);
-    expect(useUiStore.getState().cardDirection).toBe('ledger');
-  } finally {
-    // 还原共享 store 必须在 finally（Task-01 reviewer 转入）：shared 组
-    // isolate:false，模块级 store 跨用例/跨文件驻留——断言失败时 'ledger'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
-});
-
-// 名册档（Task-04）：切 ledger 后单列名册行上屏——世界名/历法徽章/世界观
-// 摘录同行承载，点行进编辑；gallery 档由本文件其余用例默认覆盖（store 初值
-// gallery，不受本用例影响——还原在 finally）。本用例只读（不改种子），排在
-// 「编辑」用例改历法之前。
-it('名册档：单列名册行承载世界名/历法徽章/世界观摘录，点行进编辑', async () => {
-  useUiStore.setState({ cardDirection: 'ledger' });
-  try {
-    renderView();
-    expect(await screen.findByText('雾灯航线')).toBeTruthy();
-    // 历法徽章：带历法卡显历法名；null 历法卡显「默认数字历」
-    expect(screen.getByText('七曜和历')).toBeTruthy();
-    expect(screen.getByText('默认数字历')).toBeTruthy();
-    // 世界观摘录（excerptOf 64 字档，种子 44 字全文无省略号）；空 worldbook
-    // 卡（空白舞台）渲染空态占位（同图版卡拍板）
-    expect(
-      screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
-    ).toBeTruthy();
-    expect(screen.getByText('还没有世界观')).toBeTruthy();
-    // 点行（名字在行 button 内，点击冒泡）进编辑
-    fireEvent.click(screen.getByText('雾灯航线'));
-    expect(
-      await screen.findByRole('heading', { name: '编辑世界' }, { timeout: 3000 }),
-    ).toBeTruthy();
-  } finally {
-    // 还原共享 store 必须在 finally（口径同上一用例）：断言失败时 'ledger'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
-});
-
-// 舞台档（Task-05）：满幅深底卡（WorldFullBleedCard）上屏——世界名/历法
-// 徽章/世界观摘录全部常显（世界舞台卡无 hover 揭示，揭示是角色 stage 卡的
-// 专属语言），空 worldbook 渲染占位，点卡进编辑。只读用例，排「编辑」用例
-// 改历法之前（口径同名册档用例）。
-it('舞台档：满幅深底卡承载世界名/历法徽章/世界观摘录与空态占位，点卡进编辑', async () => {
-  useUiStore.setState({ cardDirection: 'stage' });
-  try {
-    renderView();
-    expect(await screen.findByText('雾灯航线')).toBeTruthy();
-    // 历法徽章：带历法卡显历法名；null 历法卡显「默认数字历」
-    expect(screen.getByText('七曜和历')).toBeTruthy();
-    expect(screen.getByText('默认数字历')).toBeTruthy();
-    // 世界观摘录（excerptOf 64 字档，种子 44 字全文无省略号）；空 worldbook
-    // 卡（空白舞台）渲染空态占位
-    expect(
-      screen.getByText('永夜的海上城市，雾从海面漫上甲板。灯船按七曜轮值巡线，灯光的明灭节奏是水手间通行的暗语。'),
-    ).toBeTruthy();
-    expect(screen.getByText('还没有世界观')).toBeTruthy();
-    // 点卡进编辑
-    fireEvent.click(screen.getByText('雾灯航线'));
-    expect(
-      await screen.findByRole('heading', { name: '编辑世界' }, { timeout: 3000 }),
-    ).toBeTruthy();
-  } finally {
-    // 还原共享 store 必须在 finally（口径同名册档用例）：断言失败时 'stage'
-    // 也会被复位，不泄漏进本文件后续用例与同 worker 的后续文件
-    useUiStore.setState({ cardDirection: 'gallery' });
-  }
-});
-
-it('新建 = 先落库再进编辑器：默认名卡立即入列，改名经自动保存落到该卡', async () => {
-  renderView();
-  await screen.findByText('空白舞台');
+  // 「保存前不入列」判据基线：网格卡都挂 data-editor-trigger（对话框没有），
+  // 开草稿前后计数不变 = 无卡落库（旧「先落库」流程会多出一张默认名卡）
+  const triggersBefore = document.querySelectorAll('[data-editor-trigger]').length;
 
   fireEvent.click(screen.getByRole('button', { name: '新建世界' }));
+  // 编辑器直接开在草稿上：标题「新建世界」，名称空（必填门槛生效）
   expect(
-    await screen.findByRole('heading', { name: '编辑世界' }, { timeout: 3000 }),
+    await screen.findByRole('heading', { name: '新建世界' }, { timeout: 3000 }),
   ).toBeTruthy();
-  // 新卡已落库入列（网格卡 + 编辑器 ≥2 处同名）
-  const newCard = await screen.findAllByText('新建世界', undefined, { timeout: 3000 });
-  expect(newCard.length).toBeGreaterThanOrEqual(2);
+  expect(document.querySelectorAll('[data-editor-trigger]').length).toBe(triggersBefore);
+  expect(inputOf('名称').value).toBe('');
+  // 名称必填：空名时保存禁用
+  expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true);
 
-  // 名称输入预填默认名；改名 → 防抖后自动保存（编辑器无海报列，回声荒原
-  // 上屏一处即网格卡文本）
-  expect(inputOf('名称').value).toBe('新建世界');
+  // 放弃：草稿丢弃不落库（无卡出现），编辑器关闭
+  fireEvent.change(inputOf('名称'), { target: { value: '放弃世界' } });
+  fireEvent.click(screen.getByRole('button', { name: '放弃' }));
+  await waitFor(
+    () => {
+      expect(screen.queryByRole('heading', { name: '新建世界' })).toBeNull();
+    },
+    { timeout: 3000 },
+  );
+  expect(screen.queryByText('放弃世界')).toBeNull();
+
+  // 再开草稿、填名保存：创建落库进列表（编辑器关闭）
+  fireEvent.click(screen.getByRole('button', { name: '新建世界' }));
+  expect(
+    await screen.findByRole('heading', { name: '新建世界' }, { timeout: 3000 }),
+  ).toBeTruthy();
   fireEvent.change(inputOf('名称'), { target: { value: '回声荒原' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
   expect(await screen.findByText('回声荒原', undefined, { timeout: 3000 })).toBeTruthy();
+  await waitFor(
+    () => {
+      expect(screen.queryByRole('heading', { name: '新建世界' })).toBeNull();
+    },
+    { timeout: 3000 },
+  );
 });
 
 it('编辑：点卡片载入全量字段——世界观预览渲染 + 历法五选回显卡值；改选历法落整份预设', async () => {

@@ -15,10 +15,12 @@
  *   position:fixed 的 DialogSurface 自身就是 fixed 后代的包含块，毛玻璃层
  *   挂 surface 伪元素上只会有面板大小——必须做成 surface 之外的独立
  *   fixed 元素（zIndex 9 垫在 surface 10 之下，点击 = 走 requestClose）；
- * - 修改即保存（无取消/保存按钮）：表单逻辑在 useWorldForm（600ms 防抖 +
- *   串行链 + 纠正拍），本文件只是排版壳；全部关闭路径（× / Esc / 背板）经
- *   requestClose 先 flushSave 补存最后一拍再回调 onClose。新建由父级「先
- *   落库再进编辑」——本组件只服务编辑既有卡；
+ * - 修改即保存（无取消/保存按钮，仅 edit 模式）：表单逻辑在 useWorldForm
+ *   （600ms 防抖 + 串行链 + 纠正拍），本文件只是排版壳；edit 模式全部关闭
+ *   路径（× / Esc / 背板）经 requestClose 先 flushSave 补存最后一拍再回调
+ *   onClose；2026-09-16 创建流程改「先编辑后落库」（用户拍板，与角色编辑器
+ *   同构）：create 模式（新建草稿）自动保存全链路静默，动作行为 放弃/保存
+ *   ——保存经 onCreate 一次性落库，其余一切关闭路径即放弃；
  * - 动画契约：open=false 表示「退场中」——本组件留在挂载树播完出场动画，
  *   到点回调 onClosed，父级才真正卸载；因此关闭永远有退场，无论哪条路径
  *   发起（含软删：父级先置 open=false，卸载等 onClosed）。
@@ -245,14 +247,22 @@ const useStyles = makeStyles({
   actionsRow: {
     padding: '12px 24px 16px 24px',
   },
-  // 删除按钮钉动作行左端（marginRight:auto；行内仅此一钮，右端留空）
+  // 左钮钉动作行左端（marginRight:auto 把后续钮推到右端）：edit 模式仅删除
+  // 钉左、右端留空；create 模式放弃钉左、保存落右端主动作位——同一锚类复用
   deleteAction: {
     marginRight: 'auto',
   },
 });
 
 export interface WorldEditorDialogProps {
-  /** 编辑目标（全量字段预填：WorldSummary 即编辑数据源，无单条查询）。 */
+  /** 编辑模式（2026-09-16 创建流程改「先编辑后落库」，与角色编辑器同构）：
+   *  edit = 编辑既有卡（修改即保存 + 删除动作行）；create = 新建草稿
+   *  （world 为父级构造的空草稿，id 0 仅供画布渐变派生——自动保存全链路
+   *  静默，动作行为 放弃/保存，保存经 onCreate 一次性落库，其余一切关闭
+   *  路径即放弃）。 */
+  mode: 'create' | 'edit';
+  /** 编辑目标（全量字段预填：WorldSummary 即编辑数据源，无单条查询）；
+   *  create 模式传空草稿（父级 newDraftWorld）。 */
   world: WorldSummary;
   /** 可见性：false 时本组件播退场动画（仍挂载），到点回调 onClosed。 */
   open: boolean;
@@ -263,28 +273,58 @@ export interface WorldEditorDialogProps {
   getTriggerRect?: (() => DOMRect | null) | undefined;
   /** 保存失败的行内错误文案（父组件设置）。 */
   errorText: string | null;
-  /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示）。 */
+  /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示；仅 edit 模式）。 */
   onAutosave: (input: WorldInput) => Promise<void>;
-  /** 关闭请求（× / Esc / 背板）：本组件先 flushSave 补存最后一拍。 */
+  /** 创建出口（仅 create 模式「保存」）：父级落库 + refresh；失败就地红字
+   *  并上抛——本组件保持打开（契约同 onAutosave），成功后自行请求关闭。 */
+  onCreate: (input: WorldInput) => Promise<void>;
+  /** 关闭请求（× / Esc / 背板）：edit 模式先 flushSave 补存最后一拍；
+   *  create 模式即放弃（草稿不落库）。 */
   onClose: () => void;
-  /** 删除按钮：父组件弹就地确认对话框，本组件不直接删。 */
+  /** 删除按钮（仅 edit 模式）：父组件弹就地确认对话框，本组件不直接删。 */
   onDelete: (world: WorldSummary) => void;
 }
 
 export function WorldEditorDialog(props: WorldEditorDialogProps) {
-  const { world, open, onClosed, getTriggerRect, errorText, onAutosave, onClose, onDelete } = props;
+  const {
+    mode,
+    world,
+    open,
+    onClosed,
+    getTriggerRect,
+    errorText,
+    onAutosave,
+    onCreate,
+    onClose,
+    onDelete,
+  } = props;
   const styles = useStyles();
   const { t } = useTranslation();
-  const form = useWorldForm({ world, onAutosave });
+  const form = useWorldForm({ world, onAutosave, autosave: mode === 'edit' });
   const { surfaceRef } = useSurfaceMorph({ open, onClosed, getTriggerRect });
 
   // 世界观预览 / 编辑是纯视图切换：不参与数据（落库走修改即保存）。
   const [worldbookEditing, setWorldbookEditing] = useState(false);
+  // 创建在途标记（create 模式）：保存点击后禁用动作行防双击；失败复位保持打开。
+  const [saving, setSaving] = useState(false);
 
-  // 全部关闭路径共用：先补存最后一拍（无在途防抖即 no-op），再请求关闭。
+  // 全部关闭路径共用：edit 先补存最后一拍（无在途防抖即 no-op）；create 即
+  // 放弃（草稿不落库，与动作行「放弃」同语义）。
   const requestClose = (): void => {
-    form.flushSave();
+    if (mode === 'edit') form.flushSave();
     onClose();
+  };
+
+  /** 保存（create 模式动作）：整卡载荷一次性创建；成功即请求关闭（卡片经
+   *  父级 refresh 进列表），失败保持打开（错误由父级就地红字，契约同
+   *  onAutosave 上抛）。 */
+  const handleSave = (): void => {
+    if (!form.canSave || saving) return;
+    setSaving(true);
+    onCreate(form.buildInput())
+      .then(() => onClose())
+      .catch(() => undefined)
+      .finally(() => setSaving(false));
   };
 
   // 画布预览数据（WorldCanvasPane 不依赖 form，props 注入）：世界色按 id
@@ -325,10 +365,13 @@ export function WorldEditorDialog(props: WorldEditorDialogProps) {
               open ? styles.bodyIn : styles.bodyOut,
             )}
           >
-            {/* 左：世界色画布占满整列（纯预览随表单输入更新；对读屏隐藏防重复） */}
+            {/* 左：世界色画布占满整列（纯预览随表单输入更新；对读屏隐藏防重复）。
+                名称回退链：输入中空名 → 打开时快照名（edit 模式防清空输入闪没）
+                → 新建档位名（create 模式草稿无快照名可回退）；历法标签随五选一
+                实时换（default → 「默认数字历」，预设 → 既有 labelKey）。 */}
             <WorldCanvasPane
               gradient={worldGradientOf(world.id)}
-              nameText={form.name.trim() === '' ? world.name : form.name}
+              nameText={form.name.trim() || world.name || t('worlds.new')}
               calendarLabel={
                 calendarOption ? t(calendarOption.labelKey) : t('worlds.calendarNone')
               }
@@ -336,7 +379,7 @@ export function WorldEditorDialog(props: WorldEditorDialogProps) {
             {/* 右：中性面板上的标题 / 表单 / 动作（主题交给左画布） */}
             <div className={styles.rightCol}>
               <DialogTitle className={styles.titleRow} action={{ className: styles.titleAction }}>
-                {t('worlds.editTitle')}
+                {t(mode === 'create' ? 'worlds.new' : 'worlds.editTitle')}
               </DialogTitle>
               <DialogContent className={styles.content}>
                 <div className={styles.form}>
@@ -428,9 +471,26 @@ export function WorldEditorDialog(props: WorldEditorDialogProps) {
                 </div>
               </DialogContent>
               <DialogActions className={styles.actionsRow}>
-                <Button className={styles.deleteAction} onClick={() => onDelete(world)}>
-                  {t('worlds.delete')}
-                </Button>
+                {mode === 'create' ? (
+                  <>
+                    {/* 放弃钉左端（marginRight:auto 把保存推到右端主动作位）：
+                        草稿丢弃不落库，与背板/× 同语义 */}
+                    <Button className={styles.deleteAction} disabled={saving} onClick={requestClose}>
+                      {t('worlds.discard')}
+                    </Button>
+                    <Button
+                      appearance="primary"
+                      disabled={!form.canSave || saving}
+                      onClick={handleSave}
+                    >
+                      {t('worlds.save')}
+                    </Button>
+                  </>
+                ) : (
+                  <Button className={styles.deleteAction} onClick={() => onDelete(world)}>
+                    {t('worlds.delete')}
+                  </Button>
+                )}
               </DialogActions>
             </div>
           </DialogBody>

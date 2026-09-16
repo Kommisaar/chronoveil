@@ -26,11 +26,11 @@ import { posterGradientOf } from '../../features/characters/posterGradient';
  * 与原 scrim 底端 0.65 同档观感）。实底再叠 scrim 时总压暗
  * = 1 − (1−0.62)(1−s) ≥ 0.62，下限不受下层影响。
  *
- * 与世界页满幅卡 WorldFullBleedCard.tsx 的 WORLD_BLEED_SCRIM_ALPHA 同值同
- * 语义（同为「OnBrand 文字压暗下限」，互指；角色页海报卡 2026-09-16 随
- * 典藏卡定稿裁撤）：那边是满幅卡底部文字区整块实底，这边是迷你卡逐元素
- * 实底；最坏合成数学相同（97 灰 → ≈6.2:1）故同值。
- * 不共享常量：两处视觉语境不同，各自文件内单一事实源 + 守卫文本锚定
+ * 0.62 同值家族现余本锚单存（其余锚均已随拍板退役：角色页海报/舞台卡与
+ * 典藏卡 ⋯ 触发器 2026-09-16 裁撤，世界满幅卡 WORLD_BLEED_SCRIM_ALPHA 同日
+ * 随世界页「只保留这一版」定稿裁撤），互指环收缩为本文件 ↔
+ * contrastGuard.test.ts 的 PICK_SCRIM_FLOOR。
+ * 不共享常量：视觉语境各自独立，源文件内单一事实源 + 守卫文本锚定
  * （跨文件 import 会让锚定常量从源文件消失，反而破坏守卫惯例）。
  */
 const PICK_SCRIM_ALPHA = 0.62;

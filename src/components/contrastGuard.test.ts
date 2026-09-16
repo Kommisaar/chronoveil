@@ -261,8 +261,10 @@ const UNPAIRABLE: readonly { file: string; line: number; style: string; token: s
  * - 实底叠 scrim 时总压暗 = 1 − (1−0.62)(1−s) ≥ 0.62（s ∈ [0,1]），下限不破。
  *
  * 常量名说明：本常量配对的是选人卡（CharacterPickGrid 的 PICK_SCRIM_ALPHA），
- * 2026-09-13 自 POSTER_SCRIM_FLOOR 改名以贴实际管辖面。同值 0.62 家族另见
- * WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA（世界满幅卡文字实底）。
+ * 2026-09-13 自 POSTER_SCRIM_FLOOR 改名以贴实际管辖面。0.62 家族的其余锚
+ * 均已随拍板退役：典藏卡 ⋯ 触发器（2026-09-16 角标菜单裁撤）与世界满幅卡
+ * WORLD_BLEED_SCRIM_ALPHA（同日世界页「只保留这一版」定稿裁撤）——现余
+ * pick 单锚；同形制再登场时按各自锚组的 git 历史重建。
  */
 const PICK_SCRIM_FLOOR = 0.62;
 
@@ -281,31 +283,13 @@ const POSTER_ON_BRAND: readonly { file: string; line: number; style: string; con
  */
 
 /**
- * 世界满幅卡文字用点（2026-09-15 新增，Task-05）：WorldFullBleedCard（世界
- * 页满幅深底卡）的文字直落 worldGradientOf 世界色渐变，文字区容器挂
- * rgba(0,0,0,WORLD_BLEED_SCRIM_ALPHA) 黑实底、次级文字走
- * WORLD_BLEED_META_TEXT_ALPHA 半透明白——与 CharacterPickGrid 的
- * PICK_SCRIM_ALPHA 同值同档互指（角色页 2026-09-16 定稿典藏卡后，海报/舞台
- * 侧同值常量随卡片裁撤；典藏卡 ⋯ 触发器 COLLECT_ICON_SCRIM_ALPHA 锚又随
- * 同日「导出移至编辑器动作行」裁撤角标菜单而移除——0.62 家族收敛为
- * pick + world 双锚）。
- *
- * 配对数学（最坏合成推导，与 pick 侧同口径）：世界色板当前恒深色
- * （worldGradientOf 无 accent 直出路径），但守卫仍按最坏口径断言（纯白底）
- * ——色板将来引入浅色/用户可选色时下限不破：
- * - 最坏背景 = 纯白 × (1 − 0.62) 黑实底 → 合成灰 = ceil(255 × 0.38) = 97
- *   （取整方向保守）；
- * - 主文字（OnBrand token，双主题 #ffffff）：对比 ≈6.19:1 ≥ 4.5；
- * - 次文字（半透明白按合成像素计）：0.8 合成 = floor(255×0.8+97×0.2) = 223
- *   → ≈4.65:1 ≥ 4.5。
- *
- * 数值锚闭环：同值 0.62 家族的两处——pick（POSTER_ON_BRAND 组锚
- * PICK_SCRIM_ALPHA）/ world（本组锚 WORLD_BLEED_*）——全部有常量值 +
- * 挂载模板串双锚，任一处改值不同步即失败。
+ * 世界满幅卡文字用点锚（2026-09-15 Task-05 新增，2026-09-16 随世界页
+ * 「只保留这一版」拍板裁撤）：WorldFullBleedCard 与名册行一并退役、卡面
+ * 风格切换器拆除后满幅形态无消费方，WORLD_BLEED_SCRIM_ALPHA（0.62 实底）/
+ * WORLD_BLEED_META_TEXT_ALPHA（0.8 次级白）两常量与本守卫组随之移除，
+ * 0.62 家族收敛为 pick 单锚（见 PICK_SCRIM_FLOOR 注释）。若将来再挂
+ * 「恒白文字 × 深色实底」形制，按本文件 git 历史同形态重建锚组。
  */
-const WORLD_BLEED_TEXT_SCRIM_FLOOR = 0.62;
-const WORLD_BLEED_TEXT_META_ALPHA = 0.8;
-const WORLD_FULL_BLEED_CARD_FILE = 'src/features/worlds/WorldFullBleedCard.tsx';
 
 /**
  * 豁免清单（当前为空：基准 a0a00c0 实测全部可配对组合双主题 ≥4.5）。
@@ -409,71 +393,6 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       const ratio = contrastRatio(fg, worst);
       if (ratio < WCAG_AA) {
         failures.push(`海报 OnBrand × 最坏合成 ${themeName} = ${ratio.toFixed(2)}:1 < ${WCAG_AA}`);
-      }
-    }
-    expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
-  });
-
-  it('世界满幅卡文字用点：源文件仍持压暗实底与次级文字常量，互指注释完整，主/次文字 × 最坏合成背景双主题 ≥4.5', () => {
-    // 完整性锚（静态清单惯例，形态同 POSTER_CARD_TEXT 组）：常量声明与实底
-    // 挂载模板串仍在（值改动需同步 WORLD_BLEED_TEXT_SCRIM_FLOOR /
-    // WORLD_BLEED_TEXT_META_ALPHA）
-    const source = readSource(WORLD_FULL_BLEED_CARD_FILE);
-    expect(
-      source,
-      `文字区实底常量被移除或改值（需同步 WORLD_BLEED_TEXT_SCRIM_FLOOR）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain(`WORLD_BLEED_SCRIM_ALPHA = ${WORLD_BLEED_TEXT_SCRIM_FLOOR}`);
-    expect(
-      source,
-      `文字区实底未挂 WORLD_BLEED_SCRIM_ALPHA（下限失效）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain('rgba(0, 0, 0, ${WORLD_BLEED_SCRIM_ALPHA})');
-    expect(
-      source,
-      `次级文字常量被移除或改值（需同步 WORLD_BLEED_TEXT_META_ALPHA）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain(`WORLD_BLEED_META_TEXT_ALPHA = ${WORLD_BLEED_TEXT_META_ALPHA}`);
-    expect(
-      source,
-      `次级文字未经 WORLD_BLEED_META_TEXT_ALPHA 出色（直改字面量绕过常量锚）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain('rgba(255, 255, 255, ${WORLD_BLEED_META_TEXT_ALPHA})');
-    expect(
-      source,
-      `世界名未走 OnBrand token（与断言的配对前景脱钩）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain('colorNeutralForegroundOnBrand');
-
-    // 互指完整性（跨文件常量互指铁律）：同值 0.62 家族的互指注释须仍在——
-    // 本文件与 WorldFullBleedCard 的常量注释均互指 pick 侧 PICK_SCRIM_ALPHA；
-    // 注释被删即失败（改值/改名时互指是同步线索）
-    expect(
-      source,
-      `互指注释缺失（须指向 CharacterPickGrid 的 PICK_SCRIM_ALPHA）：${WORLD_FULL_BLEED_CARD_FILE}`,
-    ).toContain('PICK_SCRIM_ALPHA');
-
-    // 最坏合成背景：纯白 × (1 − 0.62) 黑实底，通道向上取整保守（与
-    // POSTER_CARD_TEXT 组同构推导）
-    const channel = Math.ceil(255 * (1 - WORLD_BLEED_TEXT_SCRIM_FLOOR));
-    const worst: [number, number, number] = [channel, channel, channel];
-    // 次级文字合成像素：半透明白叠最坏背景，通道向下取整保守
-    const metaChannel = Math.floor(
-      255 * WORLD_BLEED_TEXT_META_ALPHA + channel * (1 - WORLD_BLEED_TEXT_META_ALPHA),
-    );
-    const metaComposite: [number, number, number] = [metaChannel, metaChannel, metaChannel];
-    const failures: string[] = [];
-    for (const [themeName, theme] of Object.entries(THEMES)) {
-      const fgHex: string | undefined = theme['colorNeutralForegroundOnBrand'];
-      if (typeof fgHex !== 'string' || fgHex === '') {
-        throw new Error(`主题缺 token 值：colorNeutralForegroundOnBrand（${themeName}）`);
-      }
-      const fg = parseHexColor(fgHex);
-      if (fg === null) throw new Error(`token 值非 #rrggbb：colorNeutralForegroundOnBrand=${fgHex}`);
-      const primary = contrastRatio(fg, worst);
-      const secondary = contrastRatio(metaComposite, worst);
-      if (primary < WCAG_AA) {
-        failures.push(`世界满幅卡主文字 × 最坏合成 ${themeName} = ${primary.toFixed(2)}:1 < ${WCAG_AA}`);
-      }
-      if (secondary < WCAG_AA) {
-        failures.push(
-          `世界满幅卡次文字（${WORLD_BLEED_TEXT_META_ALPHA} 合成） × 最坏合成 ${themeName} = ${secondary.toFixed(2)}:1 < ${WCAG_AA}`,
-        );
       }
     }
     expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);

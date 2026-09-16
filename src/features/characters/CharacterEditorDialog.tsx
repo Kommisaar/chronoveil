@@ -13,6 +13,9 @@
  *   人设）、输出动画（预览 + 动画样式）与模型配置（模型覆写 + 温度覆写）；
  *   2026-09-13 用户定稿：取消 / 保存按钮移除，改动经表单钩子防抖自动落库，
  *   本文件在全部关闭路径（背板 / × / Esc）先 flushSave 补存最后一拍再请求关闭；
+ *   2026-09-16 创建流程改「先编辑后落库」（用户拍板）：create 模式（新建
+ *   草稿）自动保存全链路静默，动作行为 放弃/保存——保存才创建进列表，
+ *   其余一切关闭路径即放弃（详见 props 注释）；
  *   历法不属角色卡（2026-09-13 产品裁剪），会话历法在开局向导按会话配置；
  * - Fluent 坑位备忘：非模态对话框的关闭按钮经 DialogTitle action 插槽落为
  *   标题的兄弟节点（flex 流里会折到标题下方），须插槽 + 绝对定位钉右上角；
@@ -42,6 +45,7 @@ import {
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DEFAULT_RENDER_STYLE,
@@ -213,8 +217,9 @@ const useStyles = makeStyles({
   actionsRow: {
     padding: '12px 24px 16px 24px',
   },
-  // 动作行左侧按钮组（删除 + 导出）钉左端：最后一个左钮带 marginRight:auto
-  // 把右侧留空；静态样式走 griffel 不入行内
+  // 动作行左钮钉左端（marginRight:auto 把后续钮推到右端）：edit 模式是
+  // 删除 + 导出（整组贴左，右端留空）；create 模式放弃贴左、保存落右端
+  //（主动作位）——同一锚类复用
   pinLeft: {
     marginRight: 'auto',
   },
@@ -227,8 +232,13 @@ const useStyles = makeStyles({
 });
 
 export interface CharacterEditorDialogProps {
-  /** 编辑目标（全量字段预填，含 persona / 模型覆写三扁平字段）；新建由父级先建卡
-   *  再进编辑器，本组件只服务编辑既有卡。 */
+  /** 编辑模式（2026-09-16 创建流程改「先编辑后落库」）：edit = 编辑既有卡
+   *  （修改即保存 + 删除/导出动作行）；create = 新建草稿（character 为父级
+   *  构造的空草稿，id 0 仅供海报渐变派生——自动保存全链路静默，动作行为
+   *  放弃/保存，保存经 onCreate 一次性落库，其余一切关闭路径即放弃）。 */
+  mode: 'create' | 'edit';
+  /** 编辑目标（全量字段预填，含 persona / 模型覆写三扁平字段）；create 模式
+   *  传空草稿（父级 newDraftCharacter）。 */
   character: CharacterSummary;
   /** 可见性：false 时本组件播退场动画（仍挂载），到点回调 onClosed。 */
   open: boolean;
@@ -247,19 +257,24 @@ export interface CharacterEditorDialogProps {
   animDefaults?: AnimDefaults | undefined;
   /** 保存失败的行内错误文案（父组件设置）。 */
   errorText: string | null;
-  /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示）。 */
+  /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示；仅 edit 模式）。 */
   onAutosave: (input: CharacterInput) => Promise<void>;
-  /** 关闭请求（背板 / × / Esc）：本组件先 flushSave 补存最后一拍。 */
+  /** 创建出口（仅 create 模式「保存」）：父级落库 + refresh；失败就地红字
+   *  并上抛——本组件保持打开（契约同 onAutosave），成功后自行请求关闭。 */
+  onCreate: (input: CharacterInput) => Promise<void>;
+  /** 关闭请求（背板 / × / Esc）：edit 模式先 flushSave 补存最后一拍；
+   *  create 模式即放弃（草稿不落库）。 */
   onClose: () => void;
-  /** 删除按钮：父组件弹就地确认对话框，本组件不直接删。 */
+  /** 删除按钮（仅 edit 模式）：父组件弹就地确认对话框，本组件不直接删。 */
   onDelete: (character: CharacterSummary) => void;
-  /** 导出按钮（动作行删除旁，2026-09-16 自卡内角标菜单移此）：父组件走
-   *  导出对话框，成功/取消静默，真错误由父级就地红字；本组件不直接导出。 */
+  /** 导出按钮（动作行删除旁，2026-09-16 自卡内角标菜单移此；仅 edit 模式）：
+   *  父组件走导出对话框，成功/取消静默，真错误由父级就地红字；本组件不直接导出。 */
   onExport: (character: CharacterSummary) => void;
 }
 
 export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   const {
+    mode,
     character,
     open,
     onClosed,
@@ -269,6 +284,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
     animDefaults,
     errorText,
     onAutosave,
+    onCreate,
     onClose,
     onDelete,
     onExport,
@@ -276,13 +292,33 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
   const styles = useStyles();
   const field = useFieldStyles();
   const { t } = useTranslation();
-  const form = useEditorForm({ character, onAutosave, animDefaults });
+  const form = useEditorForm({
+    character,
+    onAutosave,
+    autosave: mode === 'edit',
+    animDefaults,
+  });
   const { surfaceRef } = useSurfaceMorph({ open, onClosed, getTriggerRect });
+  // 创建在途标记（create 模式）：保存点击后禁用动作行防双击；失败复位保持打开。
+  const [saving, setSaving] = useState(false);
 
-  // 全部关闭路径共用：先补存最后一拍（无在途防抖即 no-op），再请求关闭。
+  // 全部关闭路径共用：edit 先补存最后一拍（无在途防抖即 no-op）；create 即
+  // 放弃（草稿不落库，与动作行「放弃」同语义）。
   const requestClose = (): void => {
-    form.flushSave();
+    if (mode === 'edit') form.flushSave();
     onClose();
+  };
+
+  /** 保存（create 模式动作）：整卡载荷一次性创建；成功即请求关闭（卡片经
+   *  父级 refresh 进列表），失败保持打开（错误由父级就地红字，契约同
+   *  onAutosave 上抛）。 */
+  const handleSave = (): void => {
+    if (!form.canSave || saving) return;
+    setSaving(true);
+    onCreate(form.buildInput())
+      .then(() => onClose())
+      .catch(() => undefined)
+      .finally(() => setSaving(false));
   };
 
   return (
@@ -329,7 +365,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
           {/* 右：中性面板上的标题 / 表单 / 动作（主题交给左海报） */}
           <div className={styles.rightCol}>
             <DialogTitle className={styles.titleRow} action={{ className: styles.titleAction }}>
-              {t('characters.editTitle')}
+              {t(mode === 'create' ? 'characters.new' : 'characters.editTitle')}
             </DialogTitle>
             <DialogContent className={styles.content}>
               <div className={styles.form}>
@@ -417,12 +453,31 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
               </div>
             </DialogContent>
             <DialogActions className={styles.actionsRow}>
-              <Button onClick={() => onDelete(character)}>
-                {t('characters.delete')}
-              </Button>
-              <Button className={styles.pinLeft} onClick={() => onExport(character)}>
-                {t('characters.export')}
-              </Button>
+              {mode === 'create' ? (
+                <>
+                  {/* 放弃钉左端（marginRight:auto 把保存推到右端）：草稿丢弃
+                      不落库，与背板/× 同语义 */}
+                  <Button className={styles.pinLeft} disabled={saving} onClick={requestClose}>
+                    {t('characters.discard')}
+                  </Button>
+                  <Button
+                    appearance="primary"
+                    disabled={!form.canSave || saving}
+                    onClick={handleSave}
+                  >
+                    {t('characters.save')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={() => onDelete(character)}>
+                    {t('characters.delete')}
+                  </Button>
+                  <Button className={styles.pinLeft} onClick={() => onExport(character)}>
+                    {t('characters.export')}
+                  </Button>
+                </>
+              )}
             </DialogActions>
           </div>
         </DialogBody>

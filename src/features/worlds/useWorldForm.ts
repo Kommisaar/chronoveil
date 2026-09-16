@@ -3,9 +3,11 @@
  * useEditorForm 的自动保存机制，字段面收窄为名称 / 世界观 / 历法三字段；
  * 两处以内不提取公共钩子——两边的载荷构造与预填语义各自内聚）。
  *
- * - 只服务编辑既有卡（新建由父级「先建卡再进编辑器」）：父组件以 key 重挂
- *   换绑初值；world 是打开时的快照，保存后父级 refresh 不回灌表单；
- * - 修改即保存：任一字段改动经 600ms 防抖后串行上送（上一拍完成才发下一
+ * - 服务两种模式（2026-09-16 创建流程改「先编辑后落库」，与角色侧同构）：
+ *   edit = 编辑既有卡（父组件以 key 重挂换绑初值；world 是打开时的快照，
+ *   保存后父级 refresh 不回灌表单）；create = 新建草稿（autosave=false：
+ *   不排防抖拍、不上送，载荷经 buildInput 由排版壳「保存」点击时取用）；
+ * - 修改即保存（仅 edit 模式）：任一字段改动经 600ms 防抖后串行上送（上一拍完成才发下一
  *   拍，防乱序覆盖）；载荷与上次已保存值相同则跳过；名称为空（canSave=
  *   false）暂不发送；关闭前由排版壳调 flushSave 补存最后一拍；「过期载荷
  *   不得落库」对防抖窗口（还原取消防抖拍）与串行链在途窗口（落库后的
@@ -66,7 +68,10 @@ export interface WorldForm {
   setPreset: (key: PresetKey) => void;
   /** 名称必填门槛：为空时自动保存挂起（编辑器出必填提示）。 */
   canSave: boolean;
-  /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送。 */
+  /** 当前表单 → 整卡 wire 载荷（create 模式「保存」点击时由排版壳取用；
+   *  edit 模式内部自动保存链自用）。 */
+  buildInput: () => WorldInput;
+  /** 关闭前补存：取消在途防抖，把未落库的最后一拍立即上送（仅 edit 模式）。 */
   flushSave: () => void;
 }
 
@@ -74,8 +79,14 @@ export function useWorldForm(props: {
   world: WorldSummary;
   /** 修改即保存的上送出口（父级落库 + refresh + 错误就地展示）。 */
   onAutosave: (input: WorldInput) => Promise<void>;
+  /** 自动保存开关（2026-09-16 创建流程）：create 模式 false——全链路静默，
+   *  载荷经 buildInput 手动取用（与 useEditorForm.autosave 同构）。 */
+  autosave: boolean;
 }): WorldForm {
   const { world, onAutosave } = props;
+  // latest-ref（模式随 key 重挂恒定，ref 仅为闭包安全读法，同 useEditorForm）。
+  const autosaveRef = useRef(props.autosave);
+  autosaveRef.current = props.autosave;
 
   // 目标卡由父组件 key 重挂保证不变，初值只取一次。
   const initial = useMemo(
@@ -130,8 +141,10 @@ export function useWorldForm(props: {
   };
 
   /** 上送一拍：入链串行执行；成功后推进已保存基线并按需排纠正拍。失败已在
-   *  父级就地红字展示，链吞掉 rejection 不断链（下一拍改动自然重试）。 */
+   *  父级就地红字展示，链吞掉 rejection 不断链（下一拍改动自然重试）。
+   *  create 模式（autosave 关闭）全链路静默：本函数是唯一上送咽喉。 */
   const persist = (input: WorldInput, json: string): void => {
+    if (!autosaveRef.current) return;
     if (json === lastSavedRef.current) return;
     chainRef.current = chainRef.current
       .then(async () => {
@@ -144,8 +157,9 @@ export function useWorldForm(props: {
   };
 
   // 修改即保存：无依赖数组 = 每次渲染重新比对（表单字段集即全部状态；此
-  // 处置需要最新闭包）。
+  // 处置需要最新闭包）。create 模式（autosave 关闭）直接短路。
   useEffect(() => {
+    if (!autosaveRef.current) return;
     const json = JSON.stringify(buildInputRef.current());
     if (json === lastSavedRef.current) {
       // 改回已保存值（防抖窗口内还原）：取消在途拍；串行链在途的还原差异
@@ -207,6 +221,7 @@ export function useWorldForm(props: {
     preset: matchPreset(calendar),
     setPreset: (key) => setCalendar(key === 'default' ? null : CALENDAR_PRESETS[key]),
     canSave,
+    buildInput,
     flushSave,
   };
 }

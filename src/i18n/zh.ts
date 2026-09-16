@@ -137,15 +137,8 @@ export const zh = {
       forkFailed: '分叉失败',
     },
   },
-  // 卡面风格切换（对比期基建）：世界页工具栏档位（store：
-  // useUiStore.cardDirection），对比期结束拍板后随切换器一并裁撤。角色页
-  // 卡面 2026-09-16 定稿典藏卡单一形态，不再有切换器。
-  cardStyle: {
-    label: '卡面风格',
-    gallery: '陈列馆',
-    ledger: '名册',
-    stage: '舞台',
-  },
+  // 卡面风格切换（对比期基建）key 已于 2026-09-16 随世界页「只保留这一版」
+  // 拍板裁撤（切换器拆除、cardDirection 出 store；角色页同日先行定稿）。
   worlds: {
     title: '世界',
     new: '新建世界',
@@ -184,6 +177,9 @@ export const zh = {
     deleteConfirmText: '世界卡将从列表隐藏；已建会话内的世界快照不受影响。确定删除「{{name}}」吗？',
     confirmDelete: '删除',
     cancel: '取消',
+    // 创建流程「先编辑后落库」（2026-09-16）：草稿编辑器动作行 放弃/保存
+    save: '保存',
+    discard: '放弃',
     saveFailed: '保存失败',
     deleteFailed: '删除失败',
   },
@@ -262,6 +258,9 @@ export const zh = {
     deleteConfirmTitle: '删除角色',
     deleteConfirmText: '历史会话与消息保留，角色从列表隐藏。确定删除「{{name}}」吗？',
     confirmDelete: '删除',
+    // 创建流程「先编辑后落库」（2026-09-16）：草稿编辑器动作行 放弃/保存
+    save: '保存',
+    discard: '放弃',
     saveFailed: '保存失败',
     deleteFailed: '删除失败',
     importFailed: '导入失败',

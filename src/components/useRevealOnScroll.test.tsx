@@ -1,6 +1,6 @@
 // useRevealOnScroll 行为补盲（审计盲区：此前仅有 motion.test.ts 的源码
 // 文本断言，无直接行为测试）。从消费契约出发（CharacterCollectCard /
-// WorldFullBleedCard 等消费方：revealDelay === undefined → 透明占位，
+// WorldGalleryCard 等消费方：revealDelay === undefined → 透明占位，
 // 数字 → 动画批内错峰 delay），
 // 全部断言公开行为而非内部实现：登记即订阅、IO 判交按批错峰下发、
 // 首屏手动判交、批内封顶、resetKey 重播、仅 count 增长只播新元素、

@@ -141,16 +141,9 @@ export const en = {
       forkFailed: 'Fork failed',
     },
   },
-  // Card-direction switch (comparison scaffolding): the Worlds toolbar
-  // preference (store: useUiStore.cardDirection); removed together with the
-  // switcher once a direction wins. The Characters page settled on a single
-  // collectible card on 2026-09-16 and no longer has a switcher.
-  cardStyle: {
-    label: 'Card style',
-    gallery: 'Gallery',
-    ledger: 'Ledger',
-    stage: 'Stage',
-  },
+  // The cardStyle keys (card-direction switch scaffolding, store:
+  // useUiStore.cardDirection) were removed on 2026-09-16 when the Worlds page
+  // settled on its single gallery card and the switcher was dismantled.
   worlds: {
     title: 'Worlds',
     new: 'New world',
@@ -188,6 +181,9 @@ export const en = {
       'The world card is hidden from the list; world snapshots inside existing sessions are unaffected. Delete "{{name}}"?',
     confirmDelete: 'Delete',
     cancel: 'Cancel',
+    // Draft-first creation flow (2026-09-16): draft editor actions Discard/Save
+    save: 'Save',
+    discard: 'Discard',
     saveFailed: 'Save failed',
     deleteFailed: 'Delete failed',
   },
@@ -264,6 +260,9 @@ export const en = {
     deleteConfirmText:
       'Past sessions and messages are kept; the character is hidden from the list. Delete "{{name}}"?',
     confirmDelete: 'Delete',
+    // Draft-first creation flow (2026-09-16): draft editor actions Discard/Save
+    save: 'Save',
+    discard: 'Discard',
     saveFailed: 'Save failed',
     deleteFailed: 'Delete failed',
     importFailed: 'Import failed',

@@ -1,34 +1,34 @@
 /**
  * 世界页（0017 世界卡特性）：与角色页同款的列表三态 + 卡网格 + 编辑器形态。
- * 卡面口径（2026-09-15 晚间用户批准重设计定稿）：gallery 档用 WorldPlateCard
- * 横版「图版卡」（上图下文，卡面承载身份——世界观摘录是主角，历法/日期退居
- * 次位；竖=角色域、横=世界域，角色页 2026-09-16 定稿竖版典藏卡后此域别
- * 仍成立），替代同日早前的档案卡定稿；ledger 档落单列名册行（WorldLedgerRow，
- * Task-04）；stage 档落满幅深底卡（WorldFullBleedCard，
- * Task-05：整卡世界色深底白字 + 页头青绿环境光晕），旧档案卡随 stage 接管
- * 无消费方而裁撤（拍板后败者随代码一并裁撤）。
+ * 卡面口径（2026-09-16 用户两步拍板定稿为单一形态）：gallery 档
+ * WorldGalleryCard「典藏形卡」——按角色页典藏卡形制改造（主题面卡 + 留白
+ * 图框 + 世界观摘录主角 + 底部历法/日期元信息行，同分区结构；卡高对齐
+ * 角色卡、列宽 280px 更宽一档）。同日原横版「图版卡」WorldPlateCard 与
+ * 对比期败者（ledger 名册行 WorldLedgerRow / stage 满幅深底卡
+ * WorldFullBleedCard + 页头环境光晕）随「只保留这一版」拍板一并退役，
+ * 卡面风格切换器随之拆除（对比期基建完结，store 的 cardDirection 一并
+ * 移除，与角色页同形态）。
  *
  * - 世界色按 id 取模恒定（worldGradientOf，地志调色板与角色靛紫系拉开域
  *   别）；同世界跨处配色漂移不可接受（同角色页规则）；
- * - 悬停无位移（仅底色变化）：lift 的 translateY/scale 在宽扁信息卡上观感
- *   浮动（用户反馈），与 WorldPickGrid worldCard 同款静停；入场动画仍与
- *   角色卡同款（card-enter-pop 弹簧 + useRevealOnScroll 视口揭示错峰）；
+ * - 悬停 lift（弹性上浮 + 阴影）：gallery 卡 2026-09-16 随典藏形制改造
+ *   回归与角色卡同款弹性语言（原「悬停无位移」拍板针对宽扁横版卡的浮动
+ *   观感，形制退役后失效）；入场动画与角色卡同款（card-enter-pop 弹簧 +
+ *   useRevealOnScroll 视口揭示错峰）；
  * - 新建 = 先以默认名落库再进编辑器（修改即保存，同 CharactersView 惯例，
  *   无独立 create 表单态）；
  * - 编辑器（WorldEditorDialog）与角色编辑器同档（2026-09-15 用户定稿升档
  *   「世界观是世界的灵魂」，旧「标准模态简单档」口径作废）：左世界色画布
  *   + 右三张分组卡（基础信息 / 世界观 / 历法五选），非模态 + 毛玻璃背板 +
- *   从卡面 FLIP 长出（各档卡面都挂 data-editor-trigger），可见性与挂载
- *   分离（editorOpen 置 false 走退场动画，onClosed 才卸载）；改动经表单
- *   钩子防抖自动落库；
+ *   从卡面 FLIP 长出（卡面挂 data-editor-trigger；新建草稿从工具栏新建钮
+ *   长出），可见性与挂载
+ *   分离（editorOpen 置 false 走退场动画，onClosed 才卸载）；edit 模式改动
+ *   经表单钩子防抖自动落库；新建 = 先编辑后落库（2026-09-16 用户拍板，
+ *   保存才创建进列表，见 handleNew / handleCreate）；
  * - 删除走 ConfirmDialog 确认：世界软删（ADR-009），已建会话内的世界快照
  *   （world_instances，D1 冻结语义）不受影响——文案明示该语义；
  * - 列表三态（A1 收编）：空列表时 loading / error+重试 / 空库三选一；列表
  *   在手时的重取失败保留红字 + 网格。
- * - 工具栏卡面风格切换器（对比期基建）：与角色页共用全局
- *   cardDirection 档位——gallery 落图版卡网格，ledger 落单列名册行
- *   （Task-04），stage 落满幅深底卡网格 + 环境光晕（Task-05），拍板胜出
- *   方向后随败者裁撤。
  */
 import {
   Button,
@@ -37,44 +37,23 @@ import {
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorldInput, WorldSummary } from '../../api/types';
 import { createWorld, deleteWorld, listWorlds, updateWorld } from '../../api/commands';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
-import { useUiStore } from '../../stores/ui';
 import { WorldEditorDialog } from './WorldEditorDialog';
-import { WorldFullBleedCard } from './WorldFullBleedCard';
-import { WorldLedgerRow } from './WorldLedgerRow';
-import { WorldPlateCard } from './WorldPlateCard';
+import { WorldGalleryCard } from './WorldGalleryCard';
 
 const useStyles = makeStyles({
   content: {
-    position: 'relative',
-    zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',
-  },
-  // 页头环境光晕（stage 档氛围层）：fixed 静态装饰，radial-gradient 从顶部
-  // 青绿到透明。取色理由：#1f6d6f 是 worldGradient.ts「深青海」色对的亮端
-  // ——世界域色板本身（地志调，与角色页靛紫光晕拉开域别），不引 Fluent
-  // brand token（brand 是交互控件语义色，氛围层要的是域色不是控件色）；
-  // 低不透明度装饰、不承载任何文字（无对比度约束），aria-hidden +
-  // pointer-events none，zIndex 0 压在内容层（relative z1）之下。仅
-  // cardDirection === 'stage' 时挂载（条件渲染非显隐）
-  ambientGlow: {
-    position: 'fixed',
-    inset: '0px',
-    pointerEvents: 'none',
-    zIndex: 0,
-    backgroundImage:
-      'radial-gradient(ellipse 80% 45% at 50% 0%, rgba(31, 109, 111, 0.18) 0%, rgba(31, 109, 111, 0) 70%)',
   },
   toolbar: {
     display: 'flex',
@@ -85,7 +64,6 @@ const useStyles = makeStyles({
     marginLeft: 'auto',
     display: 'flex',
     alignItems: 'center',
-    gap: tokens.spacingHorizontalS,
   },
   errorText: {
     color: tokens.colorPaletteRedForeground1,
@@ -96,41 +74,25 @@ const useStyles = makeStyles({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 图版卡网格（gallery 档）：横版卡承载世界观摘录两行 clamp 的正文区，
-  // 列宽 260px（舞台档满幅卡 300px 再疏朗一档，见 stageGrid）
-  plateGrid: {
+  // 典藏形卡网格（gallery 档定稿）：列宽 280px——2026-09-16 用户拍板
+  // 「更宽一点」，比角色典藏卡网格（200px，收藏卡密度）宽一档；原横版
+  // 图版卡 260px 档随形制退役。卡高不随加宽增高：图框定高对齐角色卡
+  //（126px，推导见 WorldGalleryCard.frame 注释）
+  galleryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
     gap: '16px',
-  },
-  // 满幅深底卡网格（stage 档，Task-05）：主角大卡——列宽定档比图版墙
-  //（260px）疏朗一档（300px 起步，同窗宽列数更少、单卡更大），行距放宽
-  // 到 20px；卡面高度由 WorldFullBleedCard 的 minHeight 280 自持
-  stageGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-    gap: '20px',
-  },
-  // 名册容器（ledger 档，Task-04）：单列限宽 880 居中（对齐 settings 族阅读
-  // 宽度，与角色页 ledgerList 同口径）——名册是阅读型列表不是卡片墙；行间
-  // 分隔由 WorldLedgerRow 行内细线承担
-  ledgerList: {
-    display: 'flex',
-    flexDirection: 'column',
-    maxWidth: '880px',
-    marginInline: 'auto',
-  },
-  // 卡面风格切换器定宽：SegmentedControl 轨道自带 width:100%，工具栏 flex 行
-  // 内不约束会撑满整行（同本文件 WorldEditorDialog.worldbookMode 先例）
-  cardStyleSwitch: {
-    width: '168px',
-    minWidth: '0px',
   },
 });
 
-/** 新建卡的默认负载：先落库再进编辑器（修改即保存），后续编辑自动保存到该卡。 */
-function newWorldInput(name: string): WorldInput {
-  return { name, worldbook: '', calendar: null };
+/** 新建草稿哨兵 id（2026-09-16 创建流程）：真实卡 id 自 1 起（SQLite 自增 +
+ *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式与
+ *  FLIP 触发锚回退（草稿无卡，从工具栏新建钮量矩形；同 CharactersView）。 */
+const DRAFT_ID = 0;
+
+/** 新建草稿（不落库不入列，保存成功前仅存在于编辑器状态里）。 */
+function newDraftWorld(): WorldSummary {
+  return { id: DRAFT_ID, name: '', worldbook: '', calendar: null, updatedAt: 0 };
 }
 
 function describeError(e: unknown): string {
@@ -142,32 +104,27 @@ export function WorldsView() {
   const page = usePageContainerStyles('grid');
   const { t } = useTranslation();
 
-  // 卡面方向档位（对比期基建，角色页典藏卡 2026-09-16 定稿后为本页专用）：
-  // gallery 落图版卡，ledger 落名册行（Task-04），stage 落满幅深底卡 +
-  // 环境光晕（Task-05），拍板胜出方向后随败者裁撤。
-  const cardDirection = useUiStore((s) => s.cardDirection);
-  const setCardDirection = useUiStore((s) => s.setCardDirection);
-
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   // 列表在途标记（三态收编，同 CharactersView）：true 且列表为空时出
   // loading 占位；列表在手时的重取不换占位（网格保持）。
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // 编辑目标（既有卡）：新建走「先建卡再编辑」。
+  // 编辑目标（既有卡或新建草稿）：create/edit 模式由 id === DRAFT_ID 派生。
   const [editor, setEditor] = useState<WorldSummary | null>(null);
   // 可见性与挂载分离（同 CharactersView）：editorOpen=false 只触发退场
   // 动画，播完 onClosed 才真正卸载编辑器。
   const [editorOpen, setEditorOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WorldSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // 工具栏「新建世界」钮：新建草稿的 FLIP 触发锚（草稿无卡可量，同
+  // CharactersView 新建钮先例）。
+  const newButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  // 视口揭示（同角色页海报墙）：首屏立即成批、折叠线以下滚入才播，批内按
-  // 清单浮现统一档错峰。resetKey 携带卡面方向：gallery ↔ ledger/stage 切换
-  // 会重挂网格 DOM（useRevealOnScroll 文件头的设计场景），揭示状态须随之
-  // 重置——否则新元素无人观察，折叠线以下从未滚入过的卡切档后永久透明。
-  const { reveal, register } = useRevealOnScroll(worlds.length, cardDirection);
+  // 视口揭示（同角色页典藏卡墙）：首屏立即成批、折叠线以下滚入才播，批内
+  // 按清单浮现统一档错峰。resetKey 落定稿档位常量（同 CharactersView 的
+  // 'collect' 先例）——本页卡面已无切换分支，常量仅为满足契约。
+  const { reveal, register } = useRevealOnScroll(worlds.length, 'gallery');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -185,21 +142,31 @@ export function WorldsView() {
     void refresh();
   }, [refresh]);
 
-  /** 新建 = 先以默认名落库再进编辑器（修改即保存，无独立 create 表单态）。 */
-  const handleNew = useCallback(async () => {
-    setCreating(true);
+  /** 新建 = 打开空草稿编辑器（2026-09-16 用户拍板「先编辑后落库」，同
+   *  CharactersView）：不落库，编辑器动作行「保存」才创建进列表；放弃/
+   *  关闭即弃稿。 */
+  const handleNew = useCallback(() => {
     setEditorError(null);
-    try {
-      const created = await createWorld(newWorldInput(t('worlds.new')));
-      await refresh();
-      setEditor(created);
-      setEditorOpen(true);
-    } catch (e) {
-      setEditorError(`${t('worlds.saveFailed')}：${describeError(e)}`);
-    } finally {
-      setCreating(false);
-    }
-  }, [refresh, t]);
+    setEditor(newDraftWorld());
+    setEditorOpen(true);
+  }, []);
+
+  /** 创建出口（编辑器 create 模式「保存」）：落库 + refresh；失败就地红字
+   *  并上抛——编辑器保持打开（契约同 handleAutosave），成功由编辑器自行
+   *  请求关闭。 */
+  const handleCreate = useCallback(
+    async (input: WorldInput) => {
+      setEditorError(null);
+      try {
+        await createWorld(input);
+        await refresh();
+      } catch (e) {
+        setEditorError(`${t('worlds.saveFailed')}：${describeError(e)}`);
+        throw e;
+      }
+    },
+    [refresh, t],
+  );
 
   /** 修改即保存的上送出口：落库 + refresh；失败就地红字并上抛——表单钩子
    *  据此不推进已保存基线，下一拍改动自然重试。 */
@@ -247,10 +214,14 @@ export function WorldsView() {
 
   const closeEditor = useCallback(() => setEditorOpen(false), []);
 
-  /** 共享元素过渡用：当前编辑目标对应的触发元素（当前档位卡面）矩形。
+  /** 共享元素过渡用：当前编辑目标对应的触发元素矩形。编辑既有卡查当前档位
+      卡面；新建草稿无卡可查，从工具栏「新建世界」钮量矩形（FLIP 从钮长出）。
       关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
       自行退化为纯淡出（同 CharactersView 形态）。 */
   const getTriggerRect = useCallback(() => {
+    if (editor?.id === DRAFT_ID) {
+      return newButtonRef.current?.getBoundingClientRect() ?? null;
+    }
     const el = editor
       ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
       : null;
@@ -262,28 +233,13 @@ export function WorldsView() {
 
   return (
     <div className={page}>
-      {/* stage 档氛围层：页头青绿环境光晕（fixed 装饰，仅 stage 档挂载，
-          条件渲染非 CSS 显隐——切档即卸载，不残留绘制面） */}
-      {cardDirection === 'stage' ? <div className={styles.ambientGlow} aria-hidden /> : null}
       <div className={styles.content}>
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('worlds.title')}</Title1>
           <div className={styles.toolbarRight}>
-            <SegmentedControl
-              className={styles.cardStyleSwitch}
-              ariaLabel={t('cardStyle.label')}
-              value={cardDirection}
-              // SegmentedControl 回调给宽化 string（组件按通用选项值设计），
-              // 收窄回 CardDirection；不可达兜底分支按初值 gallery（选项集即
-              // 本页三档全集；角色页专属的 collect 不入选项，读侧已收敛）
-              onChange={(v) => setCardDirection(v === 'ledger' || v === 'stage' ? v : 'gallery')}
-              options={[
-                { value: 'gallery', label: t('cardStyle.gallery') },
-                { value: 'ledger', label: t('cardStyle.ledger') },
-                { value: 'stage', label: t('cardStyle.stage') },
-              ]}
-            />
-            <Button appearance="primary" disabled={creating} onClick={() => void handleNew()}>
+            {/* ref 断言收窄：Fluent 插槽 Ref<never> 坑位（先例见
+                CharacterEditorDialog.surface / CharactersView 新建钮） */}
+            <Button ref={newButtonRef as never} appearance="primary" onClick={handleNew}>
               {t('worlds.new')}
             </Button>
           </div>
@@ -320,49 +276,18 @@ export function WorldsView() {
                 {loadError}
               </Text>
             ) : null}
-            {cardDirection === 'gallery' ? (
-              <div className={styles.plateGrid}>
-                {sorted.map((world, index) => (
-                  <WorldPlateCard
-                    key={world.id}
-                    world={world}
-                    index={index}
-                    revealDelay={reveal[index]}
-                    register={register}
-                    onOpen={openEditor}
-                  />
-                ))}
-              </div>
-            ) : cardDirection === 'ledger' ? (
-              // 名册档（Task-04）：单列名册行——世界色块 + 三行信息 + 行间细线
-              <div className={styles.ledgerList}>
-                {sorted.map((world, index) => (
-                  <WorldLedgerRow
-                    key={world.id}
-                    world={world}
-                    index={index}
-                    revealDelay={reveal[index]}
-                    register={register}
-                    onOpen={openEditor}
-                  />
-                ))}
-              </div>
-            ) : (
-              // stage 档（Task-05）：满幅深底卡——整卡世界色深底白字，内容
-              // 全部常显（环境光晕层见页头条件渲染）
-              <div className={styles.stageGrid}>
-                {sorted.map((world, index) => (
-                  <WorldFullBleedCard
-                    key={world.id}
-                    world={world}
-                    index={index}
-                    revealDelay={reveal[index]}
-                    register={register}
-                    onOpen={openEditor}
-                  />
-                ))}
-              </div>
-            )}
+            <div className={styles.galleryGrid}>
+              {sorted.map((world, index) => (
+                <WorldGalleryCard
+                  key={world.id}
+                  world={world}
+                  index={index}
+                  revealDelay={reveal[index]}
+                  register={register}
+                  onOpen={openEditor}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -370,11 +295,13 @@ export function WorldsView() {
       {editor ? (
         <WorldEditorDialog
           key={`edit-${editor.id}`}
+          mode={editor.id === DRAFT_ID ? 'create' : 'edit'}
           open={editorOpen}
           world={editor}
           getTriggerRect={getTriggerRect}
           errorText={editorError}
           onAutosave={handleAutosave}
+          onCreate={handleCreate}
           onClose={closeEditor}
           onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}

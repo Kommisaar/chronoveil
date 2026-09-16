@@ -52,7 +52,7 @@ import {
   DUR_DEFAULT_MS,
   RHYTHM_DEFAULT_MS,
 } from '../../engine';
-import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
+import { SURFACE_RADIUS_PAGE_CARD, THIN_SCROLLBAR } from '../../components/surfaceSpec';
 import { SettingsCard, SettingsDivider } from '../../components/SettingsCard';
 import type { CharacterInput, CharacterSummary, ProviderDto } from '../../api/types';
 // 全局采样温度缺省值：与 infra/config.rs DEFAULT_TEMPERATURE 同值（0.7）。
@@ -215,10 +215,9 @@ const useStyles = makeStyles({
     // 末行控件中间穿过）
     margin: '0px',
     padding: '12px 24px 12px 24px',
-    // 溢出滚动的细滚动条（WebView2 Chromium 支持）：默认粗滚动条在圆角
-    // 亚克力面板右缘太重
-    scrollbarWidth: 'thin',
-    scrollbarColor: `${tokens.colorNeutralStroke2} transparent`,
+    // 溢出滚动带的细滚动条：规格单一事实源见 surfaceSpec 的 THIN_SCROLLBAR
+    //（消费点互指清单在该处；默认粗滚动条在圆角亚克力面板右缘太重）
+    ...THIN_SCROLLBAR,
   },
   form: {
     display: 'flex',

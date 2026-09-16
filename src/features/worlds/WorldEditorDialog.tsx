@@ -60,7 +60,7 @@ import {
 import { MarkdownPreviewBox } from '../../components/MarkdownPreviewBox';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { SettingsCard, SettingsRow } from '../../components/SettingsCard';
-import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
+import { SURFACE_RADIUS_PAGE_CARD, THIN_SCROLLBAR } from '../../components/surfaceSpec';
 import { useSurfaceMorph } from '../../components/useSurfaceMorph';
 import type { WorldInput, WorldSummary } from '../../api/types';
 import { WorldCanvasPane } from './WorldCanvasPane';
@@ -207,9 +207,8 @@ const useStyles = makeStyles({
     // CharacterEditorDialog content 注释）
     margin: '0px',
     padding: '12px 24px 12px 24px',
-    // 溢出滚动的细滚动条（同角色编辑器）：默认粗滚动条在圆角面板右缘太重
-    scrollbarWidth: 'thin',
-    scrollbarColor: `${tokens.colorNeutralStroke2} transparent`,
+    // 细滚动条与角色编辑器同款：规格单一事实源见 surfaceSpec 的 THIN_SCROLLBAR
+    ...THIN_SCROLLBAR,
   },
   form: {
     display: 'flex',

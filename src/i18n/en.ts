@@ -202,11 +202,9 @@ export const en = {
     retry: 'Retry',
     import: 'Import character card',
     export: 'Export character card',
-    cardMenu: 'Card menu',
-    // Collectible card footer CTA pill (same destination as the card click)
-    editCard: 'Edit',
     editTitle: 'Edit character',
     name: 'Name',
+    nameLabel: 'Name:',
     gender: 'Gender',
     // 尾随空格不进翻译串（en parity 守卫）：标签与值的间隔空格由展示态拼接处补
     genderLabel: 'Gender:',
@@ -215,6 +213,7 @@ export const en = {
     ageLabel: 'Age:',
     agePlaceholder: 'Not set',
     characterTitle: 'Title',
+    titleLabel: 'Titles:',
     titlePlaceholder: 'e.g. Butcher of Blaviken',
     titleAdd: 'Add title',
     titleRemove: 'Remove title',

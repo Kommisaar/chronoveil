@@ -35,8 +35,9 @@
  *   落定修复（压暗下限/实底）后转入可配对断言——海报 OnBrand 四用点已于
  *   2026-09-13 按 PICK_SCRIM_ALPHA=0.62 实底修复转入下方 POSTER_ON_BRAND 清单
  *   （组名保留历史，现锚选人卡 CharacterPickGrid）。角色页 2026-09-16 定稿
- *   典藏卡单一形态，对比期海报卡/舞台卡随拍板裁撤：其文字断言组同步移除，
- *   ⋯ 触发器实底芯锚转挂 CharacterCollectCard（典藏卡触发器断言组）；
+ *   典藏卡单一形态，对比期海报卡/舞台卡随拍板裁撤：其文字断言组同步移除；
+ *   同日转挂典藏卡的 ⋯ 触发器实底芯锚又随角标菜单裁撤（导出移至编辑器
+ *   动作行）而移除；
  *   UNPAIRABLE 机制保留待未来不确定配对。
  */
 import { readFileSync } from 'node:fs';
@@ -56,9 +57,6 @@ type BackgroundToken =
 
 /** AA 正文线（本清单内无大文本语境，全部从紧按此线） */
 const WCAG_AA = 4.5;
-
-/** WCAG 1.4.11 非文字图形线（卡面 ⋯ 触发器图标专用；文字用点仍从紧按 4.5） */
-const WCAG_NON_TEXT = 3.0;
 
 const THEMES = { light: webLightTheme, dark: webDarkTheme } as const;
 
@@ -264,8 +262,7 @@ const UNPAIRABLE: readonly { file: string; line: number; style: string; token: s
  *
  * 常量名说明：本常量配对的是选人卡（CharacterPickGrid 的 PICK_SCRIM_ALPHA），
  * 2026-09-13 自 POSTER_SCRIM_FLOOR 改名以贴实际管辖面。同值 0.62 家族另见
- * WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA（世界满幅卡文字实底）与
- * CharacterCollectCard 的 COLLECT_ICON_SCRIM_ALPHA（典藏卡触发器实底芯）。
+ * WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA（世界满幅卡文字实底）。
  */
 const PICK_SCRIM_FLOOR = 0.62;
 
@@ -277,26 +274,11 @@ const POSTER_ON_BRAND: readonly { file: string; line: number; style: string; con
 ];
 
 /**
- * 典藏卡 ⋯ 触发器图标（2026-09-16 自海报卡组转挂；机制 2026-09-14 实锤）：
- * CharacterCollectCard 图框右上角卡菜单触发器的 MoreHorizontal 图标恒白
- * （字面量 #ffffff，双主题同值），直落头像/任意 accent 渐变（用户强调色
- * 原色直出可为纯白）→ 非文字 3:1 无下界。修复 = 触发器根挂 rgba(0,0,0,
- * COLLECT_ICON_SCRIM_ALPHA) 28px 圆形实底芯（与 CharacterPickGrid 的
- * PICK_SCRIM_ALPHA、WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA 同值同档
- * 互指，见各源文件常量注释）。
- *
- * 配对数学（最坏合成推导）：
- * - 最坏背景 = 纯白 accent，合成灰 = ceil(255 × (1 − 0.62)) = 97（取整保守）；
- * - 白图标 #ffffff × 97 灰 ≈ 6.19:1 ≥ 3:1（WCAG 1.4.11 非文字图形线；图标
- *   非文字，不按 4.5 正文线从紧）；
- * - 全交互态配对：Fluent transparent 外观的 ':hover' 与
- *   ':hover:active,:active:focus-visible' 底色规则按选择器键与静息声明并存，
- *   hover/按下时会整体替换静息实底芯（2026-09-14 reviewer 实锤，首版
- *   「静态配对即全状态配对」的推断即败于此）——源文件以逐字相同的选择器串
- *   同值覆写钉住，下方 it 对覆写串做文本锚，覆写缺失或变值即失败。
+ * 典藏卡 ⋯ 触发器图标锚（2026-09-16 自海报卡组转挂，同日随角标菜单裁撤
+ * 移除——「导出按钮放到删除旁边」拍板后触发器不复存在，scrim 机制及
+ * 交互态覆写锚一并退场；若将来卡面再挂恒白图形于身份色面上，按本文件
+ * git 历史同形态重建锚组）。
  */
-const COLLECT_ICON_SCRIM_FLOOR = 0.62;
-const COLLECT_CARD_FILE = 'src/features/characters/CharacterCollectCard.tsx';
 
 /**
  * 世界满幅卡文字用点（2026-09-15 新增，Task-05）：WorldFullBleedCard（世界
@@ -304,9 +286,11 @@ const COLLECT_CARD_FILE = 'src/features/characters/CharacterCollectCard.tsx';
  * rgba(0,0,0,WORLD_BLEED_SCRIM_ALPHA) 黑实底、次级文字走
  * WORLD_BLEED_META_TEXT_ALPHA 半透明白——与 CharacterPickGrid 的
  * PICK_SCRIM_ALPHA 同值同档互指（角色页 2026-09-16 定稿典藏卡后，海报/舞台
- * 侧同值常量随卡片裁撤，0.62 家族收敛为 pick + collect 图标 + world 三锚）。
+ * 侧同值常量随卡片裁撤；典藏卡 ⋯ 触发器 COLLECT_ICON_SCRIM_ALPHA 锚又随
+ * 同日「导出移至编辑器动作行」裁撤角标菜单而移除——0.62 家族收敛为
+ * pick + world 双锚）。
  *
- * 配对数学（最坏合成推导，与 pick/collect 侧同口径）：世界色板当前恒深色
+ * 配对数学（最坏合成推导，与 pick 侧同口径）：世界色板当前恒深色
  * （worldGradientOf 无 accent 直出路径），但守卫仍按最坏口径断言（纯白底）
  * ——色板将来引入浅色/用户可选色时下限不破：
  * - 最坏背景 = 纯白 × (1 − 0.62) 黑实底 → 合成灰 = ceil(255 × 0.38) = 97
@@ -315,10 +299,9 @@ const COLLECT_CARD_FILE = 'src/features/characters/CharacterCollectCard.tsx';
  * - 次文字（半透明白按合成像素计）：0.8 合成 = floor(255×0.8+97×0.2) = 223
  *   → ≈4.65:1 ≥ 4.5。
  *
- * 数值锚闭环：同值 0.62 家族的三处——pick（POSTER_ON_BRAND 组锚
- * PICK_SCRIM_ALPHA）/ collect 图标（下方典藏卡触发器锚组，非文字 3:1 线）/
- * world（本组锚 WORLD_BLEED_*）——全部有常量值 + 挂载模板串双锚，任一处
- * 改值不同步即失败。
+ * 数值锚闭环：同值 0.62 家族的两处——pick（POSTER_ON_BRAND 组锚
+ * PICK_SCRIM_ALPHA）/ world（本组锚 WORLD_BLEED_*）——全部有常量值 +
+ * 挂载模板串双锚，任一处改值不同步即失败。
  */
 const WORLD_BLEED_TEXT_SCRIM_FLOOR = 0.62;
 const WORLD_BLEED_TEXT_META_ALPHA = 0.8;
@@ -494,51 +477,5 @@ describe('UI 层中性前景对比度守卫（WCAG AA，engine 同规格）', ()
       }
     }
     expect(failures, `共 ${failures.length} 项不达标：\n${failures.join('\n')}`).toEqual([]);
-  });
-
-  it('典藏卡 ⋯ 触发器图标：源文件仍持实底芯常量，白图标 × 最坏合成背景 ≥3:1（非文字线）', () => {
-    // 完整性锚（静态清单惯例，不跨模块 import 源码）：常量声明、实底挂载
-    // 模板串与恒白图标字面量仍在（改动需同步 COLLECT_ICON_SCRIM_FLOOR）；
-    // 行尾统一为 LF 以让下方多行交互态锚对 CRLF/LF 检出均稳定
-    const source = readSource(COLLECT_CARD_FILE).replace(/\r\n/g, '\n');
-    expect(
-      source,
-      `实底芯常量被移除或改值（需同步 COLLECT_ICON_SCRIM_FLOOR）：${COLLECT_CARD_FILE}`,
-    ).toContain(`COLLECT_ICON_SCRIM_ALPHA = ${COLLECT_ICON_SCRIM_FLOOR}`);
-    expect(
-      source,
-      `触发器未挂实底芯（下限失效）：${COLLECT_CARD_FILE}`,
-    ).toContain('rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})');
-    expect(
-      source,
-      `触发器图标改色（与断言的配对前景脱钩）：${COLLECT_CARD_FILE}`,
-    ).toContain("color: '#ffffff'");
-    // 交互态锚：transparent 外观的 ':hover' / ':hover:active,:active:focus-visible'
-    // 底色规则按选择器键与静息声明并存，hover/按下时会把静息实底芯整体替换
-    // 为透明（键不同不构成 mergeClasses 冲突）。源文件必须持逐字同串同值覆写
-    // （含换行缩进整段匹配，改值/拆串/删除任一即失败）
-    const hoverOverride =
-      "':hover': {\n      backgroundColor: `rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})`,\n    },";
-    const activeOverride =
-      "':hover:active,:active:focus-visible': {\n      backgroundColor: `rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})`,\n    },";
-    expect(
-      source,
-      `hover 同值覆写缺失或变值（交互态实底芯失效）：${COLLECT_CARD_FILE}`,
-    ).toContain(hoverOverride);
-    expect(
-      source,
-      `active 同值覆写缺失或变值（按下态实底芯失效）：${COLLECT_CARD_FILE}`,
-    ).toContain(activeOverride);
-    // 最坏合成背景：纯白 accent × (1 − 0.62) 黑实底，通道向上取整保守；
-    // 图标恒白字面量不随主题变化，单次断言即双主题成立
-    const channel = Math.ceil(255 * (1 - COLLECT_ICON_SCRIM_FLOOR));
-    const worst: [number, number, number] = [channel, channel, channel];
-    const fg = parseHexColor('#ffffff');
-    if (fg === null) throw new Error('图标前景 #ffffff 解析失败');
-    const ratio = contrastRatio(fg, worst);
-    expect(
-      ratio,
-      `⋯ 触发器图标 × 最坏合成背景 = ${ratio.toFixed(2)}:1 < ${WCAG_NON_TEXT}（非文字线）`,
-    ).toBeGreaterThanOrEqual(WCAG_NON_TEXT);
   });
 });

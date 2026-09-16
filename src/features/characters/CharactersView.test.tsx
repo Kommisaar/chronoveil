@@ -4,7 +4,7 @@
 // 破坏性操作放最后（ADR-010 双模式允许 UI 层直接对 mock 断言）。
 // 角色列表异步加载：交互前一律先 findByText 等卡片上屏。
 import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { sessions } from '../../api/mock/data';
 import '../../i18n';
@@ -57,9 +57,9 @@ it('渲染现有卡片网格，按 updated_at 倒序（UI-002）', async () => {
 });
 
 // 卡面单一形态（2026-09-16 典藏卡定稿，对比期四档随拍板裁撤归一）：角色页
-// 只有一种卡——名字/称号/人设摘录常显 + 元信息行与「编辑」pill，点 pill 进
-// 编辑。只读用例，排破坏性用例之前。
-it('典藏卡：常显身份与元信息，底部「编辑」pill 进编辑恰好一次', async () => {
+// 只有一种卡——名字/称号/人设摘录常显 + 元信息行，整卡点击进编辑（底部无
+// 主操作钮，2026-09-16 用户拍板移除「编辑」pill）。只读用例，排破坏性用例之前。
+it('典藏卡：常显身份与元信息，整卡点击进编辑恰好一次', async () => {
   renderView();
   // 林深种子带 titles + markdown persona（断言素材同首用例）；会话数是 0
   // 而非种子静态值 1：mock listCharacters 实时统计 is_user 扮演位会话数
@@ -69,12 +69,9 @@ it('典藏卡：常显身份与元信息，底部「编辑」pill 进编辑恰�
   expect(card?.textContent).toContain('「守夜人」');
   expect(card?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
   expect(card?.textContent).toContain('0 个会话');
-  // 典藏卡带图框角标导出菜单（导出经卡内可达）；多卡同名钮按林深卡作用域
-  // 查询（getAll 全局会撞多卡）
-  expect(within(card).getByRole('button', { name: '卡片菜单' })).toBeTruthy();
-  // 点底部「编辑」pill 进编辑器；pill 与整卡 click 同义但恰好一次
-  // （截断冒泡，双触发回归见 CharacterCollectCard.test）
-  fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
+  // 整卡点击进编辑器（角标导出菜单已于 2026-09-16 裁撤——导出移至编辑器
+  // 动作行删除旁；卡面已无嵌套交互位）
+  fireEvent.click(nameText);
   expect(
     await screen.findByRole('heading', { name: '编辑角色' }, { timeout: 3000 }),
   ).toBeTruthy();
@@ -183,23 +180,17 @@ it('删除：软删 + 确认对话框（文案明示历史保留），卡片消�
 // ---- 角色卡导入/导出（Task-04；浏览器 dev 走 mock：导出回路径串、导入建样例卡）----
 // 用例放文件末尾：导入会向模块级 mock 种子追加新卡，影响后续断言。
 
-it('导出：卡片菜单「导出角色卡」可触发，静默成功不弹错误，不打开编辑器（None 取消同静默）', async () => {
+it('导出：编辑器动作行「导出角色卡」（删除旁）可触发，静默成功不弹错误（None 取消同静默）', async () => {
   renderView();
   await screen.findByText('苏鸢');
 
-  const trigger = screen.getAllByRole('button', { name: '卡片菜单' })[0];
-  expect(trigger).toBeTruthy();
-  fireEvent.click(trigger!);
-  fireEvent.click(await screen.findByRole('menuitem', { name: '导出角色卡' }));
+  // 2026-09-16 拍板：导出自卡内角标菜单移至编辑器动作行（删除旁）
+  fireEvent.click(screen.getByText('苏鸢'));
+  fireEvent.click(await screen.findByRole('button', { name: '导出角色卡' }));
 
-  await waitFor(() => {
-    expect(screen.queryByRole('menuitem', { name: '导出角色卡' })).toBeNull();
-  });
+  // 静默成功：无 alert（真错误才走就地红字）；编辑器保持打开
   expect(screen.queryByRole('alert')).toBeNull();
-  // 菜单项 click 防冒泡回归（2026-09-15 reviewer 实测）：React 门户事件沿
-  // React 树冒泡，MenuItem 不 stopPropagation 会导出同时打开卡片编辑器
-  // （openEditor 同步 setState，无需等待）
-  expect(screen.queryByRole('heading', { name: '编辑角色' })).toBeNull();
+  expect(screen.getByRole('heading', { name: '编辑角色' })).toBeTruthy();
 });
 
 it('导入：工具栏「导入角色卡」经内置样例建新卡并刷新清单', async () => {

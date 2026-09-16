@@ -5,7 +5,9 @@
  * 2026-09-16 用户供图（外部收藏卡设计）拍板，按其卡面语言落地：
  *
  * - 图框是卡内独立圆角面（四周留白呼吸感），内有头像/渐变色面 + 首字
- *   水印；⋯ 导出菜单触发器坐图框右上角（参照供图的角标收藏钮位）；
+ *   水印。曾按供图挂 ⋯ 导出菜单角标（参照角标收藏钮位），2026-09-16
+ *   用户拍板「导出按钮放到删除旁边」随移编辑器动作行，角标菜单整体
+ *   裁撤，图框回归纯展示面（scrim 实底与守卫锚随之消失）；
  * - 正文区直接落主题表面：名字/人设摘录用 Fluent 前景 token（fg1/fg2 ×
  *   中性面），对比度由主题对保证——明暗切换（既有 uiTheme 体系，
  *   AppProviders 消费）自动成立，**无需 scrim 实底与 contrastGuard 守卫
@@ -22,32 +24,19 @@
  *   同日早先的渐变流动 + 暗色掺白实验随之整体裁撤：keyframes
  *   titles-gradient-cycle、mixTowardWhite、titlesGradientStops 均已移除）。
  *   reduced-motion 不轮换，整串并显静置（信息完整优先）。
- * - 底部行 = 元信息（色点 + 会话数）在左、「编辑」主操作 pill 在右（供图
- *   的「价格 + 购买钮」行位映射；无价格语义，元信息补位；动画样式文本
- *   2026-09-16 用户拍板移除）。
- *   pill 与整卡点击同义（点击进编辑契约），是显式动作位不是新功能；
- * - 嵌套交互三处（⋯ 触发器 / 菜单项 / 编辑 pill）全部 stopPropagation
- *   ——门户 click 沿 React 树冒泡，不截会「导出/编辑」与整卡 onClick
- *   双触发；pill 的 keydown 也要截：Enter/Space 在 pill 上原生 click 与
- *   冒泡到卡的键盘路径会双触发；
+ * - 底部行 = 元信息（色点 + 会话数）。曾按供图行位映射「编辑」主操作
+ *   pill（价格 + 购买钮的形），2026-09-16 用户拍板移除——与整卡点击同义
+ *   的显式动作位冗余，进编辑只走整卡点击 / Enter / Space；
  * - data-editor-trigger（FLIP 锚点）、preReveal/enterPop + register/
  *   revealDelay 接线（--enter-delay CSS 变量 + as CSSProperties）与
  *   角色卡入场动画同款（keyframes card-enter-pop 在 app.css）。
  */
 import {
-  Button,
   Card,
-  Menu,
-  MenuButton,
-  MenuItem,
-  MenuList,
-  MenuPopover,
-  MenuTrigger,
   makeStyles,
   mergeClasses,
   tokens,
 } from '@fluentui/react-components';
-import { ArrowDownloadRegular, MoreHorizontalRegular } from '@fluentui/react-icons';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -64,26 +53,6 @@ import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { excerptOf } from '../../lib/excerpt';
 import { dotGradientOf, posterGradientOf } from './posterGradient';
-
-/**
- * 图框 ⋯ 触发器实底芯压暗下限（本文件单一事实源；守卫配对依据 =
- * src/components/contrastGuard.test.ts 的收藏卡触发器断言组）：⋯ 触发器图标
- * 恒白 #ffffff（非文字图形，按 WCAG 1.4.11 非文字线 3:1 计），直落头像/
- * 渐变色面无下界（用户强调色原色直出可为纯白）。触发器挂 rgba(0,0,0,本档)
- * 28px 圆形实底芯后，最坏合成 = 纯白 accent × (1 − 0.62) → 灰
- * ceil(255×0.38)=97 → 白图标对比 ≈6.19:1 ≥ 3:1，余量充足。同值 0.62 家族
- * 互指：CharacterPickGrid 的 PICK_SCRIM_ALPHA（选人卡文字/角标实底）、
- * WorldFullBleedCard 的 WORLD_BLEED_SCRIM_ALPHA（世界满幅卡文字实底），
- * 守卫断言组分别数值锚定；改值须同步（含守卫）。
- *
- * 交互态同值覆写（2026-09-14 reviewer 实锤于同构先例）：Fluent transparent
- * 外观在 ':hover' 与 ':hover:active,:active:focus-visible' 上各有底色规则
- * （本装版本 alias 实证值为全透明），按选择器键与静息声明并存——hover/按下
- * 时组件规则胜出，把实底芯整体替换回透明，恒白图标在纯白 accent 上重新无
- * 下界。故 frameMenuTrigger 以逐字相同的选择器串同值覆写（键一致
- * mergeClasses 才按同键冲突让本类胜出）；覆写串由守卫 it 文本锚定防回归。
- */
-const COLLECT_ICON_SCRIM_ALPHA = 0.62;
 
 /** prefers-reduced-motion 实时监听（称号轮换的 JS 侧降级开关：reduce 时
  * 不轮换、整串并显静置；CSS 侧动画由各 Griffel 类的 @media 门控）。 */
@@ -148,30 +117,6 @@ const useStyles = makeStyles({
     userSelect: 'none',
   },
 
-  // 图框角标（⋯ 导出菜单）：28px 圆形实底芯 + 交互态同值覆写（机制与
-  // 守卫锚定见 COLLECT_ICON_SCRIM_ALPHA 常量注释）
-  frameMenuTrigger: {
-    position: 'absolute',
-    top: '8px',
-    right: '8px',
-    zIndex: 1,
-    width: '28px',
-    minWidth: '28px',
-    maxWidth: '28px',
-    height: '28px',
-    borderRadius: tokens.borderRadiusCircular,
-    backgroundColor: `rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})`,
-    ':hover': {
-      backgroundColor: `rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})`,
-    },
-    ':hover:active,:active:focus-visible': {
-      backgroundColor: `rgba(0, 0, 0, ${COLLECT_ICON_SCRIM_ALPHA})`,
-    },
-  },
-  frameMenuIcon: {
-    color: '#ffffff',
-  },
-
   // —— 正文区：直接落主题表面，前景 token 对（无 scrim） ——
   // 名字 + 称号同行（2026-09-16 用户拍板，称号自独立行内联）：baseline
   // 对齐，名字不缩、称号占余宽截断（minWidth 0 是 flex 内 ellipsis 前提）
@@ -230,15 +175,12 @@ const useStyles = makeStyles({
     fontSize: tokens.fontSizeBase200,
   },
 
-  // —— 底部行：元信息在左、主操作 pill 在右；marginTop auto 把行钉在
-  //    卡底（网格行拉伸到最高卡时其余卡正文不留悬空） ——
+  // —— 底部行：元信息行（曾挂「编辑」主操作 pill，2026-09-16 用户拍板
+  //    移除，进编辑只走整卡点击 / 键盘）；marginTop auto 把行钉在卡底
+  //    （网格行拉伸到最高卡时其余卡正文不留悬空） ——
   footer: {
     marginTop: 'auto',
     paddingTop: tokens.spacingVerticalM,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: tokens.spacingHorizontalS,
   },
   meta: {
     display: 'flex',
@@ -257,11 +199,6 @@ const useStyles = makeStyles({
     height: '8px',
     borderRadius: tokens.borderRadiusCircular,
     flexShrink: 0,
-  },
-  // 主操作 pill：全圆角（供图黑 pill 的形；色走 brand 交互语义）
-  pill: {
-    borderRadius: tokens.borderRadiusCircular,
-    minWidth: '64px',
   },
 
   // —— 入场动画（keyframes 在 app.css，reduced-motion 门控在 @media 内；
@@ -288,10 +225,8 @@ export interface CharacterCollectCardProps {
   revealDelay: number | undefined;
   /** callback ref 工厂（useRevealOnScroll）：登记元素供 IntersectionObserver 观察。 */
   register: (index: number) => (el: Element | null) => void;
-  /** 点击 / Enter / 空格进编辑（整卡与底部 pill 同义，脏守卫在父级）。 */
+  /** 点击 / Enter / 空格进编辑（整卡即唯一动作位；导出走编辑器动作行）。 */
   onOpen: (character: CharacterSummary) => void;
-  /** 图框角标菜单「导出角色卡」：成功/取消静默，真错误由父级就地红字。 */
-  onExport: (id: number) => void;
 }
 
 export function CharacterCollectCard({
@@ -300,7 +235,6 @@ export function CharacterCollectCard({
   revealDelay,
   register,
   onOpen,
-  onExport,
 }: CharacterCollectCardProps) {
   const styles = useStyles();
   const lift = useCardLiftStyles();
@@ -353,7 +287,8 @@ export function CharacterCollectCard({
         }
       }}
     >
-      {/* 留白图框：身份色面/头像 + 角标菜单；图框渐变恒定不随主题（身份色），
+      {/* 留白图框：身份色面/头像（纯展示面——角标导出菜单已于 2026-09-16
+          随「导出移至编辑器动作行」裁撤）；图框渐变恒定不随主题（身份色），
           正文区才落主题表面（文件头「本质差异」） */}
       <div
         className={styles.frame}
@@ -364,34 +299,6 @@ export function CharacterCollectCard({
         ) : (
           <span className={styles.letter}>{character.name.slice(0, 1)}</span>
         )}
-        {/* 角标菜单：触发器与菜单项都要 stopPropagation——门户 click 沿
-            React 树冒泡，不截会导出同时进编辑（见文件头嵌套交互契约） */}
-        <Menu>
-          <MenuTrigger>
-            <MenuButton
-              aria-label={t('characters.cardMenu')}
-              appearance="transparent"
-              size="small"
-              className={styles.frameMenuTrigger}
-              icon={<MoreHorizontalRegular className={styles.frameMenuIcon} />}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-            />
-          </MenuTrigger>
-          <MenuPopover>
-            <MenuList>
-              <MenuItem
-                icon={<ArrowDownloadRegular />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onExport(character.id);
-                }}
-              >
-                {t('characters.export')}
-              </MenuItem>
-            </MenuList>
-          </MenuPopover>
-        </Menu>
       </div>
 
       {/* 正文区：主题前景 token（span 非 Text，见文件头）；称号轮换见
@@ -425,8 +332,8 @@ export function CharacterCollectCard({
         <span className={styles.excerpt}>{personaExcerpt}</span>
       ) : null}
 
-      {/* 底部行：元信息 + 主操作 pill。pill 的 click 与 keydown 都截断冒泡
-          ——否则整卡 onClick / 卡键盘路径叠加原生 click 双触发进编辑 */}
+      {/* 底部行：元信息（进编辑只走整卡点击 / 键盘——「编辑」pill 已于
+          2026-09-16 用户拍板移除） */}
       <div className={styles.footer}>
         <div className={styles.meta}>
           <span className={styles.dot} style={{ backgroundImage: dotGradientOf(character) }} />
@@ -434,18 +341,6 @@ export function CharacterCollectCard({
             {t('characters.sessionCount', { count: character.sessionCount })}
           </span>
         </div>
-        <Button
-          appearance="primary"
-          size="small"
-          className={styles.pill}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(character);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          {t('characters.editCard')}
-        </Button>
       </div>
     </Card>
   );

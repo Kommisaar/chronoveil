@@ -213,9 +213,9 @@ const useStyles = makeStyles({
   actionsRow: {
     padding: '12px 24px 16px 24px',
   },
-  // 删除按钮钉动作行左端（marginRight:auto；行内仅此一钮，右端留空）；
-  // 静态样式走 griffel 不入行内
-  deleteAction: {
+  // 动作行左侧按钮组（删除 + 导出）钉左端：最后一个左钮带 marginRight:auto
+  // 把右侧留空；静态样式走 griffel 不入行内
+  pinLeft: {
     marginRight: 'auto',
   },
   // 覆写下拉区的配置加载失败文案（Task-14）：水平内距对齐 OverrideSection
@@ -253,6 +253,9 @@ export interface CharacterEditorDialogProps {
   onClose: () => void;
   /** 删除按钮：父组件弹就地确认对话框，本组件不直接删。 */
   onDelete: (character: CharacterSummary) => void;
+  /** 导出按钮（动作行删除旁，2026-09-16 自卡内角标菜单移此）：父组件走
+   *  导出对话框，成功/取消静默，真错误由父级就地红字；本组件不直接导出。 */
+  onExport: (character: CharacterSummary) => void;
 }
 
 export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
@@ -268,6 +271,7 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
     onAutosave,
     onClose,
     onDelete,
+    onExport,
   } = props;
   const styles = useStyles();
   const field = useFieldStyles();
@@ -413,11 +417,11 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
               </div>
             </DialogContent>
             <DialogActions className={styles.actionsRow}>
-              <Button
-                className={styles.deleteAction}
-                onClick={() => onDelete(character)}
-              >
+              <Button onClick={() => onDelete(character)}>
                 {t('characters.delete')}
+              </Button>
+              <Button className={styles.pinLeft} onClick={() => onExport(character)}>
+                {t('characters.export')}
               </Button>
             </DialogActions>
           </div>

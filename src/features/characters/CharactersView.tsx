@@ -339,7 +339,6 @@ export function CharactersView() {
                   revealDelay={reveal[index]}
                   register={register}
                   onOpen={openEditor}
-                  onExport={(id) => void handleExport(id)}
                 />
               ))}
             </div>
@@ -361,6 +360,7 @@ export function CharactersView() {
           onClose={closeEditor}
           onClosed={() => setEditor(null)}
           onDelete={setDeleteTarget}
+          onExport={(c) => void handleExport(c.id)}
         />
       ) : null}
 

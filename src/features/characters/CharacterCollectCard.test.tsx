@@ -37,7 +37,7 @@ const SU: CharacterSummary = { ...LIN, id: 1, name: '苏鸢', titles: [], person
 
 const register = vi.fn(() => () => {});
 
-function renderCard(character: CharacterSummary, onOpen = vi.fn(), onExport = vi.fn()) {
+function renderCard(character: CharacterSummary, onOpen = vi.fn()) {
   render(
     <FluentProvider theme={webLightTheme}>
       <CharacterCollectCard
@@ -46,11 +46,10 @@ function renderCard(character: CharacterSummary, onOpen = vi.fn(), onExport = vi
         revealDelay={0}
         register={register}
         onOpen={onOpen}
-        onExport={onExport}
       />
     </FluentProvider>,
   );
-  return { onOpen, onExport };
+  return { onOpen };
 }
 
 afterEach(cleanup);
@@ -123,28 +122,5 @@ it('整卡点击与 Enter/Space 键盘路径均进编辑且恰好一次（回调
   expect(onOpen).toHaveBeenCalledTimes(2);
   fireEvent.keyDown(card, { key: ' ' });
   expect(onOpen).toHaveBeenCalledTimes(3);
-  expect(onOpen).toHaveBeenLastCalledWith(LIN);
-});
-
-it('角标菜单：点触发器不进编辑（stopPropagation），菜单项导出回调且不开编辑器', async () => {
-  const { onOpen, onExport } = renderCard(LIN);
-  fireEvent.click(screen.getByRole('button', { name: '卡片菜单' }));
-  expect(onOpen).not.toHaveBeenCalled();
-  fireEvent.click(await screen.findByRole('menuitem', { name: '导出角色卡' }));
-  expect(onExport).toHaveBeenCalledWith(2);
-  expect(onOpen).not.toHaveBeenCalled();
-});
-
-it('底部「编辑」pill：点击恰好一次进编辑（截断冒泡回归锚），其上按键不触发整卡键盘路径', () => {
-  const { onOpen } = renderCard(LIN);
-  const pill = screen.getByRole('button', { name: '编辑' });
-  // 双触发回归锚：pill click 与整卡 onClick 都会收到同一事件——无
-  // stopPropagation 时此处是 2 次（门户冒泡先例同款缺陷形态）
-  fireEvent.click(pill);
-  expect(onOpen).toHaveBeenCalledTimes(1);
-  // pill 的 keydown 截断：Enter 不冒泡进整卡键盘路径（原生激活 click 在
-  // jsdom 不合成，真实浏览器走 pill 自身 onClick 一次）
-  fireEvent.keyDown(pill, { key: 'Enter' });
-  expect(onOpen).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenLastCalledWith(LIN);
 });

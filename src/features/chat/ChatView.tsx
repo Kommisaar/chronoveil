@@ -41,6 +41,8 @@ import { LedgerPanel } from './ledgerPanel';
 import { StreamingMessage } from './StreamingMessage';
 import { CANCEL_REASON, streamHub } from './streamHub';
 import { engineThemeVars, useChatViewStyles } from './useChatViewStyles';
+import { useMessageCardStyles } from './useMessageCardStyles';
+import { instanceRailColor, messageRailColor, speakerLabelOf, USER_SPEAKER_RAIL } from './speakerIdentity';
 
 // 智能吸底的距底判定阈值（U3，像素）：scrollHeight - scrollTop - clientHeight
 // 小于该值视为用户仍在底部；唯一消费点在下方吸底 effect，测试以同值构造边界
@@ -62,6 +64,7 @@ const STICK_BOTTOM_THRESHOLD_PX = 80;
  */
 export function ChatView() {
   const styles = useChatViewStyles();
+  const cardStyles = useMessageCardStyles();
   const { t, i18n } = useTranslation();
   const activeSessionId = useUiStore((s) => s.activeSessionId);
   // 会话清单单一数据源在 ui store（TASK-007 验收 4）：与 Sidebar 同源，
@@ -283,11 +286,6 @@ export function ChatView() {
   const activeRoster = sessions.find((s) => s.id === activeSessionId)?.instances ?? [];
   const instanceNames = new Map(activeRoster.map((instance) => [instance.id, instance.name]));
 
-  const speakerOf = (message: ChatMessage): string => {
-    if (message.role === 'user') return t('chat.you');
-    return message.characterId === null ? '—' : (instanceNames.get(message.characterId) ?? '—');
-  };
-
   // 流式行说话人：首个 LLM 位实例。D3 逐拍生成的按实例归属待 Rust 事件携带
   // 实例 id（事件流 v1 不区分实例），先以主 LLM 位显示；renderStyle 读实例
   // 快照回显（D1：改卡不回写，动态造人实例也无模板卡可查）。
@@ -307,6 +305,9 @@ export function ChatView() {
     durationMs: primaryCard?.animDurationMs ?? config?.animDurationBase,
   };
   const lastIsAssistant = messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
+  // 流式行色轨与历史行同源：主 LLM 位实例的角色色（无实例位诚实中性灰）
+  const streamRail =
+    primaryLlm !== undefined ? instanceRailColor(primaryLlm, characterCards) : USER_SPEAKER_RAIL;
 
   return (
     <div className={styles.root}>
@@ -340,15 +341,16 @@ export function ChatView() {
             {messages.map((message) => {
             const isUser = message.role === 'user';
             return (
-              <div key={message.id} className={styles.row}>
-                <div
-                  className={mergeClasses(
-                    styles.msgHeader,
-                    isUser && styles.msgHeaderUser,
-                  )}
-                >
-                  <Text className={isUser ? styles.msgSpeakerUser : styles.msgSpeaker}>
-                    {speakerOf(message)}
+              <div
+                key={message.id}
+                className={cardStyles.card}
+                // 色轨颜色（说话人身份）是动态值进不了 Griffel 类，行内覆写
+                // 类内占位左缘色（见 useMessageCardStyles.card）
+                style={{ borderLeftColor: messageRailColor(message, activeRoster, characterCards) }}
+              >
+                <div className={cardStyles.header}>
+                  <Text className={cardStyles.speaker}>
+                    {speakerLabelOf(message, instanceNames, t('chat.you'))}
                   </Text>
                   <span>{formatClock(message.createdAt, i18n.language)}</span>
                 </div>
@@ -379,9 +381,7 @@ export function ChatView() {
                 )}
                 {isUser ? (
                   // user 行保持纯文本（markdown-lite 是 assistant 叙事语法）
-                  <div className={mergeClasses(styles.msgBody, styles.msgBodyUser)}>
-                    {message.content}
-                  </div>
+                  <div className={cardStyles.body}>{message.content}</div>
                 ) : (
                   <HistoryMessageBody content={message.content} />
                 )}
@@ -398,6 +398,7 @@ export function ChatView() {
                 key={streamState.sessionId}
                 state={streamState}
                 speaker={sessionSpeaker}
+                railColor={streamRail}
                 tuning={tuning}
                 onSettled={() => void settleSession(streamState.sessionId)}
               />

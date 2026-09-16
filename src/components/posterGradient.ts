@@ -1,5 +1,9 @@
 // 海报渐变调色板（角色页典藏卡图框与编辑器迷你预览共用）：深色低饱和、
 // 呼应应用图标的靛紫系，扩展邻近色共 6 组。
+//
+// 搬移说明（2026-09-16）：自 src/features/characters/ 逐字搬至 components 跨
+// feature 复用层（features 禁互引）——聊天消息卡的角色色轨消费 accentColorOf，
+// 派生必须与海报同源（调色板 / 回退规则单一事实源），先例 useSurfaceMorph。
 export const POSTER_GRADIENTS: ReadonlyArray<readonly [string, string]> = [
   ['#332a6e', '#6b46b8'], // 靛紫
   ['#1e3a66', '#3f6ab3'], // 暮蓝

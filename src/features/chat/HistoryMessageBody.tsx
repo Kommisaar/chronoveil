@@ -8,16 +8,16 @@
  */
 import { useLayoutEffect, useRef } from 'react';
 import { renderStaticMarkdown } from '../../engine';
-import { useChatViewStyles } from './useChatViewStyles';
+import { useMessageCardStyles } from './useMessageCardStyles';
 
 export function HistoryMessageBody({ content }: { content: string }) {
-  const styles = useChatViewStyles();
+  const styles = useMessageCardStyles();
   const ref = useRef<HTMLDivElement | null>(null);
   // useLayoutEffect（Task-16 遗留项）：绘制前同步直插引擎 DOM，消历史行首帧空白
   useLayoutEffect(() => {
     if (ref.current) renderStaticMarkdown(ref.current, content);
   }, [content]);
-  // 布局类沿用 msgBody（字号/行距/pre-wrap/断词）：引擎 .para 继承容器的
+  // 布局类沿用消息卡正文（字号/行距/pre-wrap/断词）：引擎 .para 继承容器的
   // pre-wrap 与断词，与流式行排版一致
-  return <div ref={ref} className={styles.msgBody} />;
+  return <div ref={ref} className={styles.body} />;
 }

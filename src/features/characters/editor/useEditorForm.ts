@@ -39,7 +39,7 @@ import {
   accentColorOf,
   dotGradientOf,
   posterGradientOf,
-} from '../posterGradient';
+} from '../../../components/posterGradient';
 
 /** 自动保存防抖（毫秒）：连续输入期间持续顺延，停手后一拍落库。 */
 const AUTOSAVE_DEBOUNCE_MS = 600;

@@ -1,7 +1,9 @@
 /**
- * ChatView 的视图样式单一事实源：消息行叙事流排版 + 输入卡 + 引擎主题变量
- * 覆写。从 ChatView.tsx 拆出（500 行规范），导出形式从众 useLedgerSectionStyles
- * 先例；视图行为注释随归属搬移，逐字保留。
+ * ChatView 的视图样式单一事实源：条目内特例（思考折叠 / 中断标记）+ 输入卡 +
+ * 引擎主题变量覆写。消息卡壳在 useMessageCardStyles（历史行与流式行共用），
+ * 色轨颜色解析在 speakerIdentity（2026-09-16 拆分）。从 ChatView.tsx 拆出
+ * （500 行规范），导出形式从众 useLedgerSectionStyles 先例；视图行为注释随
+ * 归属搬移，逐字保留。
  * 导出钩子是合成入口：账本开关钮的外观/反馈由 useGhostIconButtonStyles 统一
  * 规格（审计 C2 迁入），基础 makeStyles 只保留排版与本地特例。
  */
@@ -51,44 +53,10 @@ const useChatViewBaseStyles = makeStyles({
     flexDirection: 'column',
     gap: '20px',
   },
-  // 消息行：叙事流排版（2026-09-08 四方案比选，用户选定 C）——去卡片化，
-  // 角色名品牌色小标 + 时间，正文全幅；卡片只是外壳的时代结束，正文仍
-  // markdown-lite 原文直显，引擎搬家（阶段 4）后由引擎直插 DOM（ADR-011）
-  row: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: '4px',
-  },
-  msgHeader: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: tokens.spacingHorizontalS,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
-  msgHeaderUser: {
-    alignSelf: 'flex-end',
-  },
-  msgSpeaker: {
-    fontWeight: tokens.fontWeightSemibold,
-    color: tokens.colorBrandForeground1,
-  },
-  msgSpeakerUser: {
-    color: tokens.colorNeutralForeground3,
-  },
-  msgBody: {
-    fontSize: tokens.fontSizeBase300,
-    lineHeight: '1.8',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-  },
-  msgBodyUser: {
-    alignSelf: 'flex-end',
-    maxWidth: '60%',
-    textAlign: 'right',
-    color: tokens.colorBrandForeground2,
-  },
+  // 消息条目卡壳（2026-09-16 用户拍板「角色色轨卡」，取代 2026-09-08 去卡片化
+  // 叙事流）：卡壳 / 题头 / 正文样式在 useMessageCardStyles（历史行与流式行
+  // 共用单一事实源），色轨颜色解析在 speakerIdentity；此处只留思考折叠与
+  // 中断标记两个条目内特例。
   reasoning: {
     fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground3,
@@ -106,6 +74,8 @@ const useChatViewBaseStyles = makeStyles({
     },
   },
   interrupted: {
+    // 卡内收拢贴左（flex column 默认 stretch 会把徽标拉通满卡宽）
+    alignSelf: 'flex-start',
     fontSize: tokens.fontSizeBase200,
   },
   notice: {

@@ -14,7 +14,7 @@ import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-co
 import { useTranslation } from 'react-i18next';
 import type { CharacterSummary } from '../../api/types';
 import { StateBlock } from '../../components/StateBlock';
-import { posterGradientOf } from '../../features/characters/posterGradient';
+import { posterGradientOf } from '../../components/posterGradient';
 
 /**
  * 海报文字压暗下限（对比度守卫配对依据，与 src/components/contrastGuard.test.ts

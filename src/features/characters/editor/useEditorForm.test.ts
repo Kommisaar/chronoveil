@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterInput, CharacterSummary } from '../../../api/types';
 import { ANIM_STYLES } from '../../../engine';
 import '../../../i18n';
-import { gradientOf, gradientPairOf } from '../posterGradient';
+import { gradientOf, gradientPairOf } from '../../../components/posterGradient';
 import { useEditorForm } from './useEditorForm';
 
 const EDIT_CHARACTER: CharacterSummary = {

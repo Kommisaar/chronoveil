@@ -109,7 +109,7 @@ function messageTree(state: StreamState, onSettled: () => void): ReactElement {
   return (
     <FluentProvider theme={webLightTheme}>
       {/* msPerChar 压到下限附近，缩短节奏队列排空耗时 */}
-      <StreamingMessage state={state} speaker={SPEAKER} tuning={{ msPerChar: 10 }} onSettled={onSettled} />
+      <StreamingMessage state={state} speaker={SPEAKER} railColor="#888888" tuning={{ msPerChar: 10 }} onSettled={onSettled} />
     </FluentProvider>
   );
 }
@@ -311,7 +311,7 @@ describe('幕后活动条集成（Task-07：探索透出 → 活动条 → 让�
       const state = streamHub.stateOf(sessionId);
       if (!state) return <></>;
       return (
-        <StreamingMessage state={state} speaker={SPEAKER} tuning={{ msPerChar: 10 }} onSettled={onSettled} />
+        <StreamingMessage state={state} speaker={SPEAKER} railColor="#888888" tuning={{ msPerChar: 10 }} onSettled={onSettled} />
       );
     };
     return (
@@ -389,7 +389,7 @@ describe('tuning 中途热更（TASK-12 / 审计问题 8）', () => {
   function treeWithTuning(state: StreamState, tuning: RendererTuning, onSettled: () => void): ReactElement {
     return (
       <FluentProvider theme={webLightTheme}>
-        <StreamingMessage state={state} speaker={SPEAKER} tuning={tuning} onSettled={onSettled} />
+        <StreamingMessage state={state} speaker={SPEAKER} railColor="#888888" tuning={tuning} onSettled={onSettled} />
       </FluentProvider>
     );
   }

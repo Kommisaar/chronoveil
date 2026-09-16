@@ -13,7 +13,7 @@
  * tuning 热更（TASK-12 / 审计问题 8）：风格/节奏/动效时长中途变化经
  * setStyle/setRhythm/setDuration 即时生效，不重播已上屏内容。
  */
-import { Text, makeStyles, tokens } from '@fluentui/react-components';
+import { Text } from '@fluentui/react-components';
 import { useEffect, useRef } from 'react';
 import type { StreamEvent } from '../../api/events';
 import {
@@ -25,37 +25,7 @@ import {
 } from '../../engine';
 import { streamHub, type StreamState } from './streamHub';
 import { ActivityNotice } from './ActivityNotice';
-
-const useStyles = makeStyles({
-  row: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: '4px',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: tokens.spacingHorizontalS,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
-  },
-  speaker: {
-    fontWeight: tokens.fontWeightSemibold,
-    color: tokens.colorBrandForeground1,
-  },
-  body: {
-    width: '100%',
-    fontSize: tokens.fontSizeBase300,
-    lineHeight: '1.8',
-    // 块内单换行随解析器保留上屏（审计问题 3）：解析器的微停规则认 \n，
-    // 缺 pre-wrap 会把刻意保留的换行折叠成空格（历史行 msgBody 与 demo
-    // .bubble 均有）。横向溢出不依赖 white-space 承担：长词断行由下面的
-    // word-break: break-word 负责（pre-wrap 只保留空白，不断词）
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-  },
-});
+import { useMessageCardStyles } from './useMessageCardStyles';
 
 /** 渲染引擎参数（角色卡风格 + 全局节奏设置，FR-005 / FR-009）；缺省项用引擎默认。 */
 export interface RendererTuning {
@@ -76,6 +46,9 @@ function isAnimStyleId(id: string): id is AnimStyleId {
 interface StreamingMessageProps {
   state: StreamState;
   speaker: string;
+  /** 色轨颜色（2026-09-16 消息卡「角色色轨卡」）：主 LLM 位实例的角色色，
+   *  ChatView 按与历史行同一解析链（speakerIdentity）算好传入。 */
+  railColor: string;
   tuning: RendererTuning;
   /** 终态收尾（done 排空 / error 冻结 / 后台终态重挂）：UI 重拉列表并摘除流状态。 */
   onSettled: () => void;
@@ -83,8 +56,8 @@ interface StreamingMessageProps {
 
 type Phase = 'idle' | 'think' | 'body';
 
-export function StreamingMessage({ state, speaker, tuning, onSettled }: StreamingMessageProps) {
-  const styles = useStyles();
+export function StreamingMessage({ state, speaker, railColor, tuning, onSettled }: StreamingMessageProps) {
+  const styles = useMessageCardStyles();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const settledRef = useRef(false);
@@ -247,7 +220,11 @@ export function StreamingMessage({ state, speaker, tuning, onSettled }: Streamin
   }, [style, msPerChar, punctPause, durationMs]);
 
   return (
-    <div className={styles.row}>
+    <div
+      className={styles.card}
+      // 色轨颜色是动态值进不了 Griffel 类，行内覆写类内占位左缘色（同历史行）
+      style={{ borderLeftColor: railColor }}
+    >
       <div className={styles.header}>
         <Text className={styles.speaker}>{speaker}</Text>
       </div>

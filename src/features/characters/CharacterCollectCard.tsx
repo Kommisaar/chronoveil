@@ -52,7 +52,7 @@ import {
 import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
 import { useCardLiftStyles } from '../../components/useCardLiftStyles';
 import { excerptOf } from '../../lib/excerpt';
-import { dotGradientOf, posterGradientOf } from './posterGradient';
+import { dotGradientOf, posterGradientOf } from '../../components/posterGradient';
 
 /** prefers-reduced-motion 实时监听（称号轮换的 JS 侧降级开关：reduce 时
  * 不轮换、整串并显静置；CSS 侧动画由各 Griffel 类的 @media 门控）。 */

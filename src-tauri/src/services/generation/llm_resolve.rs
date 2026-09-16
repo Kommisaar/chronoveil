@@ -4,7 +4,10 @@
 //! 生成闭环编排本体见 [`super`]。
 
 use crate::domain::models::Character;
-use crate::infra::config::{Config as FileConfig, ProviderConfig, TEMPERATURE_MAX, TEMPERATURE_MIN};
+use crate::infra::config::{
+    Config as FileConfig, ProviderConfig, PENALTY_MAX, PENALTY_MIN, TEMPERATURE_MAX,
+    TEMPERATURE_MIN, TOP_P_MAX, TOP_P_MIN,
+};
 use crate::infra::llm::LlmConfig;
 
 /// trimmed 空串视同未设置：手改库/旧数据里的空字符串不当作有效覆写值。
@@ -28,8 +31,11 @@ pub fn resolve_effective_llm(
     let mut base_url = provider.base_url.clone();
     let mut api_key = provider.api_key.clone();
     let mut model = active_model.to_string();
-    // 采样温度以全局设置为底（角色温度覆写在其后）。
+    // 采样参数以全局设置为底（角色覆写在其后）。
     let mut temperature = config.temperature;
+    let mut top_p = config.top_p;
+    let mut frequency_penalty = config.frequency_penalty;
+    let mut presence_penalty = config.presence_penalty;
     // 协议随 provider 走（2026-09-14 三协议）：provider 级属性，请求分派与响应
     // 解析都依赖它，切 provider 时整体跟随。
     let mut api = provider.api;
@@ -45,6 +51,33 @@ pub fn resolve_effective_llm(
                 ));
             }
             temperature = t;
+        }
+        // 采样参数三覆写（2026-09-16）：值域与 infra validate 同（top_p 0–1、
+        // 惩罚 −2–2），越界快速失败，不静默钳边——坏值在编辑侧保存即被命令层
+        // 校验挡住，这里兜手改库的底。
+        if let Some(v) = character.model_top_p {
+            if !(TOP_P_MIN..=TOP_P_MAX).contains(&v) {
+                return Err(format!(
+                    "角色模型覆写的 top_p = {v} 越界（允许 {TOP_P_MIN}–{TOP_P_MAX}）"
+                ));
+            }
+            top_p = v;
+        }
+        if let Some(v) = character.model_frequency_penalty {
+            if !(PENALTY_MIN..=PENALTY_MAX).contains(&v) {
+                return Err(format!(
+                    "角色模型覆写的 frequency_penalty = {v} 越界（允许 {PENALTY_MIN}–{PENALTY_MAX}）"
+                ));
+            }
+            frequency_penalty = v;
+        }
+        if let Some(v) = character.model_presence_penalty {
+            if !(PENALTY_MIN..=PENALTY_MAX).contains(&v) {
+                return Err(format!(
+                    "角色模型覆写的 presence_penalty = {v} 越界（允许 {PENALTY_MIN}–{PENALTY_MAX}）"
+                ));
+            }
+            presence_penalty = v;
         }
         // 切 provider：base_url / api_key / 协议整体跟随所选服务；未指名模型时
         // 取该服务第一个模型（active_model 是全局默认指向，不跟角色切服务走）。
@@ -80,8 +113,11 @@ pub fn resolve_effective_llm(
         api_key,
         model,
         api,
-        // 采样温度：全局设置为底，角色 model_temperature 可覆写。
+        // 采样参数：全局设置为底，角色 model_* 可覆写。
         temperature,
+        top_p,
+        frequency_penalty,
+        presence_penalty,
         ..LlmConfig::default()
     })
 }

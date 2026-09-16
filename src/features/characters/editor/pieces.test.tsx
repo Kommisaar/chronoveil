@@ -88,10 +88,27 @@ describe('AccentColorPicker（Office 风格取色器）', () => {
 
 describe('OverrideSection（模型设置级联行 + 温度行）', () => {
   // 全局默认 = 主服务 / m1（跟随态按钮展示值 + 切自定义的写卡落点）。
-  const GLOBAL = { globalProviderId: 'p1', globalModelId: 'm1', globalTemperature: 0.7 };
+  const GLOBAL = {
+    globalProviderId: 'p1',
+    globalModelId: 'm1',
+    globalTemperature: 0.7,
+    globalTopP: 1.0,
+    globalFrequencyPenalty: 0,
+    globalPresencePenalty: 0,
+  };
 
   /** 跟随态基线：模型覆写三扁平字段全空（空串/null = 跟随全局）。 */
-  const FOLLOW = { modelProviderId: '', modelName: '', modelTemperature: null };
+  const FOLLOW = {
+    modelProviderId: '',
+    modelName: '',
+    modelTemperature: null,
+    modelTopP: null,
+    modelFrequencyPenalty: null,
+    modelPresencePenalty: null,
+    onTopPChange: vi.fn(),
+    onFrequencyPenaltyChange: vi.fn(),
+    onPresencePenaltyChange: vi.fn(),
+  };
 
   /** 点开模型设置的级联菜单（触发钮 aria-label = 模型设置；仅自定义态可用）。 */
   function openModelMenu() {
@@ -147,6 +164,12 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
         modelProviderId="p1"
         modelName="legacy-model"
         modelTemperature={null}
+        modelTopP={null}
+        modelFrequencyPenalty={null}
+        modelPresencePenalty={null}
+        onTopPChange={vi.fn()}
+        onFrequencyPenaltyChange={vi.fn()}
+        onPresencePenaltyChange={vi.fn()}
         onModelOverrideChange={vi.fn()}
         onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
@@ -176,6 +199,12 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
         modelProviderId="p1"
         modelName="m1"
         modelTemperature={null}
+        modelTopP={null}
+        modelFrequencyPenalty={null}
+        modelPresencePenalty={null}
+        onTopPChange={vi.fn()}
+        onFrequencyPenaltyChange={vi.fn()}
+        onPresencePenaltyChange={vi.fn()}
         onModelOverrideChange={onModelOverrideChange}
         onTemperatureChange={vi.fn()}
         providers={PROVIDERS}
@@ -197,6 +226,12 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
         modelProviderId="p1"
         modelName="m1"
         modelTemperature={1.2}
+        modelTopP={null}
+        modelFrequencyPenalty={null}
+        modelPresencePenalty={null}
+        onTopPChange={vi.fn()}
+        onFrequencyPenaltyChange={vi.fn()}
+        onPresencePenaltyChange={vi.fn()}
         onModelOverrideChange={onModelOverrideChange}
         onTemperatureChange={onTemperatureChange}
         providers={PROVIDERS}
@@ -235,6 +270,55 @@ describe('OverrideSection（模型设置级联行 + 温度行）', () => {
     );
     expect(onTemperatureChange).toHaveBeenCalledTimes(1);
     expect(onTemperatureChange).toHaveBeenCalledWith(0.7);
+  });
+
+  it('采样参数三行（2026-09-16）：跟随态滑杆禁用显全局值，切自定义写当前展示值', () => {
+    const onTopPChange = vi.fn();
+    const onFrequencyPenaltyChange = vi.fn();
+    renderUi(
+      <OverrideSection
+        {...FOLLOW}
+        onTopPChange={onTopPChange}
+        onFrequencyPenaltyChange={onFrequencyPenaltyChange}
+        onModelOverrideChange={vi.fn()}
+        onTemperatureChange={vi.fn()}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    // top_p：跟随态滑杆禁用，描述显全局值（1.00 两位小数档）。
+    expect(screen.getByRole('slider', { name: '核采样' })).toHaveProperty('disabled', true);
+    expect(screen.getByText('跟随全局 · 当前 1.00')).toBeTruthy();
+    const group = screen.getByRole('radiogroup', { name: '核采样' });
+    fireEvent.click(
+      [...group.querySelectorAll('[role="radio"]')].find((r) => r.textContent === '自定义')!,
+    );
+    expect(onTopPChange).toHaveBeenCalledTimes(1);
+    expect(onTopPChange).toHaveBeenCalledWith(1.0);
+    // 频率 / 存在惩罚行渲染且默认跟随（全局 0 的一位小数档，两行同文案）。
+    expect(screen.getByRole('slider', { name: '频率惩罚' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('slider', { name: '存在惩罚' })).toHaveProperty('disabled', true);
+    expect(screen.getAllByText('跟随全局 · 当前 0.0')).toHaveLength(2);
+  });
+
+  it('采样参数自定义态：滑杆启用显覆写值，拖动上报新值', () => {
+    const onTopPChange = vi.fn();
+    renderUi(
+      <OverrideSection
+        {...FOLLOW}
+        modelTopP={0.9}
+        onTopPChange={onTopPChange}
+        onModelOverrideChange={vi.fn()}
+        onTemperatureChange={vi.fn()}
+        providers={PROVIDERS}
+        {...GLOBAL}
+      />,
+    );
+    const slider = screen.getByRole('slider', { name: '核采样' });
+    expect(slider).toHaveProperty('disabled', false);
+    expect(screen.getByText('自定义 · 当前 0.90')).toBeTruthy();
+    fireEvent.change(slider, { target: { value: '0.85' } });
+    expect(onTopPChange).toHaveBeenCalledWith(0.85);
   });
 });
 

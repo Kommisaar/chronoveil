@@ -48,16 +48,20 @@ it('渲染现有世界典藏形卡网格：名称 + 历法徽章 + 世界观摘�
 it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存进列表', async () => {
   renderView();
   await screen.findByText('空白舞台');
-  // 「保存前不入列」判据基线：网格卡都挂 data-editor-trigger（对话框没有），
-  // 开草稿前后计数不变 = 无卡落库（旧「先落库」流程会多出一张默认名卡）
-  const triggersBefore = document.querySelectorAll('[data-editor-trigger]').length;
+  // 「保存前不入列」判据基线：网格卡都是 Fluent Card（fui-Card；编辑抽屉里
+  // 无 Card——设置卡是普通 div），开草稿前后计数不变 = 无卡落库（旧「先落库」
+  // 流程会多出一张默认名卡）
+  const cardsBefore = document.querySelectorAll('.fui-Card').length;
 
   fireEvent.click(screen.getByRole('button', { name: '新建世界' }));
   // 编辑器直接开在草稿上：标题「新建世界」，名称空（必填门槛生效）
   expect(
     await screen.findByRole('heading', { name: '新建世界' }, { timeout: 3000 }),
   ).toBeTruthy();
-  expect(document.querySelectorAll('[data-editor-trigger]').length).toBe(triggersBefore);
+  // jsdom 无 Fluent 默认聚焦：显式聚焦复现真实浏览器的模态激活，否则 tabster
+  // 异步挂上的 aria-hidden 会挡住后续 getByRole（同 CharacterEditorDrawer.test）
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
+  expect(document.querySelectorAll('.fui-Card').length).toBe(cardsBefore);
   expect(inputOf('名称').value).toBe('');
   // 名称必填：空名时保存禁用
   expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true);
@@ -78,6 +82,8 @@ it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存�
   expect(
     await screen.findByRole('heading', { name: '新建世界' }, { timeout: 3000 }),
   ).toBeTruthy();
+  // 退场窗口内的原实例重开不触发 Fluent 默认聚焦：再次显式聚焦（说明同上）
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
   fireEvent.change(inputOf('名称'), { target: { value: '回声荒原' } });
   fireEvent.click(screen.getByRole('button', { name: '保存' }));
   expect(await screen.findByText('回声荒原', undefined, { timeout: 3000 })).toBeTruthy();
@@ -92,6 +98,9 @@ it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存�
 it('编辑：点卡片载入全量字段——世界观预览渲染 + 历法五选回显卡值；改选历法落整份预设', async () => {
   renderView();
   fireEvent.click(await screen.findByText('雾灯航线'));
+  await screen.findByRole('heading', { name: '编辑世界' });
+  // jsdom 无 Fluent 默认聚焦（说明同上）：历法 RadioGroup 走 getByRole 查询
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
 
   // 世界观默认预览态渲染 markdown-lite（MarkdownPreviewBox 容器）
   const preview = document.querySelector('[data-markdown-preview]');
@@ -117,6 +126,8 @@ it('删除：软删 + 确认对话框（文案明示会话内快照不受影响�
   await screen.findByText('回声荒原');
 
   fireEvent.click(screen.getByText('回声荒原'));
+  await screen.findByRole('heading', { name: '编辑世界' });
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
   fireEvent.click(screen.getByRole('button', { name: '删除世界' }));
 
   expect(screen.getByText(/已建会话内的世界快照不受影响/)).toBeTruthy();

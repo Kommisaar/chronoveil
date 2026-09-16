@@ -45,6 +45,14 @@ pub struct LlmConfig {
     /// 设置侧全局默认同源（infra/config.rs 的 DEFAULT_TEMPERATURE = 0.7；
     /// 本层不反向 import config——config 已依赖本层，互指靠此注释维系同值）。
     pub temperature: f64,
+    /// 核采样 top_p（0–1，1 = 不截断）：三协议均支持，随 payload 的 top_p 下发。
+    /// 默认值同 infra/config.rs 的 DEFAULT_TOP_P = 1.0（互指注释同上）。
+    pub top_p: f64,
+    /// 频率惩罚（−2–2，0 = 无偏移）：仅 OpenAI 兼容协议有此参数，wire 层按
+    /// 协议取舍（Anthropic/Responses 不下发）。默认值同 DEFAULT_FREQUENCY_PENALTY。
+    pub frequency_penalty: f64,
+    /// 存在惩罚（−2–2，0 = 无偏移）：支持域同 frequency_penalty。
+    pub presence_penalty: f64,
     /// 建连超时（毫秒）。
     pub connect_timeout_ms: u64,
     /// 单次读取空闲超时（毫秒）：超时未到任何字节视为超时（可重试）。
@@ -60,6 +68,9 @@ impl Default for LlmConfig {
             model: String::new(),
             api: ProviderApi::OpenAi,
             temperature: 0.7,
+            top_p: 1.0,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
             connect_timeout_ms: 10_000,
             read_timeout_ms: 30_000,
             retry: RetryPolicy::default(),

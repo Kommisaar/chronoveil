@@ -24,6 +24,9 @@ const LIN: CharacterSummary = {
   modelProviderId: null,
   modelName: null,
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: null,
   animDurationMs: null,
   animRhythmMs: null,
@@ -104,17 +107,15 @@ it('空称号 + 空人设：身份两行整行不渲染（留白比占位干净�
   expect(screen.queryByText('旧书店老板，雨天总在擦一盏灯。')).toBeNull();
 });
 
-it('FLIP 锚点与入场接线：data-editor-trigger 按角色 id、register 收到序号', () => {
+it('入场接线：register 收到序号（卡片自证入场弹跳挂载）', () => {
   renderCard(LIN);
-  const name = screen.getByText('林深');
-  const card = name.closest('[data-editor-trigger]');
-  expect(card?.getAttribute('data-editor-trigger')).toBe('2');
+  screen.getByText('林深');
   expect(register).toHaveBeenCalledWith(0);
 });
 
 it('整卡点击与 Enter/Space 键盘路径均进编辑且恰好一次（回调收 character）', () => {
   const { onOpen } = renderCard(LIN);
-  const card = screen.getByText('林深').closest('[data-editor-trigger]') as HTMLElement;
+  const card = screen.getByText('林深').closest('.fui-Card') as HTMLElement;
   fireEvent.click(card);
   expect(onOpen).toHaveBeenCalledTimes(1);
   // 键盘路径与点击等价（Enter / Space，照既有卡组件键盘用例形态）

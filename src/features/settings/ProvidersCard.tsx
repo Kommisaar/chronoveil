@@ -21,7 +21,16 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { DropdownPushButton } from '../../components/DropdownPushButton';
 import { SettingsCard, SettingsDivider, SettingsRow } from '../../components/SettingsCard';
 import { TooltipSlider } from '../../components/TooltipSlider';
-import { newProviderId, TEMPERATURE_MAX, TEMPERATURE_MIN, withoutModel } from './preferences';
+import {
+  newProviderId,
+  PENALTY_MAX,
+  PENALTY_MIN,
+  TEMPERATURE_MAX,
+  TEMPERATURE_MIN,
+  TOP_P_MAX,
+  TOP_P_MIN,
+  withoutModel,
+} from './preferences';
 import { ProviderCard } from './ProviderCard';
 import { AddProviderForm } from './AddProviderForm';
 
@@ -295,6 +304,68 @@ export function ProvidersCard({
                 setDraft((d) => (d === null ? d : { ...d, temperature: value }))
               }
               ariaLabel={t('settings.temperature')}
+              formatValue={(value) => value.toFixed(1)}
+            />
+          }
+        />
+        <SettingsDivider />
+        {/* 核采样 top_p 行（2026-09-16 采样参数三键）：滑杆 0–1（步进 0.05），
+            1 = 不截断；三协议都下发。 */}
+        <SettingsRow
+          title={t('settings.topP')}
+          description={t('settings.topPDesc', { value: draft.topP.toFixed(2) })}
+          control={
+            <TooltipSlider
+              className={styles.temperatureSlider}
+              min={TOP_P_MIN}
+              max={TOP_P_MAX}
+              step={0.05}
+              value={draft.topP}
+              onChange={(value) => setDraft((d) => (d === null ? d : { ...d, topP: value }))}
+              ariaLabel={t('settings.topP')}
+              formatValue={(value) => value.toFixed(2)}
+            />
+          }
+        />
+        <SettingsDivider />
+        {/* 频率惩罚行：滑杆 −2–2（步进 0.1），正值压重复措辞（角色扮演长对话
+            的复读痛点）；仅 OpenAI 兼容协议下发（协议适配层取舍，见
+            infra/llm/wire_openai）。 */}
+        <SettingsRow
+          title={t('settings.frequencyPenalty')}
+          description={t('settings.frequencyPenaltyDesc', { value: draft.frequencyPenalty.toFixed(1) })}
+          control={
+            <TooltipSlider
+              className={styles.temperatureSlider}
+              min={PENALTY_MIN}
+              max={PENALTY_MAX}
+              step={0.1}
+              value={draft.frequencyPenalty}
+              onChange={(value) =>
+                setDraft((d) => (d === null ? d : { ...d, frequencyPenalty: value }))
+              }
+              ariaLabel={t('settings.frequencyPenalty')}
+              formatValue={(value) => value.toFixed(1)}
+            />
+          }
+        />
+        <SettingsDivider />
+        {/* 存在惩罚行：滑杆 −2–2（步进 0.1），正值鼓励引入新话题；下发域同
+            频率惩罚。 */}
+        <SettingsRow
+          title={t('settings.presencePenalty')}
+          description={t('settings.presencePenaltyDesc', { value: draft.presencePenalty.toFixed(1) })}
+          control={
+            <TooltipSlider
+              className={styles.temperatureSlider}
+              min={PENALTY_MIN}
+              max={PENALTY_MAX}
+              step={0.1}
+              value={draft.presencePenalty}
+              onChange={(value) =>
+                setDraft((d) => (d === null ? d : { ...d, presencePenalty: value }))
+              }
+              ariaLabel={t('settings.presencePenalty')}
               formatValue={(value) => value.toFixed(1)}
             />
           }

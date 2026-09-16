@@ -184,6 +184,8 @@ export const zh = {
     discard: '放弃',
     saveFailed: '保存失败',
     deleteFailed: '删除失败',
+    // 世界编辑抽屉标题栏关闭钮（2026-09-16 抽屉化）
+    close: '关闭世界',
   },
   characters: {
     title: '角色',
@@ -244,6 +246,10 @@ export const zh = {
     overrideFollowDesc: '服务与模型跟随全局设置',
     // 温度覆写行（模型配置卡）：null 跟随全局，分段「跟随|自定义」+ 滑杆。
     temperature: '温度',
+    // 采样参数覆写行（2026-09-16）：与温度行同款「跟随|自定义」语义。
+    topP: '核采样',
+    frequencyPenalty: '频率惩罚',
+    presencePenalty: '存在惩罚',
     providersLoadFailed: 'Provider 配置加载失败，覆写下拉暂不可用',
     accentColor: '强调色',
     accentFollow: '跟随海报',
@@ -267,6 +273,8 @@ export const zh = {
     deleteFailed: '删除失败',
     importFailed: '导入失败',
     exportFailed: '导出失败',
+    // 角色编辑抽屉标题栏关闭钮（2026-09-16 抽屉化）
+    close: '关闭角色',
   },
   settings: {
     title: '设置',
@@ -297,6 +305,13 @@ export const zh = {
     // 采样温度（0–2 滑杆）：chat 请求的 temperature 参数（三协议下发）。
     temperature: '控制温度',
     temperatureDesc: '采样随机度：越高越发散，越低越确定 · 当前 {{value}}',
+    // 采样参数三键（2026-09-16）：top_p 三协议下发；惩罚仅 OpenAI 兼容协议。
+    topP: '核采样 top_p',
+    topPDesc: '按累积概率截断候选词，1 为不截断 · 当前 {{value}}',
+    frequencyPenalty: '频率惩罚',
+    frequencyPenaltyDesc: '正值压低重复措辞（缓解复读），负值相反 · 当前 {{value}}',
+    presencePenalty: '存在惩罚',
+    presencePenaltyDesc: '正值鼓励引入新话题，负值相反 · 当前 {{value}}',
     defaultModelNone: '未设为默认',
     providerAddTitle: '添加模型供应商',
     providerAddDesc: '配置一个完全自定义的 API 端点和初始模型。',

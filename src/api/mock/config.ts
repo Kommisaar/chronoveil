@@ -30,6 +30,11 @@ export const DEFAULT_CONFIG: ConfigDto = {
   // 采样温度默认 0.7（与 infra/config.rs DEFAULT_TEMPERATURE 同源，TS 侧单一
   // 事实源在 features/settings/preferences.ts 的 TEMPERATURE_MIN/MAX 互指注释）。
   temperature: 0.7,
+  // 采样参数三键（2026-09-16）：默认 1.0 / 0 / 0（与 infra/config.rs 的
+  // DEFAULT_TOP_P、DEFAULT_FREQUENCY_PENALTY、DEFAULT_PRESENCE_PENALTY 同源）。
+  topP: 1.0,
+  frequencyPenalty: 0.0,
+  presencePenalty: 0.0,
 };
 
 /**

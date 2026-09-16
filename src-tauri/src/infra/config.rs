@@ -60,74 +60,41 @@ pub const TEMPERATURE_MAX: f64 = 2.0;
 /// 采样温度默认值：略低于协议默认 1.0，取更收敛的创造档（角色扮演对话）。
 pub const DEFAULT_TEMPERATURE: f64 = 0.7;
 
-/// 模型输入/输出模态（2026-09-14 模型元数据化；文本恒在，其余可选）。
-/// wire 值 snake_case，与前端 ModelModality 联合类型同源（specta 导出）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelModality {
-    Text,
-    Image,
-    Video,
-    Pdf,
+/// 核采样 top_p 允许范围（0–1，1 = 不截断；OpenAI 系与 Anthropic 域同形）。
+/// 与 TS 常量互指（同一约束两端）：`src/features/settings/preferences.ts` 的
+/// `TOP_P_MIN` / `TOP_P_MAX`（设置页滑杆限位同源）。
+pub const TOP_P_MIN: f64 = 0.0;
+pub const TOP_P_MAX: f64 = 1.0;
+
+/// 采样惩罚允许范围（frequency/presence penalty 共用，OpenAI 系 −2–2 域）；
+/// Anthropic/Responses 协议无此参数，wire 层不下发（见 wire_openai 注）。
+/// 与 TS 常量互指：`src/features/settings/preferences.ts` 的 `PENALTY_MIN` /
+/// `PENALTY_MAX`（设置页滑杆限位同源）。
+pub const PENALTY_MIN: f64 = -2.0;
+pub const PENALTY_MAX: f64 = 2.0;
+
+/// top_p 默认值 = 协议中性值（1.0 即不截断，行为等价于未设置）。
+pub const DEFAULT_TOP_P: f64 = 1.0;
+/// 惩罚默认值 = 协议中性值（0 即无偏移）。
+pub const DEFAULT_FREQUENCY_PENALTY: f64 = 0.0;
+pub const DEFAULT_PRESENCE_PENALTY: f64 = 0.0;
+
+/// serde 缺键回落（同 [`default_near_scenes`] 先例：旧 config.json 缺新键）。
+fn default_top_p() -> f64 {
+    DEFAULT_TOP_P
+}
+fn default_frequency_penalty() -> f64 {
+    DEFAULT_FREQUENCY_PENALTY
+}
+fn default_presence_penalty() -> f64 {
+    DEFAULT_PRESENCE_PENALTY
 }
 
-/// 单个模型的元数据（2026-09-14 自纯模型名字符串升级）：id 即原模型名（全局
-/// 默认 active_model、导演跟随与角色覆写均以 id 字符串流转），其余字段供展示
-/// 与未来的调用参数裁剪。上下文窗口/最大输出缺省值与新增对话框预填一致
-/// （1M / 128K）；模态缺省 = 仅文本。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(default)]
-pub struct ModelSpec {
-    pub id: String,
-    pub context_window: u32,
-    pub max_output_tokens: u32,
-    pub input_types: Vec<ModelModality>,
-    pub output_types: Vec<ModelModality>,
-}
-
-impl Default for ModelSpec {
-    /// serde 缺键回落与 [`ModelSpec::from_id`] 同源：空 id（非法行由校验层标错）
-    /// + 1M 上下文 / 128K 输出 + 仅文本。
-    fn default() -> Self {
-        Self::from_id(String::new())
-    }
-}
-
-impl ModelSpec {
-    /// 旧字符串模型的等价构造（id 之外全默认）。
-    pub fn from_id(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            context_window: 1_000_000,
-            max_output_tokens: 128_000,
-            input_types: vec![ModelModality::Text],
-            output_types: vec![ModelModality::Text],
-        }
-    }
-}
-
-impl From<&str> for ModelSpec {
-    fn from(id: &str) -> Self {
-        Self::from_id(id)
-    }
-}
-
-/// 兼容反序列化：历史 config.json 的 models 是纯字符串数组（未发布应用，无
-/// 存量迁移义务，但字符串 → ModelSpec 的兜底让旧文件不用手改即可载入）。
-fn deserialize_models<'de, D>(deserializer: D) -> Result<Vec<ModelSpec>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
-    raw.into_iter()
-        .map(|value| {
-            if let Some(id) = value.as_str() {
-                return Ok(ModelSpec::from_id(id));
-            }
-            serde_json::from_value::<ModelSpec>(value).map_err(serde::de::Error::custom)
-        })
-        .collect()
-}
+// 模型元数据（ModelModality / ModelSpec）自本文件拆出（2026-09-16 源文件
+// 500 行上限）：模型元数据是自成概念（见 model_spec.rs 模块注释），re-export
+// 维持既有 `crate::infra::config::ModelSpec` 引用路径不变。
+mod model_spec;
+pub use model_spec::{ModelModality, ModelSpec};
 
 /// 单套 LLM Provider（FR-009；密钥明文本机，OQ-001 已决）。
 /// 双层级（2026-09-09）：一个 provider 提供多个 model（`models`，模型 id 字符串
@@ -143,9 +110,9 @@ pub struct ProviderConfig {
     pub base_url: String,
     #[serde(default)]
     pub api_key: String,
-    /// 该服务可用的模型列表（至少一个才能用于生成，解析层兜底校验）；元素为
+    /// 模型列表（至少一个才能用于生成，解析层兜底校验）；元素为
     /// 模型元数据（id 即模型名），反序列化兼容旧的纯字符串数组。
-    #[serde(default, deserialize_with = "deserialize_models")]
+    #[serde(default, deserialize_with = "model_spec::deserialize_models")]
     pub models: Vec<ModelSpec>,
     /// API 兼容协议（2026-09-14 三选一）：缺省 openai——旧 config.json 无此键
     /// 零迁移兼容；未知值 serde 反序列化失败 → load 报 [`ConfigError::Parse`]
@@ -224,6 +191,17 @@ pub struct Config {
     /// 采样温度（0–2，默认 0.7）：chat 请求以 temperature 参数随三协议下发
     /// （消费点 services/generation → LlmConfig → 各 wire payload）。
     pub temperature: f64,
+    /// 核采样 top_p（0–1，默认 1.0 = 不截断）：三协议 payload 的 top_p 参数
+    /// （消费点同 temperature）。
+    #[serde(default = "default_top_p")]
+    pub top_p: f64,
+    /// 频率惩罚（−2–2，默认 0）：压重复措辞；仅 OpenAI 兼容协议有此参数，
+    /// Anthropic/Responses wire 层不下发（协议无此概念，静默省略非吞错）。
+    #[serde(default = "default_frequency_penalty")]
+    pub frequency_penalty: f64,
+    /// 存在惩罚（−2–2，默认 0）：鼓励新话题；支持域同 frequency_penalty。
+    #[serde(default = "default_presence_penalty")]
+    pub presence_penalty: f64,
 }
 
 impl Default for Config {
@@ -250,6 +228,9 @@ impl Config {
             near_scenes: DEFAULT_NEAR_SCENES,
             system_prompt: String::new(),
             temperature: DEFAULT_TEMPERATURE,
+            top_p: DEFAULT_TOP_P,
+            frequency_penalty: DEFAULT_FREQUENCY_PENALTY,
+            presence_penalty: DEFAULT_PRESENCE_PENALTY,
         }
     }
 
@@ -275,6 +256,22 @@ impl Config {
                 "temperature = {} 越界（允许 {}–{}）",
                 self.temperature, TEMPERATURE_MIN, TEMPERATURE_MAX
             )));
+        }
+        if !(TOP_P_MIN..=TOP_P_MAX).contains(&self.top_p) {
+            return Err(ConfigError::Invalid(format!(
+                "top_p = {} 越界（允许 {}–{}）",
+                self.top_p, TOP_P_MIN, TOP_P_MAX
+            )));
+        }
+        for (name, value) in [
+            ("frequency_penalty", self.frequency_penalty),
+            ("presence_penalty", self.presence_penalty),
+        ] {
+            if !(PENALTY_MIN..=PENALTY_MAX).contains(&value) {
+                return Err(ConfigError::Invalid(format!(
+                    "{name} = {value} 越界（允许 {PENALTY_MIN}–{PENALTY_MAX}）"
+                )));
+            }
         }
         Ok(())
     }

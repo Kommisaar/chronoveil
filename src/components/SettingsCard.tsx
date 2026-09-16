@@ -17,7 +17,7 @@ const useStyles = makeStyles({
     border: `1px solid ${tokens.colorNeutralStroke1}`,
     // 分组卡圆角 = borderRadiusLarge（Fluent v9 实测 6px，非 8px；三档圆角
     // 规范中间档：行内 = Medium 4px 见 ProviderCard，页面级卡片表面 = 16px
-    // 见 CharacterEditorDialog surface，规范常量 SURFACE_RADIUS_PAGE_CARD
+    // 见典藏卡卡面（历史先例编辑器面板，已抽屉化），规范常量 SURFACE_RADIUS_PAGE_CARD
     // 在 src/components/surfaceSpec.ts）
     borderRadius: tokens.borderRadiusLarge,
   },
@@ -44,6 +44,10 @@ const useStyles = makeStyles({
   },
   row: {
     display: 'flex',
+    // 窄容器放不下「标签 + 控件簇」时控件整簇换行（两栏编辑卡的 ~350px 列
+    // 实测标签被挤成竖排）：够宽时本属性无感，行布局与旧版逐位一致。
+    flexWrap: 'wrap',
+    rowGap: tokens.spacingVerticalXXS,
     alignItems: 'center',
     gap: tokens.spacingHorizontalM,
     padding: '12px 20px',

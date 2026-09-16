@@ -68,6 +68,9 @@ fn character_with_overrides(
         model_provider_id: provider_id.map(str::to_string),
         model_name: model_name.map(str::to_string),
         model_temperature: temperature,
+        model_top_p: None,
+        model_frequency_penalty: None,
+        model_presence_penalty: None,
         accent_color: None,
         anim_duration_ms: None,
         anim_rhythm_ms: None,
@@ -145,6 +148,56 @@ fn resolve_llm_temperature_override_follows_and_applies() {
     assert!(resolve_effective_llm(&test_config(), Some(&low))
         .unwrap_err()
         .contains("temperature"));
+}
+
+/// 采样参数三覆写（2026-09-16）：缺省跟随全局（top_p=1/惩罚=0），给出且
+/// 在域内覆写生效，越界可读错误（同温度语义）。
+#[test]
+fn resolve_llm_sampling_overrides_follow_and_apply() {
+    // 缺省 → 全局默认（new_with_defaults：top_p 1.0 / 惩罚 0）。
+    let base = resolve_effective_llm(&test_config(), Some(&character_without_override())).unwrap();
+    assert_eq!(base.top_p, 1.0);
+    assert_eq!(base.frequency_penalty, 0.0);
+    assert_eq!(base.presence_penalty, 0.0);
+
+    // 全局打底：改全局值，缺省角色跟随全局新值。
+    let mut global = test_config();
+    global.top_p = 0.8;
+    global.frequency_penalty = 0.3;
+    global.presence_penalty = -0.3;
+    let g = resolve_effective_llm(&global, Some(&character_without_override())).unwrap();
+    assert_eq!(g.top_p, 0.8);
+    assert_eq!(g.frequency_penalty, 0.3);
+    assert_eq!(g.presence_penalty, -0.3);
+
+    // 域内覆写生效（覆盖全局值之上）。
+    let over = Character {
+        model_top_p: Some(0.9),
+        model_frequency_penalty: Some(-1.5),
+        model_presence_penalty: Some(0.5),
+        ..character_without_override()
+    };
+    let cfg = resolve_effective_llm(&test_config(), Some(&over)).unwrap();
+    assert_eq!(cfg.top_p, 0.9);
+    assert_eq!(cfg.frequency_penalty, -1.5);
+    assert_eq!(cfg.presence_penalty, 0.5);
+
+    // 越界 → 可读错误。
+    let bad_top_p =
+        Character { model_top_p: Some(1.5), ..character_without_override() };
+    assert!(resolve_effective_llm(&test_config(), Some(&bad_top_p))
+        .unwrap_err()
+        .contains("top_p"));
+    let bad_freq =
+        Character { model_frequency_penalty: Some(2.5), ..character_without_override() };
+    assert!(resolve_effective_llm(&test_config(), Some(&bad_freq))
+        .unwrap_err()
+        .contains("frequency_penalty"));
+    let bad_pres =
+        Character { model_presence_penalty: Some(-2.5), ..character_without_override() };
+    assert!(resolve_effective_llm(&test_config(), Some(&bad_pres))
+        .unwrap_err()
+        .contains("presence_penalty"));
 }
 
 /// 协议随 provider 走（2026-09-14 三协议）：角色覆写切 provider 后
@@ -314,6 +367,9 @@ fn client(url: &str) -> LlmClient {
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
         temperature: 0.7,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: crate::infra::llm::RetryPolicy {

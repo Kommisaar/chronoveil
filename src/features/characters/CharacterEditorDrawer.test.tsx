@@ -1,4 +1,4 @@
-// CharacterEditorDialog 主交互流补测（审计批次 C：全仓最复杂交互组件）。
+// CharacterEditorDrawer 主交互流补测（审计批次 C：全仓最复杂交互组件）。
 // 经真实父级 CharactersView 挂载：身份行常驻编辑（2026-09-15 重设计，整卡
 // 编辑会话裁撤）、修改即保存（2026-09-13 定稿，改名经防抖自动落库）与人设
 // 独立「预览|编辑」切换。api 层整体 vi.mock（ADR-010 允许 UI 层测试替换数据
@@ -41,6 +41,9 @@ const LIN: CharacterSummary = {
   modelProviderId: null,
   modelName: null,
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: null,
     animDurationMs: null,
     animRhythmMs: null,
@@ -63,6 +66,9 @@ const CONFIG: ConfigDto = {
   nearScenes: 2,
   systemPrompt: '',
   temperature: 0.7,
+  topP: 1.0,
+  frequencyPenalty: 0.0,
+  presencePenalty: 0.0,
 };
 
 function renderView() {
@@ -73,10 +79,14 @@ function renderView() {
   );
 }
 
-/** 点卡片打开既有角色编辑，等对话框标题上屏 */
+/** 点卡片打开既有角色编辑，等抽屉标题上屏 */
 async function openEditorOf(name: string): Promise<void> {
   fireEvent.click(await screen.findByText(name));
   await screen.findByRole('heading', { name: '编辑角色' });
+  // jsdom 无自动聚焦：Fluent 模态 tabster 异步给抽屉根挂 aria-hidden，真实
+  // 浏览器里靠打开时的默认聚焦移除；显式聚焦表单首控件复现该激活路径，否则
+  // 后续 getByRole 会被 a11y 过滤挡掉（2026-09-16 抽屉化实测）。
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
 }
 
 /** 身份行常驻输入态：名称输入框直接可取（无重命名按钮，2026-09-15 重设计） */
@@ -94,7 +104,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe('CharacterEditorDialog 打开与回填（编辑既有卡）', () => {
+describe('CharacterEditorDrawer 打开与回填（编辑既有卡）', () => {
   it('点卡片打开：标题「编辑角色」，身份行输入框常驻回填，人设进渲染预览态', async () => {
     renderView();
     await openEditorOf('林深');
@@ -110,7 +120,7 @@ describe('CharacterEditorDialog 打开与回填（编辑既有卡）', () => {
   });
 });
 
-describe('CharacterEditorDialog 修改即保存', () => {
+describe('CharacterEditorDrawer 修改即保存', () => {
   it('清空名称出必填提示且不落库，改回有值恢复并自动保存', async () => {
     renderView();
     await openEditorOf('林深');
@@ -149,7 +159,7 @@ describe('CharacterEditorDialog 修改即保存', () => {
   });
 });
 
-describe('CharacterEditorDialog 人设独立切换（2026-09-15 自整卡会话拆出）', () => {
+describe('CharacterEditorDrawer 人设独立切换（2026-09-15 自整卡会话拆出）', () => {
   /** 切换人设「预览|编辑」分段。 */
   function switchPersonaMode(mode: '预览' | '编辑') {
     const group = screen.getByRole('radiogroup', { name: '人设视图' });

@@ -53,6 +53,9 @@ const emptyDraft: ConfigDto = {
   nearScenes: 2,
   systemPrompt: '',
   temperature: 0.7,
+  topP: 1.0,
+  frequencyPenalty: 0.0,
+  presencePenalty: 0.0,
 };
 
 

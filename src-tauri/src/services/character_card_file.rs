@@ -48,6 +48,11 @@ pub struct CharacterCardPayload {
     pub model_provider_id: Option<String>,
     pub model_name: Option<String>,
     pub model_temperature: Option<f64>,
+    /// 采样参数三列（2026-09-16，与卡 wire 同形；None = 跟随全局；旧卡文件
+    /// 缺省 = None，serde 缺字段即 None，格式版本仍为 1 向前兼容）。
+    pub model_top_p: Option<f64>,
+    pub model_frequency_penalty: Option<f64>,
+    pub model_presence_penalty: Option<f64>,
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13，可选项随卡携带；旧卡文件缺省 = None = 跟随
     /// 全局，serde 缺字段即 None，格式版本仍为 1 向前兼容）。
@@ -74,6 +79,9 @@ impl From<&Character> for CharacterCardPayload {
             model_provider_id: c.model_provider_id.clone(),
             model_name: c.model_name.clone(),
             model_temperature: c.model_temperature,
+            model_top_p: c.model_top_p,
+            model_frequency_penalty: c.model_frequency_penalty,
+            model_presence_penalty: c.model_presence_penalty,
             accent_color: c.accent_color.clone(),
             anim_duration_ms: c.anim_duration_ms,
             anim_rhythm_ms: c.anim_rhythm_ms,
@@ -208,6 +216,9 @@ mod tests {
             model_provider_id: Some("p1".into()),
             model_name: Some("m1".into()),
             model_temperature: Some(0.8),
+            model_top_p: Some(0.9),
+            model_frequency_penalty: Some(-1.5),
+            model_presence_penalty: Some(0.5),
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
@@ -234,6 +245,9 @@ mod tests {
         assert_eq!(c["modelProviderId"], "p1");
         assert_eq!(c["modelName"], "m1");
         assert_eq!(c["modelTemperature"], 0.8);
+        assert_eq!(c["modelTopP"], 0.9, "采样参数随卡导出（camelCase）");
+        assert_eq!(c["modelFrequencyPenalty"], -1.5);
+        assert_eq!(c["modelPresencePenalty"], 0.5);
         assert_eq!(c["accentColor"], "#5e2347");
         assert_eq!(c["gender"], "女");
         assert_eq!(c["age"], "24");

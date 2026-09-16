@@ -13,7 +13,7 @@
  *   Sidebar.inner、ledgerPanel.panel 等）= colorNeutralBackground1；
  * - 对话框内容：Fluent DialogSurface 默认背景 = colorNeutralBackground1
  *   （@fluentui/react-dialog useDialogSurfaceStyles.styles.raw.js:32 实证；
- *   CharacterEditorDialog 等均未覆写背景）；
+ *   编辑器抽屉等均未覆写背景）；
  * - hover/选中底（bg1Hover / bg1Selected）、输入类浅底（bg2）、徽标底（bg3）
  *   按样式类显式声明逐条跟入；一个用点出现在多种状态下时全部列入 backgrounds
  *   （每个组合都要达标 = 最保守口径）；
@@ -156,8 +156,16 @@ const USAGES: readonly UsageEntry[] = [
     context: '幕后活动展开轨迹（base200）', backgrounds: ['colorNeutralBackground1'] },
   { file: 'src/features/chat/ActivityNotice.tsx', line: 75, style: 'stepLabel', token: 'colorNeutralForeground2',
     context: '活动步骤本地化标签', backgrounds: ['colorNeutralBackground1'] },
-  { file: 'src/features/chat/StreamingMessage.tsx', line: 41, style: 'header', token: 'colorNeutralForeground3',
-    context: '流式消息头部角色名占位（base200）', backgrounds: ['colorNeutralBackground1'] },
+  // 消息卡题头带（2026-09-16 姓名题头化：底缘细线分区、无底面着色）：题头
+  // 透明落在卡壳 bg1 上，说话人名 fg1 / 时间 fg3 均按 bg1 配对。旧
+  // StreamingMessage.tsx 行内样式用点已随卡壳样式下沉 useMessageCardStyles
+  // 迁移，原条目同步移除
+  { file: 'src/features/chat/MessageEntry.tsx', line: 57, style: 'speaker', token: 'colorNeutralForeground1',
+    context: '消息卡题头说话人名（base300 semibold）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/chat/MessageEntry.tsx', line: 61, style: 'time', token: 'colorNeutralForeground3',
+    context: '消息卡题头时间（base200）', backgrounds: ['colorNeutralBackground1'] },
+  { file: 'src/features/chat/useMessageCardStyles.ts', line: 39, style: 'speaker', token: 'colorNeutralForeground1',
+    context: '流式卡题头说话人名（base300 semibold）', backgrounds: ['colorNeutralBackground1'] },
   // ledgerPanel 的 stateBlock 用点已随审计 A1 迁入 StateBlock 承载，本文件不再
   // 有该用点（StateBlock.tsx / useGhostIconButtonStyles.ts 的清单登记归其落地任务）
   { file: 'src/features/chat/ledgerScenes.tsx', line: 54, style: 'sceneMeta', token: 'colorNeutralForeground3',

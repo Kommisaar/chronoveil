@@ -1,7 +1,7 @@
 /**
  * 角色编辑器表单逻辑（2026-09-09 编辑器重做时自旧对话框抽出）：状态、修改即
- * 保存（自动保存）、预览动画引擎接线与强调色派生，供排版壳（CharacterEditorDialog，
- * 左海报 + 右面板）单点复用。
+ * 保存（自动保存）、预览动画引擎接线与强调色派生，供排版壳（CharacterEditorDrawer，
+ * 右缘编辑抽屉）单点复用。
  *
  * - 服务两种模式（2026-09-16 创建流程改「先编辑后落库」）：edit = 编辑既有卡
  *   （父组件以 key 重挂换绑初值；character 是打开时的快照，保存后父级
@@ -18,6 +18,8 @@
  * - avatar 不做编辑 UI：编辑原样带回（TASK-008 验收 2）；
  * - 模型覆写为三扁平字段（modelProviderId / modelName / modelTemperature）：
  *   空串 / null = 跟随全局，上送前空串归一为 null（列语义 NULL = 跟随）；
+ *   采样参数三覆写（2026-09-16：modelTopP / modelFrequencyPenalty /
+ *   modelPresencePenalty）同语义，迁移 0018；
  * - 历法不属角色卡（2026-09-13 产品裁剪）：会话历法在开局向导按会话配置，
  *   编辑器表单不含历法字段；
  * - 「预览动画」经引擎公开 API 播一次所选风格（createRenderer +
@@ -37,8 +39,6 @@ import {
 } from '../../../engine';
 import {
   accentColorOf,
-  dotGradientOf,
-  posterGradientOf,
 } from '../../../components/posterGradient';
 
 /** 自动保存防抖（毫秒）：连续输入期间持续顺延，停手后一拍落库。 */
@@ -54,6 +54,10 @@ export interface AnimDefaults {
   renderStyle: string;
   /** 全局采样温度（2026-09-14 温度覆写）：卡 temperature 为 null 时的展示/落点值。 */
   temperature: number;
+  /** 全局采样参数（2026-09-16 采样三覆写）：卡同名字段为 null 时的展示/落点值。 */
+  topP: number;
+  frequencyPenalty: number;
+  presencePenalty: number;
   /** 全局默认模型二元组（2026-09-14 模型设置行）：跟随态展示与切自定义的
    *  写卡落点；空串 = 未配置（跟随态按钮仅显示「跟随全局」）。 */
   defaultProviderId: string;
@@ -68,6 +72,10 @@ const TEMPLATE_DEFAULTS: AnimDefaults = {
   renderStyle: DEFAULT_RENDER_STYLE,
   // 与 Rust infra/config.rs DEFAULT_TEMPERATURE 同值（llm/config 两侧均 0.7）。
   temperature: 0.7,
+  // 与 infra/config.rs 的 DEFAULT_TOP_P / DEFAULT_*_PENALTY 同值。
+  topP: 1.0,
+  frequencyPenalty: 0.0,
+  presencePenalty: 0.0,
   defaultProviderId: '',
   defaultModelId: '',
 };
@@ -103,6 +111,13 @@ export interface EditorForm {
   setModelName: (value: string) => void;
   modelTemperature: number | null;
   setModelTemperature: (value: number | null) => void;
+  /** 采样参数三覆写（2026-09-16）：null = 跟随全局，语义同温度。 */
+  modelTopP: number | null;
+  setModelTopP: (value: number | null) => void;
+  modelFrequencyPenalty: number | null;
+  setModelFrequencyPenalty: (value: number | null) => void;
+  modelPresencePenalty: number | null;
+  setModelPresencePenalty: (value: number | null) => void;
   /** 名称必填门槛：为空时自动保存挂起（IdentityField 出必填提示）。 */
   canSave: boolean;
   /** 当前表单 → 整卡 wire 载荷（create 模式「保存」点击时由排版壳取用；
@@ -114,14 +129,11 @@ export interface EditorForm {
   previewRef: (node: HTMLDivElement | null) => void;
   previewed: boolean;
   playPreview: () => void;
-  /** 外壳渲染主题横幅 / 海报用的派生值（全部随输入实时更新）。 */
+  /** 外壳消费的派生值（随输入实时更新）：编辑器抽屉化（2026-09-16）后仅剩
+      取色器色块的基础色——原海报渐变/名/风格标签等预览派生随海报栏裁撤。 */
   live: {
-    nameText: string;
-    posterGradient: string;
     /** 基础色（未经修饰）：显式强调色，或跟随海报时按 id 派生的亮端纯色 */
     baseColor: string;
-    dotGradient: string;
-    styleLabel: string;
   };
 }
 
@@ -163,6 +175,9 @@ export function useEditorForm(props: {
       modelProviderId: character?.modelProviderId ?? '',
       modelName: character?.modelName ?? '',
       modelTemperature: character?.modelTemperature ?? null,
+      modelTopP: character?.modelTopP ?? null,
+      modelFrequencyPenalty: character?.modelFrequencyPenalty ?? null,
+      modelPresencePenalty: character?.modelPresencePenalty ?? null,
     };
   }, [character]);
 
@@ -179,6 +194,13 @@ export function useEditorForm(props: {
   const [modelProviderId, setModelProviderId] = useState(initial.modelProviderId);
   const [modelName, setModelName] = useState(initial.modelName);
   const [modelTemperature, setModelTemperature] = useState<number | null>(initial.modelTemperature);
+  const [modelTopP, setModelTopP] = useState<number | null>(initial.modelTopP);
+  const [modelFrequencyPenalty, setModelFrequencyPenalty] = useState<number | null>(
+    initial.modelFrequencyPenalty,
+  );
+  const [modelPresencePenalty, setModelPresencePenalty] = useState<number | null>(
+    initial.modelPresencePenalty,
+  );
   // 是否已播过预览：控制空态提示显隐（重挂/切角色由父组件 key 重置）。
   const [previewed, setPreviewed] = useState(false);
 
@@ -204,6 +226,9 @@ export function useEditorForm(props: {
     modelProviderId: modelProviderId.trim() || null,
     modelName: modelName.trim() || null,
     modelTemperature,
+    modelTopP,
+    modelFrequencyPenalty,
+    modelPresencePenalty,
   });
 
   // ---- 修改即保存（自动保存）----
@@ -360,22 +385,12 @@ export function useEditorForm(props: {
 
   const live = useMemo(() => {
     const id = character?.id ?? 0;
-    const accentInput = { id, accentColor };
-    const selectedStyle = ANIM_STYLES.find((s) => s.id === renderStyle);
     return {
-      nameText: name.trim() || t('characters.new'),
-      // 强调色即角色主色：设了整卡覆盖（与海报墙同规则），未设按 id 取模。
-      posterGradient: posterGradientOf(accentInput),
-      // 基础色（未经修饰）：海报的暗变是 scrim 叠层，不参与颜色元数据——
-      // 取色器色块显示的是它（显式强调色，或跟随海报时按 id 派生的亮端）。
-      baseColor: accentColorOf(accentInput),
-      dotGradient: dotGradientOf(accentInput),
-      styleLabel:
-        selectedStyle?.label ??
-        (renderStyle !== null ? renderStyle : animDefaults.renderStyle),
+      // 基础色（未经修饰）：显式强调色，或跟随海报时按 id 派生的亮端——
+      // 取色器色块显示的是它。
+      baseColor: accentColorOf({ id, accentColor }),
     };
-    // animDefaults.renderStyle 参与 styleLabel 回落，一并入 deps
-  }, [character, accentColor, renderStyle, name, t, animDefaults]);
+  }, [character, accentColor]);
 
   return {
     name,
@@ -404,6 +419,12 @@ export function useEditorForm(props: {
     setModelName,
     modelTemperature,
     setModelTemperature,
+    modelTopP,
+    setModelTopP,
+    modelFrequencyPenalty,
+    setModelFrequencyPenalty,
+    modelPresencePenalty,
+    setModelPresencePenalty,
     canSave,
     buildInput,
     flushSave,

@@ -9,9 +9,8 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterInput, CharacterSummary } from '../../../api/types';
-import { ANIM_STYLES } from '../../../engine';
 import '../../../i18n';
-import { gradientOf, gradientPairOf } from '../../../components/posterGradient';
+import { gradientPairOf } from '../../../components/posterGradient';
 import { useEditorForm } from './useEditorForm';
 
 const EDIT_CHARACTER: CharacterSummary = {
@@ -26,6 +25,9 @@ const EDIT_CHARACTER: CharacterSummary = {
   modelProviderId: 'p1',
   modelName: 'm1',
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: '#3322ff',
   animDurationMs: null,
   animRhythmMs: null,
@@ -88,7 +90,6 @@ describe('useEditorForm 挂载与基线', () => {
     expect(result.current.modelTemperature).toBeNull();
     expect(result.current.titles).toEqual(['雨夜守夜人', '  ']);
     expect(result.current.canSave).toBe(true);
-    expect(result.current.live.nameText).toBe('林深');
   });
 
   it('打开即基线：未改动不自动保存（防抖窗口过后仍无上送）', async () => {
@@ -126,6 +127,9 @@ describe('useEditorForm 修改即保存', () => {
         modelProviderId: 'p1',
         modelName: 'm1',
         modelTemperature: null,
+        modelTopP: null,
+        modelFrequencyPenalty: null,
+        modelPresencePenalty: null,
         // 载荷侧逐项 trim 过滤空项（表单态 '  ' 空白项不落库）
         titles: ['雨夜守夜人'],
       }),
@@ -351,16 +355,46 @@ describe('useEditorForm 模型覆写序列化出口（经 flushSave 载荷断言
     );
     await advance(2000);
   });
+
+  it('采样参数三覆写（2026-09-16）：自定义写数值，回 null 即跟随全局', async () => {
+    const { result, onAutosave } = renderForm();
+    act(() => {
+      result.current.setModelTopP(0.85);
+      result.current.setModelFrequencyPenalty(-1.5);
+      result.current.setModelPresencePenalty(0.5);
+    });
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        modelTopP: 0.85,
+        modelFrequencyPenalty: -1.5,
+        modelPresencePenalty: 0.5,
+      }),
+    );
+    act(() => {
+      result.current.setModelTopP(null);
+      result.current.setModelFrequencyPenalty(null);
+      result.current.setModelPresencePenalty(null);
+    });
+    act(() => result.current.flushSave());
+    await flushMicrotasks();
+    expect(onAutosave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        modelTopP: null,
+        modelFrequencyPenalty: null,
+        modelPresencePenalty: null,
+      }),
+    );
+    await advance(2000);
+  });
 });
 
-describe('useEditorForm live 派生', () => {
-  it('显式强调色：海报原色直出、基础色同值；清 null 跟随 id 派生', () => {
+describe('useEditorForm live 派生（2026-09-16 抽屉化后仅剩取色器基础色）', () => {
+  it('显式强调色：基础色原色直出；清 null 跟随 id 派生亮端', () => {
     const { result } = renderForm();
     act(() => result.current.setAccentColor('#00ff00'));
     expect(result.current.live.baseColor).toBe('#00ff00');
-    expect(result.current.live.posterGradient).toBe(
-      'linear-gradient(150deg, #00ff00 0%, #00ff00 100%)',
-    );
     act(() => result.current.setAccentColor(null));
     expect(result.current.live.baseColor).toBe(gradientPairOf(2)[1]);
   });
@@ -368,17 +402,6 @@ describe('useEditorForm live 派生', () => {
   it('编辑角色无强调色：按角色 id 取模亮端（非新建的 id=0 色）', () => {
     const { result } = renderForm({ ...EDIT_CHARACTER, accentColor: null });
     expect(result.current.live.baseColor).toBe(gradientPairOf(2)[1]);
-    expect(result.current.live.posterGradient).toBe(gradientOf(2));
-  });
-
-  it('风格标签：合法 id 出中文标签，表外串原样回落', () => {
-    const { result } = renderForm();
-    const ink = ANIM_STYLES.find((s) => s.id === 'ink');
-    expect(ink).toBeDefined();
-    act(() => result.current.setRenderStyle('ink'));
-    expect(result.current.live.styleLabel).toBe(ink!.label);
-    act(() => result.current.setRenderStyle('made-up-style'));
-    expect(result.current.live.styleLabel).toBe('made-up-style');
   });
 });
 
@@ -413,7 +436,7 @@ describe('useEditorForm 预览动画', () => {
         character: { ...EDIT_CHARACTER, animDurationMs: 700, animRhythmMs: 120, animPunctPause: false },
         onAutosave,
         autosave: true,
-        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type', temperature: 0.7, defaultProviderId: '', defaultModelId: '' },
+        animDefaults: { durationMs: 300, msPerChar: 20, punctPause: true, renderStyle: 'type', temperature: 0.7, topP: 1.0, frequencyPenalty: 0, presencePenalty: 0, defaultProviderId: '', defaultModelId: '' },
       }),
     );
     const container = document.createElement('div');

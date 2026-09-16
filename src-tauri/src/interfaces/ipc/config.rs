@@ -99,6 +99,12 @@ pub struct ConfigDto {
     /// 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
     /// Anthropic 侧超 1.0 由协议适配钳制）。
     pub temperature: f64,
+    /// 核采样 top_p（0–1，默认 1.0 = 不截断）：chat 请求的 top_p 参数（三协议下发）。
+    pub top_p: f64,
+    /// 频率惩罚（−2–2，默认 0）：仅 OpenAI 兼容协议下发（协议适配层取舍）。
+    pub frequency_penalty: f64,
+    /// 存在惩罚（−2–2，默认 0）：下发域同 frequencyPenalty。
+    pub presence_penalty: f64,
 }
 
 impl From<&FileConfig> for ConfigDto {
@@ -128,6 +134,9 @@ impl From<&FileConfig> for ConfigDto {
             near_scenes: c.near_scenes,
             system_prompt: c.system_prompt.clone(),
             temperature: c.temperature,
+            top_p: c.top_p,
+            frequency_penalty: c.frequency_penalty,
+            presence_penalty: c.presence_penalty,
         }
     }
 }
@@ -160,6 +169,9 @@ impl From<ConfigDto> for FileConfig {
             near_scenes: d.near_scenes,
             system_prompt: d.system_prompt,
             temperature: d.temperature,
+            top_p: d.top_p,
+            frequency_penalty: d.frequency_penalty,
+            presence_penalty: d.presence_penalty,
         }
     }
 }
@@ -217,6 +229,9 @@ mod tests {
             near_scenes: 4,
             system_prompt: "用中文写短句".into(),
             temperature: 0.9,
+            top_p: 1.0,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
         };
         let wire = serde_json::to_value(&dto).unwrap();
         assert_eq!(wire["activeProviderId"], "p1", "wire camelCase");

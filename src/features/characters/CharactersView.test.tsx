@@ -32,6 +32,15 @@ function textareaOf(label: string): HTMLTextAreaElement {
   return screen.getByLabelText(label) as HTMLTextAreaElement;
 }
 
+/** 打开既有角色编辑：标题上屏后聚焦名称输入框——jsdom 无 Fluent 的默认
+ *  聚焦，模态 tabster 异步挂上的 aria-hidden 不移除会挡住后续 getByRole
+ *  （说明同 CharacterEditorDrawer.test 的 openEditorOf）。 */
+async function openEditorOf(name: string): Promise<void> {
+  fireEvent.click(await screen.findByText(name));
+  await screen.findByRole('heading', { name: '编辑角色' });
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
+}
+
 /** 人设切「编辑」分段（2026-09-15 常驻编辑重设计后独立切换）。 */
 function switchPersonaEdit() {
   const group = screen.getByRole('radiogroup', { name: '人设视图' });
@@ -65,7 +74,7 @@ it('典藏卡：常显身份与元信息，整卡点击进编辑恰好一次', a
   // 而非种子静态值 1：mock listCharacters 实时统计 is_user 扮演位会话数
   // （backend.ts），林深从未作扮演位（苏鸢才是），静态 sessionCount 被覆写
   const nameText = await screen.findByText('林深');
-  const card = nameText.closest('[data-editor-trigger]') as HTMLElement;
+  const card = nameText.closest('.fui-Card') as HTMLElement;
   expect(card?.textContent).toContain('「守夜人」');
   expect(card?.textContent).toContain('旧书店老板，雨天总在擦一盏灯。');
   expect(card?.textContent).toContain('0 个会话');
@@ -82,16 +91,18 @@ it('典藏卡：常显身份与元信息，整卡点击进编辑恰好一次', a
 it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存进列表', async () => {
   renderView();
   await screen.findByText('苏鸢');
-  // 「保存前不入列」判据基线：网格卡都挂 data-editor-trigger（对话框没有），
-  // 开草稿前后计数不变 = 无卡落库（旧「先落库」流程会多出一张默认名卡）
-  const triggersBefore = document.querySelectorAll('[data-editor-trigger]').length;
+  // 「保存前不入列」判据基线：网格卡都是 Fluent Card（fui-Card；编辑抽屉里
+  // 无 Card——设置卡是普通 div），开草稿前后计数不变 = 无卡落库（旧「先落库」
+  // 流程会多出一张默认名卡）
+  const cardsBefore = document.querySelectorAll('.fui-Card').length;
 
   fireEvent.click(screen.getByRole('button', { name: '新建角色' }));
   // 编辑器直接开在草稿上：标题「新建角色」，名称空（必填门槛生效）
   expect(
     await screen.findByRole('heading', { name: '新建角色' }, { timeout: 3000 }),
   ).toBeTruthy();
-  expect(document.querySelectorAll('[data-editor-trigger]').length).toBe(triggersBefore);
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
+  expect(document.querySelectorAll('.fui-Card').length).toBe(cardsBefore);
   expect(inputOf('名称').value).toBe('');
   // 名称必填：空名时保存禁用
   expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true);
@@ -112,6 +123,8 @@ it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存�
   expect(
     await screen.findByRole('heading', { name: '新建角色' }, { timeout: 3000 }),
   ).toBeTruthy();
+  // 退场窗口内的原实例重开不触发 Fluent 默认聚焦：再次显式聚焦（说明同上）
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
   fireEvent.change(inputOf('名称'), { target: { value: '乌鸦' } });
   fireEvent.click(screen.getByRole('button', { name: '保存' }));
   expect(await screen.findByText('乌鸦', undefined, { timeout: 3000 })).toBeTruthy();
@@ -125,7 +138,7 @@ it('新建 = 先编辑后落库：保存前不入列，放弃不出卡，保存�
 
 it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），render_style 下拉 18 项，「预览动画」经引擎播放所选风格（验收 2/3/4）', async () => {
   renderView();
-  fireEvent.click(await screen.findByText('林深'));
+  await openEditorOf('林深');
 
   // persona 默认渲染展示：预览容器由引擎直插 DOM（markdown 静态渲染）
   const personaPreview = document.querySelector('[data-markdown-preview]');
@@ -151,7 +164,7 @@ it('编辑：点卡片载入全量字段（persona 预填依赖扩字段），re
 
 it('修改即保存：编辑中切换目标卡无丢弃确认，最后一拍经卸载补存落到原卡', async () => {
   renderView();
-  fireEvent.click(await screen.findByText('林深'));
+  await openEditorOf('林深');
   // 身份行常驻输入态：直接改值（防抖窗口内切换）
   fireEvent.change(inputOf('名称'), { target: { value: '林深（改）' } });
 
@@ -167,10 +180,11 @@ it('修改即保存：编辑中切换目标卡无丢弃确认，最后一拍经�
   fireEvent.change(inputOf('名称'), { target: { value: '林深' } });
   await waitFor(
     () => {
-      expect(screen.getAllByText('林深').length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText('林深（改）')).toBeNull();
     },
     { timeout: 3000 },
   );
+  expect(screen.getByText('林深')).toBeTruthy();
 });
 
 it('删除：软删 + 确认对话框（文案明示历史保留），卡片消失且历史会话保留（验收 5）', async () => {
@@ -180,6 +194,8 @@ it('删除：软删 + 确认对话框（文案明示历史保留），卡片消�
   expect(sessionsBefore).toBeGreaterThan(0);
 
   fireEvent.click(screen.getByText('林深'));
+  await screen.findByRole('heading', { name: '编辑角色' });
+  (screen.getByLabelText('名称') as HTMLInputElement).focus();
   fireEvent.click(screen.getByRole('button', { name: '删除角色' }));
 
   // 确认文案必须明示「历史会话与消息保留，角色从列表隐藏」
@@ -206,7 +222,7 @@ it('导出：编辑器动作行「导出角色卡」（删除旁）可触发，�
   await screen.findByText('苏鸢');
 
   // 2026-09-16 拍板：导出自卡内角标菜单移至编辑器动作行（删除旁）
-  fireEvent.click(screen.getByText('苏鸢'));
+  await openEditorOf('苏鸢');
   fireEvent.click(await screen.findByRole('button', { name: '导出角色卡' }));
 
   // 静默成功：无 alert（真错误才走就地红字）；编辑器保持打开

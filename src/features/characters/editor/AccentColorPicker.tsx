@@ -101,7 +101,7 @@ export interface AccentColorPickerProps {
   onChange: (value: string | null) => void;
 }
 
-/** 强调色取色器：CharacterEditorDialog 等编辑器壳的字段落位件。 */
+/** 强调色取色器：CharacterEditorDrawer 等编辑器壳的字段落位件。 */
 export function AccentColorPicker(props: AccentColorPickerProps) {
   const styles = useFieldStyles();
   const { t } = useTranslation();

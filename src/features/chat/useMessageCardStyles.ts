@@ -1,8 +1,9 @@
 /**
  * 流式消息行卡壳（2026-09-16 对话流二次重设计定稿「顶签卡」）：与历史条目
  * （MessageEntry.entry）同语言——分组卡壳 6px 圆角 + stroke1 边 + bg1 面 +
- * 顶缘 3px 说话人色签（颜色经行内 borderTopColor 注入）。两处卡壳声明同值
- * 互指（改值须同步）；正文排版（body）同值互指，HistoryMessageBody 亦消费。
+ * 顶缘 3px 说话人色签（颜色经行内 borderTopColor 注入）+ 题头带（同日用户
+ * 拍板姓名题头化：底缘细线分区、无底面着色，姓名升 fg1 半粗）。两处卡壳声明
+ * 同值互指（改值须同步）；正文排版（body）同值互指，HistoryMessageBody 亦消费。
  */
 import { makeStyles, tokens } from '@fluentui/react-components';
 
@@ -10,26 +11,37 @@ export const useMessageCardStyles = makeStyles({
   card: {
     display: 'flex',
     flexDirection: 'column',
-    gap: tokens.spacingVerticalS,
     width: '100%',
-    padding: '12px 16px',
     backgroundColor: tokens.colorNeutralBackground1,
     border: `1px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusLarge,
     // 顶缘 3px 色签（MessageEntry.entry 同值互指）；颜色行内注入
     borderTopWidth: '3px',
+    // 卡壳不自带内边距：题头带满幅贴边，正文内边距由 main 自担
+    // （MessageEntry.entry 同值互指）
   },
+  // 题头带：说话人名居左（流式行无钟面时间），底缘细线与正文分区（无底面
+  // 着色，透明落在卡壳 bg1 上；MessageEntry.header 同值互指，改值须同步）
   header: {
     display: 'flex',
     alignItems: 'baseline',
     gap: tokens.spacingHorizontalS,
     minWidth: '0px',
+    padding: '8px 16px',
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
   },
-  // 说话人名：彩色身份交给顶签，名字保持安静（fg2 半粗小字，MessageEntry 同值）
+  // 说话人名升为卡面标题 fg1 半粗 base300（MessageEntry.speaker 同值互指）
   speaker: {
     fontWeight: tokens.fontWeightSemibold,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground2,
+    fontSize: tokens.fontSizeBase300,
+    color: tokens.colorNeutralForeground1,
+  },
+  main: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalS,
+    minWidth: '0px',
+    padding: '12px 16px',
   },
   body: {
     fontSize: tokens.fontSizeBase300,

@@ -27,7 +27,7 @@
  * - 底部行 = 元信息（色点 + 会话数）。曾按供图行位映射「编辑」主操作
  *   pill（价格 + 购买钮的形），2026-09-16 用户拍板移除——与整卡点击同义
  *   的显式动作位冗余，进编辑只走整卡点击 / Enter / Space；
- * - data-editor-trigger（FLIP 锚点）、preReveal/enterPop + register/
+ * - preReveal/enterPop + register/
  *   revealDelay 接线（--enter-delay CSS 变量 + as CSSProperties）与
  *   角色卡入场动画同款（keyframes card-enter-pop 在 app.css）。
  */
@@ -272,7 +272,6 @@ export function CharacterCollectCard({
       size="small"
       tabIndex={0}
       ref={register(index)}
-      data-editor-trigger={character.id}
       className={mergeClasses(
         styles.card,
         lift.root,

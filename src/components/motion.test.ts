@@ -20,16 +20,11 @@ import {
   ACCELERATE_CURVE,
   CROSSFADE_MS,
   DECELERATE_CURVE,
+  DRAWER_OUT_MS,
   DROPDOWN_POP_MS,
-  EDITOR_BACKDROP_IN_MS,
-  EDITOR_BODY_IN_DELAY_MS,
-  EDITOR_BODY_IN_MS,
-  EDITOR_BODY_OUT_MS,
-  EDITOR_FADE_MS,
   ENTER_STAGGER_CAP_MS,
   ENTER_STAGGER_MS,
   INDICATOR_MOVE_MS,
-  MORPH_OUT_MS,
   POP_IN_MS,
   SPRING_CURVE,
 } from './motion';
@@ -59,16 +54,11 @@ describe('动效 token 值锁存（对照表随提交走，改动必须显式过
     expect(normalize(ACCELERATE_CURVE)).toBe(normalize(webLightTheme.curveAccelerateMid));
   });
 
-  it('弹簧曲线与时长档取收敛后的共识值（400 归并 + 编辑器淡化编排原值）', () => {
+  it('弹簧曲线与时长档取收敛后的共识值（400 归并 + 抽屉卸载等待档）', () => {
     expect(SPRING_CURVE).toBe('cubic-bezier(0.34, 1.56, 0.64, 1)');
-    expect(POP_IN_MS).toBe(400); // 原 card-enter-pop 480 / palette-pop-in 400 / FLIP 400 归并
-    expect(MORPH_OUT_MS).toBe(200);
-    expect(EDITOR_FADE_MS).toBe(200);
-    expect(EDITOR_BACKDROP_IN_MS).toBe(280);
+    expect(POP_IN_MS).toBe(400); // 原 card-enter-pop 480 / palette-pop-in 400 归并
+    expect(DRAWER_OUT_MS).toBe(350); // Fluent 抽屉 medium 滑出 300ms + 50ms 余量
     expect(CROSSFADE_MS).toBe(200); // 思考两态收尾过渡档（M4，单侧消费见 motion.ts 注释）
-    expect(EDITOR_BODY_IN_MS).toBe(160);
-    expect(EDITOR_BODY_IN_DELAY_MS).toBe(90);
-    expect(EDITOR_BODY_OUT_MS).toBe(70);
     expect(INDICATOR_MOVE_MS).toBe(400);
     expect(DROPDOWN_POP_MS).toBe(150); // 下拉推钮开合档（小浮层跟手档）
     expect(ENTER_STAGGER_MS).toBe(24); // 原 sidebar 16 / 海报墙 60 统一

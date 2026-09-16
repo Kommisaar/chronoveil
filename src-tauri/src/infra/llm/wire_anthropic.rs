@@ -75,6 +75,9 @@ impl ApiProtocol for AnthropicMessages {
             "stream": stream,
             // 采样温度（设置页全局，0–2）：本协议域 0–1，超域钳到上限。
             "temperature": config.temperature.min(ANTHROPIC_TEMPERATURE_MAX),
+            // 核采样 top_p（本协议域 0–1，与设置域同形原样下发）。惩罚参数
+            // 本协议无此概念，不下发（OpenAI 独有，见 wire_openai）。
+            "top_p": config.top_p,
         });
         if let Some(system) = join_system_text(messages) {
             payload["system"] = Value::String(system);

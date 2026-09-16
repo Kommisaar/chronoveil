@@ -7,8 +7,8 @@
 
 // —— 曲线 ——
 
-/** 弹簧语言：过冲再回落。卡片入场/悬停上浮、色板弹层、编辑器共享元素
-    FLIP 进场共用；退场刻意不用弹簧（退场要安静）。 */
+/** 弹簧语言：过冲再回落。卡片入场/悬停上浮与色板弹层共用；退场刻意不用
+    弹簧（退场要安静）。 */
 export const SPRING_CURVE = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
 
 /** 统一减速曲线（镜像 curveDecelerateMid）：位移类动画的进场缓动。 */
@@ -19,11 +19,11 @@ export const ACCELERATE_CURVE = 'cubic-bezier(1, 0, 1, 1)';
 
 // —— 时长档（ms）——
 
-/** 弹簧入场档：卡片入场（card-enter-pop）、强调色取色器弹层
-    （palette-pop-in）、编辑器共享元素 FLIP 进场共用一档——三处同为
-    「弹簧 pop 入场」语义，原 480/400/400 并存系漂移无设计理由，归并
-    （2026-09-13 动效 token 收敛，取多数派 400：入场宜快，FLIP 开大面板
-    与小弹层都不值得多等 80ms）。 */
+/** 弹簧入场档：卡片入场（card-enter-pop）与强调色取色器弹层
+    （palette-pop-in）共用一档——两处同为「弹簧 pop 入场」语义，原
+    480/400 并存系漂移无设计理由，归并（2026-09-13 动效 token 收敛，取
+    多数派 400：入场宜快）。原第三消费方「编辑器共享元素 FLIP 进场」随
+    编辑器抽屉化（2026-09-16）移出本仓语言。 */
 export const POP_IN_MS = 400;
 
 /** 下拉推钮（DropdownPushButton，qfluentwidgets DropDownPushButton/RoundMenu
@@ -31,15 +31,12 @@ export const POP_IN_MS = 400;
     语言）。进/退同档——退场是纯淡化无位移，曲线可感度趋零。 */
 export const DROPDOWN_POP_MS = 150;
 
-/** 编辑器共享元素 FLIP 退场缩回（与 EDITOR_FADE_MS 同值但语义不同：
-    形变档与淡化档各自独立，日后可单独调）。 */
-export const MORPH_OUT_MS = 200;
-
-/** 编辑器 surface / 背板退场与 surface 进场的纯淡化档。 */
-export const EDITOR_FADE_MS = 200;
-
-/** 编辑器毛玻璃背板淡入：先于面板形变铺氛围，比面板淡化更慢。 */
-export const EDITOR_BACKDROP_IN_MS = 280;
+/** 编辑器抽屉退场等待档：open=false 后父级起定时器，到点回调 onClosed 真正
+    卸载。取值 = Fluent OverlayDrawer medium 档滑出动效 300ms
+    （motionTokens.durationSlow，2026-09-16 实测 node_modules 抽屉源码）+ 50ms
+    余量——退场动画必须播完才能卸载，余量只多不少。进/出场动效本体由
+    Fluent presence 播放，此处只是卸载等待档。 */
+export const DRAWER_OUT_MS = 350;
 
 /** 聊天思考两态收尾过渡档（M4，用户拍板 200ms）：思考呈现流式期（引擎
     think 胶囊，ADR-011）→ 落库终态（React Accordion）切换时刻的交叉淡化。
@@ -47,12 +44,6 @@ export const EDITOR_BACKDROP_IN_MS = 280;
     帧），交叉淡化只有终态侧落点——当前单侧消费（Accordion 淡入，keyframes
     见 app.css 的 reasoning-fade-in）；若日后流式行能保活淡出则升级双侧。 */
 export const CROSSFADE_MS = 200;
-
-/** 编辑器 body 内容交叉淡化：晚于形变淡入（延迟
-    EDITOR_BODY_IN_DELAY_MS）遮住缩放挤压，退场先撤。 */
-export const EDITOR_BODY_IN_MS = 160;
-export const EDITOR_BODY_IN_DELAY_MS = 90;
-export const EDITOR_BODY_OUT_MS = 70;
 
 /** 共享选中指示条位移动画（含中途纵向拉长形变，行程长，用 durationSlower
     同值的更慢档）。 */
@@ -78,6 +69,6 @@ export const TITLES_ROTATE_MS = 4000;
 
 /** 称号两段式换题时长（2026-09-16 典藏卡称号行「渐变轮换，渐入渐出」→
     「先完全淡出，再淡入」）：旧题加速淡出、新题延迟同时长后减速淡入，
-    单段时长即本 token。首版复用 EDITOR_FADE_MS=200 交叉淡化（2026-09-16
+    单段时长即本 token。首版复用编辑器 200ms 交叉淡化档（2026-09-16
     用户反馈太快），放缓到 800ms 并由同时交叉改为先后两段。 */
 export const TITLES_CROSSFADE_MS = 800;

@@ -35,6 +35,10 @@ pub struct CharacterSummary {
     pub model_provider_id: Option<String>,
     pub model_name: Option<String>,
     pub model_temperature: Option<f64>,
+    /// 采样参数三列（2026-09-16）；None = 跟随全局默认。
+    pub model_top_p: Option<f64>,
+    pub model_frequency_penalty: Option<f64>,
+    pub model_presence_penalty: Option<f64>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13）：None = 跟随全局设置；聊天流按卡现值实时
@@ -62,6 +66,9 @@ fn character_summary_from(c: models::Character) -> CharacterSummary {
         model_provider_id: c.model_provider_id,
         model_name: c.model_name,
         model_temperature: c.model_temperature,
+        model_top_p: c.model_top_p,
+        model_frequency_penalty: c.model_frequency_penalty,
+        model_presence_penalty: c.model_presence_penalty,
         accent_color: c.accent_color,
         anim_duration_ms: c.anim_duration_ms,
         anim_rhythm_ms: c.anim_rhythm_ms,
@@ -122,6 +129,9 @@ pub(super) fn create_character_impl(
         model_provider_id: input.model_provider_id,
         model_name: input.model_name,
         model_temperature: input.model_temperature,
+        model_top_p: input.model_top_p,
+        model_frequency_penalty: input.model_frequency_penalty,
+        model_presence_penalty: input.model_presence_penalty,
         accent_color: input.accent_color,
         anim_duration_ms: input.anim_duration_ms,
         anim_rhythm_ms: input.anim_rhythm_ms,
@@ -158,6 +168,9 @@ fn update_character_impl(app: &AppState, id: i64, input: CharacterInput) -> Resu
             model_provider_id: input.model_provider_id,
             model_name: input.model_name,
             model_temperature: input.model_temperature,
+            model_top_p: input.model_top_p,
+            model_frequency_penalty: input.model_frequency_penalty,
+            model_presence_penalty: input.model_presence_penalty,
             accent_color: input.accent_color,
             anim_duration_ms: input.anim_duration_ms,
             anim_rhythm_ms: input.anim_rhythm_ms,
@@ -211,6 +224,9 @@ mod tests {
             model_provider_id: Some("p1".into()),
             model_name: Some("m1".into()),
             model_temperature: Some(0.8),
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             accent_color: Some("#5e2347".into()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
@@ -235,6 +251,9 @@ mod tests {
             model_provider_id: None,
             model_name: None,
             model_temperature: None,
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             ..summary
         };
         let json = serde_json::to_value(&follower).unwrap();
@@ -257,6 +276,9 @@ mod tests {
             model_provider_id: Some("p1".into()),
             model_name: Some("m1".into()),
             model_temperature: Some(0.8),
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             accent_color: None,
             anim_duration_ms: Some(600),
             anim_rhythm_ms: None,
@@ -328,6 +350,9 @@ mod tests {
                 model_provider_id: None,
                 model_name: None,
                 model_temperature: None,
+                model_top_p: None,
+                model_frequency_penalty: None,
+                model_presence_penalty: None,
                 anim_duration_ms: None,
                 anim_punct_pause: None,
                 ..upd_input("苏鸢（改）", &input)
@@ -361,6 +386,31 @@ mod tests {
 
         // 模型温度范围校验（2026-09-15 写时闸，2026-09-14 起温度为可覆写项）：
         // 越界快速失败（Conflict），与解析层 resolve_effective_llm 同域互指。
+        // 采样参数三列范围校验（2026-09-16）：越界快速失败（Conflict），与
+        // 解析层 resolve_effective_llm 同域互指；边界值放行。
+        let bad_top_p = CharacterInput { model_top_p: Some(1.5), ..upd_input("越界", &input) };
+        assert!(matches!(
+            create_character_impl(&app, bad_top_p),
+            Err(IpcError::Conflict { .. })
+        ));
+        let bad_freq = CharacterInput { model_frequency_penalty: Some(-2.5), ..upd_input("越界", &input) };
+        assert!(matches!(
+            create_character_impl(&app, bad_freq),
+            Err(IpcError::Conflict { .. })
+        ));
+        let bad_pres = CharacterInput { model_presence_penalty: Some(2.5), ..upd_input("越界", &input) };
+        assert!(matches!(
+            create_character_impl(&app, bad_pres),
+            Err(IpcError::Conflict { .. })
+        ));
+        let edge = CharacterInput {
+            model_top_p: Some(0.0),
+            model_frequency_penalty: Some(2.0),
+            model_presence_penalty: Some(-2.0),
+            ..upd_input("边界值", &input)
+        };
+        assert!(create_character_impl(&app, edge).is_ok(), "边界值在域内应放行");
+
         let hot = CharacterInput { model_temperature: Some(2.5), ..upd_input("越界", &input) };
         assert!(matches!(
             create_character_impl(&app, hot),
@@ -368,6 +418,9 @@ mod tests {
         ));
         let cold = CharacterInput {
             model_temperature: Some(-0.5),
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             ..upd_input("越界", &input)
         };
         assert!(matches!(

@@ -105,6 +105,11 @@ async fn stream_request_shape_headers_and_events() {
     assert_eq!(body["stream"], true);
     // 采样温度随 payload 下发（夹具默认 0.7 在本协议域 0–1 内，钳制不触发）。
     assert_eq!(body["temperature"], 0.7);
+    // top_p 随 payload 下发（本协议域 0–1 与设置域同形）；惩罚参数本协议
+    // 无此概念，任何情况下不得出现（OpenAI 兼容独有）。
+    assert_eq!(body["top_p"], 1.0, "top_p 随配置恒下发");
+    assert!(body.get("frequency_penalty").is_none(), "Anthropic 无频率惩罚参数");
+    assert!(body.get("presence_penalty").is_none(), "Anthropic 无存在惩罚参数");
     assert_eq!(body["system"], "你是助手", "System 提升为顶层 system 参数");
     let msgs = body["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 1, "system 不进 messages");
@@ -148,6 +153,9 @@ async fn empty_api_key_omits_x_api_key_header() {
         model: "test-model".into(),
         api: ProviderApi::Anthropic,
         temperature: 0.7,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: retry_policy(0),
@@ -181,6 +189,9 @@ async fn temperature_above_domain_clamped_to_one() {
         model: "test-model".into(),
         api: ProviderApi::Anthropic,
         temperature: 1.7,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: retry_policy(0),

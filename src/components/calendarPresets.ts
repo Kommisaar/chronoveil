@@ -4,7 +4,7 @@
  * 常量，feature 依赖 app 被 ADR-010 单向依赖守卫（no-app-from-lower）禁止，
  * 按「跨域复用下沉 components」的既有出路移到本层。历史消费方：开局向导
  * 与角色卡历法编辑（后者已随 0012 裁撤）；现行唯一生产消费方为
- * features/worlds 的 WorldEditorDialog——0017 历法收编进世界卡，向导历法段
+ * features/worlds 的 WorldEditorDrawer——0017 历法收编进世界卡，向导历法段
  * 随之裁撤。
  *
  * 与 Rust `domain/fiction_time::presets` 一一对应；前端只构造 wire DTO

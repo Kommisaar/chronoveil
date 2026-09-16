@@ -6,7 +6,9 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::infra::config::{TEMPERATURE_MAX, TEMPERATURE_MIN};
+use crate::infra::config::{
+    PENALTY_MAX, PENALTY_MIN, TEMPERATURE_MAX, TEMPERATURE_MIN, TOP_P_MAX, TOP_P_MIN,
+};
 use crate::services::character_card_file;
 
 /// 动效时长可覆写范围（ms）。与 TS 引擎常量互指（同一约束两端）：
@@ -39,6 +41,11 @@ pub struct CharacterInput {
     pub model_provider_id: Option<String>,
     pub model_name: Option<String>,
     pub model_temperature: Option<f64>,
+    /// 采样参数三列（2026-09-16）：None = 跟随全局设置；范围越界经
+    /// [`CharacterInput::validate`] 快速失败（值域与 infra/config.rs 互指）。
+    pub model_top_p: Option<f64>,
+    pub model_frequency_penalty: Option<f64>,
+    pub model_presence_penalty: Option<f64>,
     /// 强调色 #RRGGBB，可空；None = 跟随海报派生色。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13）：None = 跟随全局设置；范围越界经
@@ -66,6 +73,21 @@ impl CharacterInput {
                 return Err(format!(
                     "采样温度 {t} 越界（允许 {TEMPERATURE_MIN}–{TEMPERATURE_MAX}）"
                 ));
+            }
+        }
+        if let Some(v) = self.model_top_p {
+            if !(TOP_P_MIN..=TOP_P_MAX).contains(&v) {
+                return Err(format!("核采样 top_p {v} 越界（允许 {TOP_P_MIN}–{TOP_P_MAX}）"));
+            }
+        }
+        for (label, value) in [
+            ("频率惩罚", self.model_frequency_penalty),
+            ("存在惩罚", self.model_presence_penalty),
+        ] {
+            if let Some(v) = value {
+                if !(PENALTY_MIN..=PENALTY_MAX).contains(&v) {
+                    return Err(format!("{label} {v} 越界（允许 {PENALTY_MIN}–{PENALTY_MAX}）"));
+                }
             }
         }
         if let Some(ms) = self.anim_duration_ms {
@@ -99,6 +121,9 @@ impl From<character_card_file::CharacterCardPayload> for CharacterInput {
             model_provider_id: p.model_provider_id,
             model_name: p.model_name,
             model_temperature: p.model_temperature,
+            model_top_p: p.model_top_p,
+            model_frequency_penalty: p.model_frequency_penalty,
+            model_presence_penalty: p.model_presence_penalty,
             accent_color: p.accent_color,
             anim_duration_ms: p.anim_duration_ms,
             anim_rhythm_ms: p.anim_rhythm_ms,

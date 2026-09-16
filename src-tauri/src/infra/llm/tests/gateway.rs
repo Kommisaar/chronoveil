@@ -142,10 +142,15 @@ async fn plain_request_wire_shape_unchanged() {
 
     let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
     let top = body.as_object().unwrap();
-    assert_eq!(top.len(), 4, "顶层键集合不得变化：{top:?}");
+    // 2026-09-16 采样参数三键（top_p / frequency_penalty / presence_penalty）随
+    // 配置恒下发（OpenAI 兼容协议全量支持），顶层键集合同步扩容。
+    assert_eq!(top.len(), 7, "顶层键集合不得变化：{top:?}");
     assert_eq!(body["model"], "test-model");
     assert_eq!(body["stream"], false);
     assert_eq!(body["temperature"], 0.7, "采样温度随配置恒下发");
+    assert_eq!(body["top_p"], 1.0, "top_p 随配置恒下发（默认 1.0 = 不截断）");
+    assert_eq!(body["frequency_penalty"], 0.0, "频率惩罚随配置恒下发");
+    assert_eq!(body["presence_penalty"], 0.0, "存在惩罚随配置恒下发");
     assert_eq!(body["messages"][0].as_object().unwrap().len(), 2, "消息键集合不得变化");
     assert_eq!(body["messages"][0]["role"], "user");
     assert_eq!(body["messages"][0]["content"], "你好");
@@ -351,8 +356,11 @@ async fn tool_choice_never_rides_without_tools_and_empty_slice_omits_tools() {
     assert_eq!(turn, ToolLoopTurn::Content("收尾正文".into()));
     let body = captured.lock().unwrap().clone().expect("应捕获到请求").json();
     let top = body.as_object().unwrap();
-    assert_eq!(top.len(), 4, "顶层键集合与无工具请求一致：{top:?}");
+    assert_eq!(top.len(), 7, "顶层键集合与无工具请求一致：{top:?}");
     assert_eq!(body["temperature"], 0.7, "采样温度随配置恒下发");
+    assert_eq!(body["top_p"], 1.0);
+    assert_eq!(body["frequency_penalty"], 0.0);
+    assert_eq!(body["presence_penalty"], 0.0);
     assert!(body.get("tools").is_none(), "空切片不得发空 tools 数组");
     assert!(body.get("tool_choice").is_none(), "无 tools 时 tool_choice 恒不随附");
 

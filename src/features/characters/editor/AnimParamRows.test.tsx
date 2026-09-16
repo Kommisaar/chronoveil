@@ -11,7 +11,7 @@ function renderUi(node: ReactNode) {
   return render(<FluentProvider theme={webLightTheme}>{node}</FluentProvider>);
 }
 
-const DEFAULTS = { durationMs: 450, msPerChar: 45, punctPause: true, renderStyle: 'type', temperature: 0.7, defaultProviderId: 'p1', defaultModelId: 'm1' };
+const DEFAULTS = { durationMs: 450, msPerChar: 45, punctPause: true, renderStyle: 'type', temperature: 0.7, topP: 1.0, frequencyPenalty: 0, presencePenalty: 0, defaultProviderId: 'p1', defaultModelId: 'm1' };
 
 function renderRows(overrides: {
   durationMs?: number | null;

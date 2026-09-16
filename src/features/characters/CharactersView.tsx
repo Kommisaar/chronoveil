@@ -2,7 +2,7 @@
 // 之上的视觉重做（沉浸氛围感）：
 // - 卡面定稿典藏卡单一形态（2026-09-16 用户拍板，四方向对比期收束）：亮色
 //   收藏卡形——主题面卡内嵌留白图框 + 下方正文 + 元信息/主操作行，渲染与
-//   卡内交互独立在 CharacterCollectCard，本视图管数据流与对话框接线；对比
+//   卡内交互独立在 CharacterCollectCard，本视图管数据流与编辑抽屉接线；对比
 //   期的陈列馆（海报）/舞台/名册三档与切换器随败者裁撤（切换器基建拆除；
 //   世界页同日定稿典藏形卡单一形态，cardDirection 档位整体出 store）；
 // - 入场动画定稿弹性（card-enter-pop）：视口内触发（useRevealOnScroll），
@@ -18,7 +18,7 @@ import {
   tokens,
 } from '@fluentui/react-components';
 import { ArrowUploadRegular } from '@fluentui/react-icons';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createCharacter,
@@ -36,12 +36,11 @@ import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
 import { CharacterCollectCard } from './CharacterCollectCard';
-import { CharacterEditorDialog } from './CharacterEditorDialog';
+import { CharacterEditorDrawer } from './CharacterEditorDrawer';
 import type { AnimDefaults } from './editor/useEditorForm';
 
 /** 新建草稿哨兵 id（2026-09-16 创建流程）：真实卡 id 自 1 起（SQLite 自增 +
- *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式与
- *  FLIP 触发锚回退（草稿无卡，从工具栏新建钮量矩形）。 */
+ *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式。 */
 const DRAFT_ID = 0;
 
 /** 新建草稿（不落库不入列，保存成功前仅存在于编辑器状态里）：字段全空 =
@@ -59,6 +58,9 @@ function newDraftCharacter(): CharacterSummary {
     modelProviderId: null,
     modelName: null,
     modelTemperature: null,
+    modelTopP: null,
+    modelFrequencyPenalty: null,
+    modelPresencePenalty: null,
     accentColor: null,
     animDurationMs: null,
     animRhythmMs: null,
@@ -134,8 +136,6 @@ export function CharactersView() {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CharacterSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // 工具栏「新建角色」钮：新建草稿的 FLIP 触发锚（草稿无卡可量）。
-  const newButtonRef = useRef<HTMLButtonElement | null>(null);
   // 视口内触发入场（方案 2 标准做法）：首屏手动判交立即成批，折叠线
   // 以下滚入才播；同批 60ms 级错峰。卡面已定稿单一形态，resetKey 恒定
   //（常量仅为满足签名——无切档重挂场景，揭示状态只随列表增删增量更新）。
@@ -174,6 +174,9 @@ export function CharactersView() {
           punctPause: config.punctPauseEnabled,
           renderStyle: config.renderStyle,
           temperature: config.temperature,
+            topP: config.topP,
+            frequencyPenalty: config.frequencyPenalty,
+            presencePenalty: config.presencePenalty,
           defaultProviderId: config.activeProviderId ?? '',
           defaultModelId: config.activeModel ?? '',
         });
@@ -196,20 +199,6 @@ export function CharactersView() {
   }, []);
 
   const closeEditor = useCallback(() => setEditorOpen(false), []);
-
-  /** 共享元素过渡用：当前编辑目标对应的触发元素矩形。编辑既有卡查卡片；
-   *  新建草稿无卡可查，从工具栏「新建角色」钮量矩形（FLIP 从钮长出）。
-   *  关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
-   *  自行退化为纯淡出。 */
-  const getTriggerRect = useCallback(() => {
-    if (editor?.id === DRAFT_ID) {
-      return newButtonRef.current?.getBoundingClientRect() ?? null;
-    }
-    const el = editor
-      ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
-      : null;
-    return el ? el.getBoundingClientRect() : null;
-  }, [editor]);
 
   /** 新建 = 打开空草稿编辑器（2026-09-16 用户拍板「先编辑后落库」）：不落库，
    *  编辑器动作行「保存」才创建进列表；放弃/关闭即弃稿。 */
@@ -310,14 +299,7 @@ export function CharactersView() {
             <Button icon={<ArrowUploadRegular />} onClick={() => void handleImport()}>
               {t('characters.import')}
             </Button>
-            <Button
-              // Fluent 插槽 ref 类型推导为 Ref<never>（同 DialogSurface 坑位，
-              // 断言收窄先例见 CharacterEditorDialog.surface）：运行时转发到
-              // 原生 button 元素——新建草稿的 FLIP 触发锚量矩形用
-              ref={newButtonRef as never}
-              appearance="primary"
-              onClick={handleNew}
-            >
+            <Button appearance="primary" onClick={handleNew}>
               {t('characters.new')}
             </Button>
           </div>
@@ -373,12 +355,11 @@ export function CharactersView() {
       </div>
 
       {editor ? (
-        <CharacterEditorDialog
+        <CharacterEditorDrawer
           key={`edit-${editor.id}`}
           mode={editor.id === DRAFT_ID ? 'create' : 'edit'}
           open={editorOpen}
           character={editor}
-          getTriggerRect={getTriggerRect}
           providers={providers}
           providersError={providersError}
           animDefaults={animDefaults}

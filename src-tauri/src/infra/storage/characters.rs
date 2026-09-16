@@ -12,6 +12,7 @@ pub(crate) const ENTITY: &str = "character";
 
 const COLS: &str = "id, name, avatar, persona, gender, age, render_style, \
                     model_provider_id, model_name, model_temperature, \
+                    model_top_p, model_frequency_penalty, model_presence_penalty, \
                     accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
                     titles, \
                     created_at, updated_at, deleted_at";
@@ -33,7 +34,7 @@ fn serialize_titles(titles: &[String]) -> Result<String, StorageError> {
 /// 行 → 领域对象；titles 解析需携带领域错误，故不走 `rusqlite::Result` 闭包签名
 /// （与 scenes.rs 的 scene_from_row 同款）。
 fn character_from_row(row: &Row<'_>) -> Result<Character, StorageError> {
-    let titles_raw: Option<String> = row.get(14)?;
+    let titles_raw: Option<String> = row.get(17)?;
     Ok(Character {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -45,14 +46,17 @@ fn character_from_row(row: &Row<'_>) -> Result<Character, StorageError> {
         model_provider_id: row.get(7)?,
         model_name: row.get(8)?,
         model_temperature: row.get(9)?,
-        accent_color: row.get(10)?,
-        anim_duration_ms: row.get(11)?,
-        anim_rhythm_ms: row.get(12)?,
-        anim_punct_pause: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+        model_top_p: row.get(10)?,
+        model_frequency_penalty: row.get(11)?,
+        model_presence_penalty: row.get(12)?,
+        accent_color: row.get(13)?,
+        anim_duration_ms: row.get(14)?,
+        anim_rhythm_ms: row.get(15)?,
+        anim_punct_pause: row.get::<_, Option<i64>>(16)?.map(|v| v != 0),
         titles: parse_titles(titles_raw)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
-        deleted_at: row.get(17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
+        deleted_at: row.get(20)?,
     })
 }
 
@@ -62,9 +66,10 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
     conn.execute(
                "INSERT INTO characters (name, avatar, persona, gender, age, render_style, \
              model_provider_id, model_name, model_temperature, \
+             model_top_p, model_frequency_penalty, model_presence_penalty, \
              accent_color, anim_duration_ms, anim_rhythm_ms, anim_punct_pause, \
              titles, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18)",
         params![
             new.name,
             new.avatar,
@@ -75,6 +80,9 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
             new.model_provider_id,
             new.model_name,
             new.model_temperature,
+            new.model_top_p,
+            new.model_frequency_penalty,
+            new.model_presence_penalty,
             new.accent_color,
             new.anim_duration_ms,
             new.anim_rhythm_ms,
@@ -94,6 +102,9 @@ pub(crate) fn insert(conn: &Connection, new: &NewCharacter) -> Result<Character,
         model_provider_id: new.model_provider_id.clone(),
         model_name: new.model_name.clone(),
         model_temperature: new.model_temperature,
+        model_top_p: new.model_top_p,
+        model_frequency_penalty: new.model_frequency_penalty,
+        model_presence_penalty: new.model_presence_penalty,
         accent_color: new.accent_color.clone(),
         anim_duration_ms: new.anim_duration_ms,
         anim_rhythm_ms: new.anim_rhythm_ms,
@@ -139,9 +150,10 @@ pub(crate) fn update(
     let n = conn.execute(
                "UPDATE characters SET name = ?1, avatar = ?2, persona = ?3, gender = ?4, age = ?5, \
              render_style = ?6, model_provider_id = ?7, model_name = ?8, model_temperature = ?9, \
-             accent_color = ?10, anim_duration_ms = ?11, anim_rhythm_ms = ?12, \
-             anim_punct_pause = ?13, titles = ?14, updated_at = ?15 \
-             WHERE id = ?16 AND deleted_at IS NULL",
+             model_top_p = ?10, model_frequency_penalty = ?11, model_presence_penalty = ?12, \
+             accent_color = ?13, anim_duration_ms = ?14, anim_rhythm_ms = ?15, \
+             anim_punct_pause = ?16, titles = ?17, updated_at = ?18 \
+             WHERE id = ?19 AND deleted_at IS NULL",
         params![
             upd.name,
             upd.avatar,
@@ -152,6 +164,9 @@ pub(crate) fn update(
             upd.model_provider_id,
             upd.model_name,
             upd.model_temperature,
+            upd.model_top_p,
+            upd.model_frequency_penalty,
+            upd.model_presence_penalty,
             upd.accent_color,
             upd.anim_duration_ms,
             upd.anim_rhythm_ms,
@@ -214,6 +229,9 @@ mod tests {
             model_provider_id: None,
             model_name: None,
             model_temperature: None,
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             accent_color: None,
             anim_duration_ms: None,
             anim_rhythm_ms: None,
@@ -244,6 +262,9 @@ mod tests {
             model_provider_id: Some("p1".to_string()),
             model_name: Some("gpt-x".to_string()),
             model_temperature: Some(0.8),
+            model_top_p: Some(0.9),
+            model_frequency_penalty: Some(-1.5),
+            model_presence_penalty: Some(0.5),
             accent_color: Some("#6b46b8".to_string()),
             anim_duration_ms: Some(600),
             anim_rhythm_ms: Some(80),
@@ -264,6 +285,10 @@ mod tests {
         assert_eq!(got.model_provider_id.as_deref(), Some("p1"));
         assert_eq!(got.model_name.as_deref(), Some("gpt-x"));
         assert_eq!(got.model_temperature, Some(0.8));
+        // 采样参数三列（0018）：全字段覆盖结果
+        assert_eq!(got.model_top_p, Some(0.9));
+        assert_eq!(got.model_frequency_penalty, Some(-1.5));
+        assert_eq!(got.model_presence_penalty, Some(0.5));
         assert_eq!(got.accent_color.as_deref(), Some("#6b46b8"));
         // 演出参数覆写（0013）：上面 upd 已带 Some 值，直接断言全字段覆盖结果
         assert_eq!(got.anim_duration_ms, Some(600));
@@ -285,6 +310,9 @@ mod tests {
             model_provider_id: None,
             model_name: None,
             model_temperature: None,
+            model_top_p: None,
+            model_frequency_penalty: None,
+            model_presence_penalty: None,
             ..upd.clone()
         };
         storage.update_character(id, &upd_clear_model).unwrap();

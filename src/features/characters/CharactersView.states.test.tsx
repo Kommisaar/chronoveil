@@ -44,6 +44,9 @@ const LIN: CharacterSummary = {
   modelProviderId: null,
   modelName: null,
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: null,
     animDurationMs: null,
     animRhythmMs: null,
@@ -150,6 +153,9 @@ describe('配置加载降级（Task-14）', () => {
       nearScenes: 2,
       systemPrompt: '',
       temperature: 0.7,
+      topP: 1.0,
+      frequencyPenalty: 0.0,
+      presencePenalty: 0.0,
     };
     mocks.listCharacters.mockResolvedValue([LIN]);
     mocks.getConfig.mockResolvedValue(config);

@@ -114,6 +114,9 @@ fn save_load_roundtrip_and_no_tmp_leftover() {
         near_scenes: 4,
         system_prompt: "用中文写短句".into(),
         temperature: 0.8,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
     };
     store.save(&config).unwrap();
 
@@ -444,6 +447,58 @@ fn temperature_defaults_and_range_rejected() {
     // 越界保存同样拒绝（save 前先 validate）。
     let bad = Config {
         temperature: 2.5,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
+        ..Config::new_with_defaults()
+    };
+    let err = store.save(&bad).unwrap_err();
+    assert!(matches!(err, ConfigError::Invalid(_)), "实际：{err:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 采样参数三键（2026-09-16）：top_p（0–1）与惩罚（−2–2）缺键 → serde 缺省
+///（1.0 / 0 / 0，旧 config.json 零迁移兼容，同 temperature 口径）；越界读取
+/// 与保存都拒绝（快速失败，不静默钳边）。
+#[test]
+fn sampling_top_p_and_penalties_defaults_and_ranges_rejected() {
+    let dir = temp_dir("sampling");
+    let store = store_in(&dir);
+    // 缺键 → 默认（旧 config.json 兼容）。
+    std::fs::write(store.path(), r#"{"ui_theme": "dark"}"#).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.top_p, 1.0, "缺键补默认");
+    assert_eq!(loaded.frequency_penalty, 0.0, "缺键补默认");
+    assert_eq!(loaded.presence_penalty, 0.0, "缺键补默认");
+    // 边界值放行。
+    std::fs::write(
+        store.path(),
+        r#"{"top_p": 1.0, "frequency_penalty": -2.0, "presence_penalty": 2.0}"#,
+    )
+    .unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.top_p, 1.0);
+    assert_eq!(loaded.frequency_penalty, -2.0);
+    assert_eq!(loaded.presence_penalty, 2.0);
+    // 越界读取拒绝（三键各取一例，错误信息可读）。
+    for bad in [
+        r#"{"top_p": 1.5}"#,
+        r#"{"top_p": -0.1}"#,
+        r#"{"frequency_penalty": -2.5}"#,
+        r#"{"presence_penalty": 2.5}"#,
+    ] {
+        std::fs::write(store.path(), bad).unwrap();
+        let err = store.load().unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Invalid(_)),
+            "{bad} 应越界拒绝，实际：{err:?}"
+        );
+    }
+    // 越界保存同样拒绝（save 前先 validate）。
+    let bad = Config {
+        top_p: -0.1,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         ..Config::new_with_defaults()
     };
     let err = store.save(&bad).unwrap_err();

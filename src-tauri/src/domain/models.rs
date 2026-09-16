@@ -57,6 +57,13 @@ pub struct Character {
     pub model_name: Option<String>,
     /// 覆写采样温度（0–2）；None = 跟随全局。
     pub model_temperature: Option<f64>,
+    /// 覆写核采样 top_p（0–1）；None = 跟随全局。2026-09-16 采样参数三列随
+    /// 迁移 0018 加入，语义与 model_temperature 同族。
+    pub model_top_p: Option<f64>,
+    /// 覆写频率惩罚（−2–2）；None = 跟随全局。仅 OpenAI 兼容协议消费（wire 层取舍）。
+    pub model_frequency_penalty: Option<f64>,
+    /// 覆写存在惩罚（−2–2）；None = 跟随全局。消费域同 model_frequency_penalty。
+    pub model_presence_penalty: Option<f64>,
     /// 强调色（编辑器右栏渐变背景等界面着色），#RRGGBB；None = 跟随海报派生色。
     pub accent_color: Option<String>,
     /// 演出参数覆写（2026-09-13 用户定稿）：动效时长 ms（150–1200，命令层
@@ -139,6 +146,10 @@ pub struct NewCharacter {
     pub model_provider_id: Option<String>,
     pub model_name: Option<String>,
     pub model_temperature: Option<f64>,
+    /// 采样参数三列（2026-09-16），语义同 [`Character`] 同名字段。
+    pub model_top_p: Option<f64>,
+    pub model_frequency_penalty: Option<f64>,
+    pub model_presence_penalty: Option<f64>,
     pub accent_color: Option<String>,
     pub anim_duration_ms: Option<i64>,
     pub anim_rhythm_ms: Option<i64>,
@@ -161,6 +172,10 @@ pub struct UpdateCharacter {
     pub model_provider_id: Option<String>,
     pub model_name: Option<String>,
     pub model_temperature: Option<f64>,
+    /// 采样参数三列（2026-09-16）；传 None 即清除覆写（跟随全局）。
+    pub model_top_p: Option<f64>,
+    pub model_frequency_penalty: Option<f64>,
+    pub model_presence_penalty: Option<f64>,
     pub accent_color: Option<String>,
     /// 传 None 即清除覆写（跟随全局）。
     pub anim_duration_ms: Option<i64>,

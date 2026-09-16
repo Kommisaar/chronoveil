@@ -188,6 +188,8 @@ export const en = {
     discard: 'Discard',
     saveFailed: 'Save failed',
     deleteFailed: 'Delete failed',
+    // World editor drawer title-bar close button (drawer redesign 2026-09-16)
+    close: 'Close world',
   },
   characters: {
     title: 'Characters',
@@ -245,6 +247,9 @@ export const en = {
     overrideHint: 'Customized',
     overrideFollowDesc: 'Provider and model follow global settings',
     temperature: 'Temperature',
+    topP: 'Top-p',
+    frequencyPenalty: 'Frequency penalty',
+    presencePenalty: 'Presence penalty',
     providersLoadFailed: 'Failed to load provider configuration; overrides unavailable',
     accentColor: 'Accent color',
     accentFollow: 'Follow poster',
@@ -269,6 +274,8 @@ export const en = {
     deleteFailed: 'Delete failed',
     importFailed: 'Import failed',
     exportFailed: 'Export failed',
+    // Character editor drawer title-bar close button (drawer redesign 2026-09-16)
+    close: 'Close character',
   },
   settings: {
     title: 'Settings',
@@ -296,6 +303,12 @@ export const en = {
     defaultModelDesc: 'Provider and model used for chat by default',
     temperature: 'Temperature',
     temperatureDesc: 'Sampling randomness: higher is more creative, lower is more deterministic · {{value}}',
+    topP: 'Top-p',
+    topPDesc: 'Nucleus sampling cutoff; 1 disables truncation · {{value}}',
+    frequencyPenalty: 'Frequency penalty',
+    frequencyPenaltyDesc: 'Positive values discourage repetition · {{value}}',
+    presencePenalty: 'Presence penalty',
+    presencePenaltyDesc: 'Positive values encourage new topics · {{value}}',
     defaultModelNone: 'Not set',
     providerAddTitle: 'Add model provider',
     providerAddDesc: 'Configure a fully custom API endpoint and initial models.',

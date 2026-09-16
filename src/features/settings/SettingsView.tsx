@@ -160,6 +160,9 @@ export function SettingsView() {
       nearScenes: nearScenes ?? loaded.nearScenes,
       systemPrompt: draft.systemPrompt,
       temperature: draft.temperature,
+      topP: draft.topP,
+      frequencyPenalty: draft.frequencyPenalty,
+      presencePenalty: draft.presencePenalty,
     };
   }, [loaded, draft, nearScenes]);
 

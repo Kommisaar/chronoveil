@@ -296,6 +296,11 @@ renderStyle: string | null;
  */
 modelProviderId: string | null; modelName: string | null; modelTemperature: number | null; 
 /**
+ * 采样参数三列（2026-09-16）：None = 跟随全局设置；范围越界经
+ * [`CharacterInput::validate`] 快速失败（值域与 infra/config.rs 互指）。
+ */
+modelTopP: number | null; modelFrequencyPenalty: number | null; modelPresencePenalty: number | null; 
+/**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色。
  */
 accentColor: string | null; 
@@ -374,6 +379,10 @@ renderStyle: string | null;
  * 消费）；None = 跟随全局默认。
  */
 modelProviderId: string | null; modelName: string | null; modelTemperature: number | null; 
+/**
+ * 采样参数三列（2026-09-16）；None = 跟随全局默认。
+ */
+modelTopP: number | null; modelFrequencyPenalty: number | null; modelPresencePenalty: number | null; 
 /**
  * 强调色 #RRGGBB，可空；None = 跟随海报派生色（前端 accentColorOf）。
  */
@@ -461,7 +470,19 @@ systemPrompt: string;
  * 采样温度（0–2，默认 0.7）：chat 请求的 temperature 参数（三协议下发，
  * Anthropic 侧超 1.0 由协议适配钳制）。
  */
-temperature: number }
+temperature: number; 
+/**
+ * 核采样 top_p（0–1，默认 1.0 = 不截断）：chat 请求的 top_p 参数（三协议下发）。
+ */
+topP: number; 
+/**
+ * 频率惩罚（−2–2，默认 0）：仅 OpenAI 兼容协议下发（协议适配层取舍）。
+ */
+frequencyPenalty: number; 
+/**
+ * 存在惩罚（−2–2，默认 0）：下发域同 frequencyPenalty。
+ */
+presencePenalty: number }
 /**
  * 命令错误的统一 wire 形态。`kind` 是判别字段（camelCase），前端可 switch 分型。
  */

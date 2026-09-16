@@ -469,3 +469,21 @@ describe('流式容器排版（TASK-12 / 审计问题 3）', () => {
     expect(injectedCssText()).toMatch(/white-space:\s*pre-wrap/);
   });
 });
+
+describe('姓名题头化（2026-09-16 与历史条目同拍）', () => {
+  it('说话人名在卡首题头带内，正文容器在带外', () => {
+    const state = beginSession(31);
+    const view = render(messageTree(state, vi.fn()));
+    const speaker = view.getByText(SPEAKER);
+    // 题头带 = 说话人名的宿主块，且是卡片的首个子元素（与 MessageEntry 同构）
+    const band = speaker.closest('div');
+    expect(band).toBeTruthy();
+    expect(band!.parentElement?.firstElementChild).toBe(band);
+    // 流式行题头只有名字（无钟面时间）；带后紧跟 main（活动条空轨迹不渲染，
+    // 内部只有引擎正文容器一个挂载点），正文不在题头带内
+    expect(band!.textContent).toBe(SPEAKER);
+    const main = band!.nextElementSibling;
+    expect(main?.childElementCount).toBe(1);
+    expect(band!.contains(main!.firstElementChild)).toBe(false);
+  });
+});

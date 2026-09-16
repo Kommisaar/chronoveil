@@ -97,6 +97,9 @@ impl ApiProtocol for OpenAiResponses {
             "store": STORE,
             // 采样温度（设置页全局，0–2）：Responses 参数域同 OpenAI 0–2，原样下发。
             "temperature": config.temperature,
+            // 核采样 top_p：Responses 支持该参数。惩罚参数本协议无此概念，
+            // 不下发（OpenAI 兼容独有，见 wire_openai）。
+            "top_p": config.top_p,
         });
         if let Some(instructions) = join_system_text(messages) {
             payload["instructions"] = Value::String(instructions);

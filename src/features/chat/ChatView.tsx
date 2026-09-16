@@ -6,7 +6,6 @@ import {
 } from '@fluentui/react-components';
 import {
   Add24Regular,
-  ArrowSync24Regular,
   ArrowUp24Regular,
   Notebook24Regular,
   RecordStop24Regular,
@@ -301,7 +300,6 @@ export function ChatView() {
     punctPause: primaryCard?.animPunctPause ?? config?.punctPauseEnabled,
     durationMs: primaryCard?.animDurationMs ?? config?.animDurationBase,
   };
-  const lastIsAssistant = messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
   // 流式行顶签与历史条目同源：主 LLM 位实例的角色色（无实例位诚实中性灰）
   const streamSpeakerColor =
     primaryLlm !== undefined
@@ -337,13 +335,21 @@ export function ChatView() {
           style={engineThemeVars}
         >
           <div className={styles.streamInner}>
-            {messages.map((message) => (
+            {messages.map((message, index) => (
               <MessageEntry
                 key={message.id}
                 message={message}
                 speaker={speakerLabelOf(message, instanceNames, t('chat.you'))}
                 speakerColor={messageSpeakerColor(message, activeRoster, characterCards)}
                 time={formatClock(message.createdAt, i18n.language)}
+                // 重新生成钮在末条 AI 回复卡内（2026-09-16 自输入区移入）：
+                // 末条非 assistant（含生成中旧条已摘除的窗口）即不注入回调
+                onRegenerate={
+                  index === messages.length - 1 && message.role === 'assistant'
+                    ? () => void onRegenerate()
+                    : undefined
+                }
+                regenerateDisabled={busy}
               />
             ))}
             {streamState && (
@@ -386,37 +392,17 @@ export function ChatView() {
               value={draft}
               onChange={(_, data) => setDraft(data.value)}
             />
-            <div
-              className={mergeClasses(
-                styles.composerActions,
-                lastIsAssistant && styles.composerActionsWithRegen,
-              )}
-            >
-              {/* 三钮禁用统一用 disabledFocusable 而非原生 disabled（CAND-05）：
+            <div className={styles.composerActions}>
+              {/* 两钮禁用统一用 disabledFocusable 而非原生 disabled（CAND-05）：
                   原生 disabled 不发 pointer 事件，禁用期的 Tooltip（发送/停止钮
                   可访问名的载体）悬停与聚焦均不可达，「为什么发不出去」无解释。
                   disabledFocusable 以 aria-disabled 表达禁用、保留可聚焦，Fluent
                   自身拦截激活（onClick 不触发）。取舍：禁用钮进 Tab 序——composer
-                  内同时至多两枚（发送/停止互斥），代价有界；停止钮禁用仅 stopping
+                  内两钮互斥（发送/停止），代价有界；停止钮禁用仅 stopping
                   瞬态，保留焦点还避免原生 disabled 触发的焦点坠落 body；读屏播报
                   「置灰」而非控件从可达性树消失。外包 span 保悬停的退路弃用：
-                  多一层 DOM 与事件管线，且无法让读屏/键盘用户触达解释。 */}
-              {lastIsAssistant && (
-                // 重新生成：可见文字已构成可访问名，气泡仅作悬停提示——
-                // relationship="inaccessible"（C3，不叠 aria 语义）
-                <Tooltip content={t('chat.regenerate')} relationship="inaccessible">
-                  <Button
-                    size="small"
-                    className={styles.regenerate}
-                    icon={<ArrowSync24Regular />}
-                    aria-label={t('chat.regenerate')}
-                    disabledFocusable={busy}
-                    onClick={() => void onRegenerate()}
-                  >
-                    {t('chat.regenerate')}
-                  </Button>
-                </Tooltip>
-              )}
+                  多一层 DOM 与事件管线，且无法让读屏/键盘用户触达解释。
+                  （重新生成钮 2026-09-16 移入末条 AI 回复卡内，见 MessageEntry。） */}
               {streamState ? (
                 // 停止（图标钮）：可访问名由 Tooltip relationship="label" 静态
                 // 注入的 aria-label 承担（C3，同账本开关）

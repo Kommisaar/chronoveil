@@ -117,12 +117,6 @@ const useChatViewBaseStyles = makeStyles({
     justifyContent: 'flex-end',
     gap: tokens.spacingHorizontalS,
   },
-  composerActionsWithRegen: {
-    justifyContent: 'space-between',
-  },
-  regenerate: {
-    fontSize: tokens.fontSizeBase200,
-  },
 });
 
 /**

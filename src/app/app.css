@@ -124,53 +124,8 @@ body {
   }
 }
 
-/* 角色编辑器对话框进出场（2026-09-09）：共享元素过渡（container
-   transform）。面板形变走 FLIP——挂载/退场时由 CharacterEditorDialog
-   量取触发卡片矩形后对 DialogBody 写行内 transform+transition（动态值
-   进不了 Griffel keyframes）；面板/背板的淡入淡出与 body 内容交叉淡化
-   是静态 keyframes，Griffel 类经 mergeClasses 挂载，reduced-motion
-   门控在各类的 @media 内。退场契约：关闭时父级只把 open 翻 false，
-   对话框留在挂载树播完再回调 onClosed 卸载（CharactersView 的
-   editorOpen 两段式关闭）；触发元素查不到（如软删后的卡片）自动
-   退化为纯淡出。 */
-@keyframes editor-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes editor-fade-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes editor-body-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes editor-body-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
 /* 强调色取色器弹层（2026-09-09）：从色块锚点弹性弹出（过冲再回落），
-   与卡片入场/编辑器形变同一根弹簧——曲线取 :root 的 --cv-spring-curve
+   与卡片入场同一根弹簧——曲线取 :root 的 --cv-spring-curve
    （= motion.ts 的 SPRING_CURVE，互指同步由 motion.test.ts 断言），时长
    取 --cv-pop-in-ms（= POP_IN_MS）。无退场动画（点外部/选取后瞬时消失）。
    keyframes 落此文件（Griffel 不透出），应用侧是 pieces.tsx 里

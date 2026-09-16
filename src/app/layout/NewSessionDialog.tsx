@@ -16,7 +16,7 @@
  * worldId 随提交上送，后端事务内实例化世界快照。
  *
  * 本组件为 app 层内聚；组件全用 Fluent v9 既有件，表单惯例对齐
- * CharacterEditorDialog（Text 标签 + aria-label）。
+ * CharacterEditorDrawer（Text 标签 + aria-label）。
  */
 import {
   Button,

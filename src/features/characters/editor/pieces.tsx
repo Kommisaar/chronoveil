@@ -1,6 +1,6 @@
 /**
  * 编辑器共享 UI 件（2026-09-09 编辑器重做时抽出）：字段级组件与样式——
- * 预览框、输出动画卡内容、模型覆写行，由 CharacterEditorDialog
+ * 预览框、输出动画卡内容、模型覆写行，由 CharacterEditorDrawer
  * 排版壳复用。2026-09-13 用户定稿：右侧表单收敛为三张分组设置卡（基础
  * 信息 / 输出动画 / 其他配置），本文件的行级组件改用
  * components/SettingsCard 的行语言（SettingsRow 行 + 行下全宽 cardBody）。

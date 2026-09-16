@@ -65,7 +65,7 @@ const useStyles = makeStyles({
     ...shorthands.border('2px', 'solid', 'transparent'),
     // 行内档圆角 = borderRadiusMedium（Fluent v9 实测 4px；三档圆角规范
     // 最内档，同 ProviderCard；页面级卡片表面 = 16px 见
-    // CharacterEditorDialog surface，规范常量 SURFACE_RADIUS_PAGE_CARD
+    // 典藏卡卡面（历史先例编辑器面板，已抽屉化），规范常量 SURFACE_RADIUS_PAGE_CARD
     // 在 src/components/surfaceSpec.ts）
     borderRadius: tokens.borderRadiusMedium,
     overflow: 'hidden',

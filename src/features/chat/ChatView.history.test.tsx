@@ -2,7 +2,8 @@
 // - 历史 assistant 行走 renderStaticMarkdown：动作斜体/加粗/场景线/列表与流式
 //   同构，收尾重拉后不再回退成字面星号；
 // - 历史 user 行保持纯文本（markdown-lite 是 assistant 叙事语法）；
-// - 行元信息零回归（说话人/时间/思考折叠/中断标记）；
+// - 行元信息零回归（说话人/时间/思考折叠/中断标记）与姓名题头化结构
+//   （说话人 + 时间收进卡首题头带，正文在带外）；
 // - 聊天流容器内联覆写引擎命名空间主题变量（审计问题 3 冒烟）。
 // api 层整体 vi.mock（同 sessionActivity.test.tsx 的 Harness）；i18n 固定中文，
 // 断言用 zh 文案。
@@ -58,6 +59,9 @@ const CHARACTER: CharacterSummary = {
   modelProviderId: null,
   modelName: null,
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: null,
     animDurationMs: null,
     animRhythmMs: null,
@@ -180,6 +184,20 @@ it('历史行元信息零回归：说话人/时间/思考折叠/中断标记俱�
   expect(screen.getByText(/思考过程 · 1\.5s/)).toBeTruthy();
   // 中断标记
   expect(screen.getByText('已中断')).toBeTruthy();
+});
+
+it('消息卡姓名题头化：说话人名与时间收进卡首题头带，正文在带外', async () => {
+  renderView();
+  const speaker = await screen.findByText('织星者');
+  // 题头带 = 说话人名的宿主块，且是卡片的首个子元素（姓名题头化的信头结构）
+  const band = speaker.closest('div');
+  expect(band).toBeTruthy();
+  expect(band!.parentElement?.firstElementChild).toBe(band);
+  // 时间与中断徽标（末条 assistant 中断落库）同带；正文（思考折叠、消息体）不在带内
+  expect(band!.textContent).toMatch(/\d{2}:\d{2}/);
+  expect(band!.textContent).toContain('已中断');
+  expect(band!.contains(screen.getByText(/思考过程 · 1\.5s/))).toBe(false);
+  expect(band!.textContent).not.toContain('她抬起头');
 });
 
 it('终态思考 Accordion 携带收尾淡入动画类（M4 接线）', async () => {

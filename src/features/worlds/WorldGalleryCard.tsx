@@ -23,9 +23,7 @@
  * - Fluent Card + tabIndex 0 + Enter/Space 激活（同角色典藏卡交互契约；
  *   原「宽扁信息卡不需要 Card 的 interactive 语义栈」裸 button 选型随
  *   形制失效）；
- * - data-editor-trigger={world.id}（FLIP 共享元素过渡锚点：编辑器
- *   getTriggerRect 按世界 id 现测本卡矩形，Task-08 编辑器接线依赖，替换
- *   卡面时不可丢）；preReveal/enterPop + register/revealDelay 接线
+ * - preReveal/enterPop + register/revealDelay 接线
  *   （--enter-delay CSS 变量 + as CSSProperties）与角色卡入场动画同款
  *   （keyframes card-enter-pop 在 app.css，reduced-motion 门控在 @media 内）。
  */
@@ -190,8 +188,6 @@ export function WorldGalleryCard({ world, index, revealDelay, register, onOpen }
       size="small"
       tabIndex={0}
       ref={register(index)}
-      // FLIP 共享元素过渡锚点：编辑器 getTriggerRect 按世界 id 现测本卡矩形
-      data-editor-trigger={world.id}
       className={mergeClasses(
         styles.card,
         lift.root,

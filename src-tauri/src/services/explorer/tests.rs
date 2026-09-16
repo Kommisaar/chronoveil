@@ -22,6 +22,9 @@ fn client(url: &str) -> LlmClient {
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
         temperature: 0.7,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {
@@ -381,6 +384,9 @@ async fn llm_failure_degrades_to_none() {
         model: "test-model".into(),
         api: crate::infra::llm::ProviderApi::OpenAi,
         temperature: 0.7,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
         connect_timeout_ms: 2_000,
         read_timeout_ms: 2_000,
         retry: RetryPolicy {

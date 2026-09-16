@@ -228,9 +228,11 @@ export function StreamingMessage({ state, speaker, speakerColor, tuning, onSettl
       <div className={styles.header}>
         <Text className={styles.speaker}>{speaker}</Text>
       </div>
-      {/* 幕后活动条（Task-07）：探索期间「正在回忆…」，正文开始让位；空轨迹不渲染 */}
-      <ActivityNotice activity={state.activity} yielded={state.activityYielded} />
-      <div ref={containerRef} className={styles.body} />
+      <div className={styles.main}>
+        {/* 幕后活动条（Task-07）：探索期间「正在回忆…」，正文开始让位；空轨迹不渲染 */}
+        <ActivityNotice activity={state.activity} yielded={state.activityYielded} />
+        <div ref={containerRef} className={styles.body} />
+      </div>
     </div>
   );
 }

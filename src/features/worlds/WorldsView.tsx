@@ -17,12 +17,10 @@
  *   useRevealOnScroll 视口揭示错峰）；
  * - 新建 = 先以默认名落库再进编辑器（修改即保存，同 CharactersView 惯例，
  *   无独立 create 表单态）；
- * - 编辑器（WorldEditorDialog）与角色编辑器同档（2026-09-15 用户定稿升档
- *   「世界观是世界的灵魂」，旧「标准模态简单档」口径作废）：左世界色画布
- *   + 右三张分组卡（基础信息 / 世界观 / 历法五选），非模态 + 毛玻璃背板 +
- *   从卡面 FLIP 长出（卡面挂 data-editor-trigger；新建草稿从工具栏新建钮
- *   长出），可见性与挂载
- *   分离（editorOpen 置 false 走退场动画，onClosed 才卸载）；edit 模式改动
+ * - 编辑器（WorldEditorDrawer，2026-09-16 抽屉化定稿，与角色编辑器同拍）：
+ *   右缘编辑抽屉（Fluent Drawer，Smoke 背板 + Esc + × + 点背板关闭内置），
+ *   三张分组卡（基础信息 / 世界观 / 历法五选）；可见性与挂载分离
+ *   （editorOpen 置 false 走抽屉退场，onClosed 才卸载）；edit 模式改动
  *   经表单钩子防抖自动落库；新建 = 先编辑后落库（2026-09-16 用户拍板，
  *   保存才创建进列表，见 handleNew / handleCreate）；
  * - 删除走 ConfirmDialog 确认：世界软删（ADR-009），已建会话内的世界快照
@@ -37,7 +35,7 @@ import {
   makeStyles,
   tokens,
 } from '@fluentui/react-components';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorldInput, WorldSummary } from '../../api/types';
 import { createWorld, deleteWorld, listWorlds, updateWorld } from '../../api/commands';
@@ -46,7 +44,7 @@ import { EmptyState } from '../../components/EmptyState';
 import { StateBlock } from '../../components/StateBlock';
 import { usePageContainerStyles } from '../../components/usePageContainerStyles';
 import { useRevealOnScroll } from '../../components/useRevealOnScroll';
-import { WorldEditorDialog } from './WorldEditorDialog';
+import { WorldEditorDrawer } from './WorldEditorDrawer';
 import { WorldGalleryCard } from './WorldGalleryCard';
 
 const useStyles = makeStyles({
@@ -86,8 +84,7 @@ const useStyles = makeStyles({
 });
 
 /** 新建草稿哨兵 id（2026-09-16 创建流程）：真实卡 id 自 1 起（SQLite 自增 +
- *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式与
- *  FLIP 触发锚回退（草稿无卡，从工具栏新建钮量矩形；同 CharactersView）。 */
+ *  mock 种子同口径），0 不可能撞上——据此派生编辑器 create/edit 模式。 */
 const DRAFT_ID = 0;
 
 /** 新建草稿（不落库不入列，保存成功前仅存在于编辑器状态里）。 */
@@ -117,9 +114,6 @@ export function WorldsView() {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<WorldSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // 工具栏「新建世界」钮：新建草稿的 FLIP 触发锚（草稿无卡可量，同
-  // CharactersView 新建钮先例）。
-  const newButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // 视口揭示（同角色页典藏卡墙）：首屏立即成批、折叠线以下滚入才播，批内
   // 按清单浮现统一档错峰。resetKey 落定稿档位常量（同 CharactersView 的
@@ -194,8 +188,7 @@ export function WorldsView() {
       await deleteWorld(deleteTarget.id);
       await refresh();
       if (editor?.id === deleteTarget.id) {
-        // 编辑中的卡被删：置不可见走退场动画（getTriggerRect 已查不到卡片，
-        // 退化为纯淡出），onClosed 到点再真正卸载。
+        // 编辑中的卡被删：置不可见走抽屉退场，onClosed 到点再真正卸载。
         setEditorOpen(false);
       }
     } catch (e) {
@@ -214,20 +207,6 @@ export function WorldsView() {
 
   const closeEditor = useCallback(() => setEditorOpen(false), []);
 
-  /** 共享元素过渡用：当前编辑目标对应的触发元素矩形。编辑既有卡查当前档位
-      卡面；新建草稿无卡可查，从工具栏「新建世界」钮量矩形（FLIP 从钮长出）。
-      关闭时卡片可能已被删（软删后 refresh），查不到就返回 null，对话框
-      自行退化为纯淡出（同 CharactersView 形态）。 */
-  const getTriggerRect = useCallback(() => {
-    if (editor?.id === DRAFT_ID) {
-      return newButtonRef.current?.getBoundingClientRect() ?? null;
-    }
-    const el = editor
-      ? document.querySelector<HTMLElement>(`[data-editor-trigger="${editor.id}"]`)
-      : null;
-    return el ? el.getBoundingClientRect() : null;
-  }, [editor]);
-
   // UI-002：卡片按 updated_at 倒序（同角色页惯例）。
   const sorted = [...worlds].sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -237,9 +216,7 @@ export function WorldsView() {
         <div className={styles.toolbar}>
           <Title1 as="h1">{t('worlds.title')}</Title1>
           <div className={styles.toolbarRight}>
-            {/* ref 断言收窄：Fluent 插槽 Ref<never> 坑位（先例见
-                CharacterEditorDialog.surface / CharactersView 新建钮） */}
-            <Button ref={newButtonRef as never} appearance="primary" onClick={handleNew}>
+            <Button appearance="primary" onClick={handleNew}>
               {t('worlds.new')}
             </Button>
           </div>
@@ -293,12 +270,11 @@ export function WorldsView() {
       </div>
 
       {editor ? (
-        <WorldEditorDialog
+        <WorldEditorDrawer
           key={`edit-${editor.id}`}
           mode={editor.id === DRAFT_ID ? 'create' : 'edit'}
           open={editorOpen}
           world={editor}
-          getTriggerRect={getTriggerRect}
           errorText={editorError}
           onAutosave={handleAutosave}
           onCreate={handleCreate}

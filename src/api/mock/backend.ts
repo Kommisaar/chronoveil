@@ -396,6 +396,9 @@ export async function createCharacter(
     modelProviderId: input.modelProviderId,
     modelName: input.modelName,
     modelTemperature: input.modelTemperature,
+    modelTopP: input.modelTopP,
+    modelFrequencyPenalty: input.modelFrequencyPenalty,
+    modelPresencePenalty: input.modelPresencePenalty,
     accentColor: input.accentColor,
     animDurationMs: input.animDurationMs,
     animRhythmMs: input.animRhythmMs,
@@ -428,6 +431,9 @@ export async function updateCharacter(
   character.modelProviderId = input.modelProviderId;
   character.modelName = input.modelName;
   character.modelTemperature = input.modelTemperature;
+  character.modelTopP = input.modelTopP;
+  character.modelFrequencyPenalty = input.modelFrequencyPenalty;
+  character.modelPresencePenalty = input.modelPresencePenalty;
   character.accentColor = input.accentColor;
   character.animDurationMs = input.animDurationMs;
   character.animRhythmMs = input.animRhythmMs;
@@ -457,6 +463,9 @@ const SAMPLE_IMPORT: CharacterInput = {
   modelProviderId: null,
   modelName: null,
   modelTemperature: null,
+  modelTopP: null,
+  modelFrequencyPenalty: null,
+  modelPresencePenalty: null,
   accentColor: null,
   animDurationMs: null,
   animRhythmMs: null,

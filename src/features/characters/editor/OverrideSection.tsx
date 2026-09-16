@@ -30,6 +30,15 @@ const TEMPERATURE_MIN = 0;
 const TEMPERATURE_MAX = 2;
 const TEMPERATURE_STEP = 0.1;
 
+// 采样参数三覆写（2026-09-16）：值域与 infra/config.rs 的 TOP_P_MIN/MAX、
+// PENALTY_MIN/MAX 及 settings/preferences.ts 同域互指（跨文件常量互指纪律）。
+const TOP_P_MIN = 0;
+const TOP_P_MAX = 1;
+const TOP_P_STEP = 0.05;
+const PENALTY_MIN = -2;
+const PENALTY_MAX = 2;
+const PENALTY_STEP = 0.1;
+
 // 级联叶子复合键分隔符：provider id 为 uuid，'::' 不会出现在真实 id 里
 //（与设置页默认模型菜单同一约定，跨文件互指）。
 const COMPOSITE_SEP = '::';
@@ -65,9 +74,20 @@ export function OverrideSection(props: {
   onModelOverrideChange: (providerId: string, modelName: string) => void;
   /** 温度行写入；null = 跟随全局。 */
   onTemperatureChange: (value: number | null) => void;
+  /** 采样参数三覆写（2026-09-16）；null = 跟随全局，语义同温度行。 */
+  modelTopP: number | null;
+  onTopPChange: (value: number | null) => void;
+  modelFrequencyPenalty: number | null;
+  onFrequencyPenaltyChange: (value: number | null) => void;
+  modelPresencePenalty: number | null;
+  onPresencePenaltyChange: (value: number | null) => void;
   providers: ProviderDto[];
   /** 全局采样温度（animDefaults 派生）：跟随态的展示值与切自定义的落点。 */
   globalTemperature: number;
+  /** 全局采样参数基准（animDefaults 派生）：跟随态展示值与切自定义的落点。 */
+  globalTopP: number;
+  globalFrequencyPenalty: number;
+  globalPresencePenalty: number;
   /** 全局默认模型的 (providerId, modelId)（animDefaults 派生；空串 = 未配置）：
    *  跟随态展示值与切自定义的写卡落点（AnimParamRows 同法）。 */
   globalProviderId: string;
@@ -121,6 +141,57 @@ export function OverrideSection(props: {
     );
   };
   const temperature = props.modelTemperature;
+  // 采样标量行构造（温度 + 三采样行共用，2026-09-16）：null = 跟随全局，
+  // 跟随态滑杆禁用压暗展示全局值，切自定义以当前展示值写卡（与温度行既有
+  // 语义逐字对齐）。
+  const samplingRow = (args: {
+    title: string;
+    value: number | null;
+    globalValue: number;
+    min: number;
+    max: number;
+    step: number;
+    onChange: (value: number | null) => void;
+    format: (value: number) => string;
+  }) => {
+    const custom = args.value !== null;
+    const shown = args.value ?? args.globalValue;
+    return (
+      <SettingsRow
+        title={args.title}
+        description={
+          custom
+            ? t('characters.animCustomized', { value: args.format(shown) })
+            : t('characters.animFollowingGlobal', { value: args.format(args.globalValue) })
+        }
+        control={
+          <div className={localStyles.tempControl}>
+            <TooltipSlider
+              className={localStyles.slider}
+              min={args.min}
+              max={args.max}
+              step={args.step}
+              value={shown}
+              onChange={args.onChange}
+              ariaLabel={args.title}
+              formatValue={args.format}
+              disabled={!custom}
+            />
+            <SegmentedControl
+              className={localStyles.modeSegment}
+              ariaLabel={args.title}
+              value={custom ? 'custom' : 'follow'}
+              onChange={(v) => args.onChange(v === 'custom' ? args.value ?? args.globalValue : null)}
+              options={[
+                { value: 'follow', label: t('characters.animModeFollow') },
+                { value: 'custom', label: t('characters.animModeCustom') },
+              ]}
+            />
+          </div>
+        }
+      />
+    );
+  };
   return (
     <>
       {/* 行 1：模型设置——级联菜单按钮 + 跟随|自定义分段（AnimParamRows 版式：
@@ -165,45 +236,50 @@ export function OverrideSection(props: {
         }
       />
       <SettingsDivider />
-      {/* 行 2：温度——独立「跟随|自定义」+ 滑杆（AnimParamRows 同款：跟随态
-          滑杆禁用压暗，切自定义以当前展示值写卡；描述展示当前生效值）。 */}
-      <SettingsRow
-        title={t('characters.temperature')}
-        description={
-          temperature === null
-            ? t('characters.animFollowingGlobal', {
-                value: props.globalTemperature.toFixed(1),
-              })
-            : t('characters.animCustomized', { value: temperature.toFixed(1) })
-        }
-        control={
-          <div className={localStyles.tempControl}>
-            <TooltipSlider
-              className={localStyles.slider}
-              min={TEMPERATURE_MIN}
-              max={TEMPERATURE_MAX}
-              step={TEMPERATURE_STEP}
-              value={temperature ?? props.globalTemperature}
-              onChange={(value) => props.onTemperatureChange(value)}
-              ariaLabel={t('characters.temperature')}
-              formatValue={(value) => value.toFixed(1)}
-              disabled={temperature === null}
-            />
-            <SegmentedControl
-              className={localStyles.modeSegment}
-              ariaLabel={t('characters.temperature')}
-              value={temperature === null ? 'follow' : 'custom'}
-              onChange={(v) =>
-                props.onTemperatureChange(v === 'custom' ? (temperature ?? props.globalTemperature) : null)
-              }
-              options={[
-                { value: 'follow', label: t('characters.animModeFollow') },
-                { value: 'custom', label: t('characters.animModeCustom') },
-              ]}
-            />
-          </div>
-        }
-      />
+      {/* 行 2：温度——独立「跟随|自定义」+ 滑杆（跟随态滑杆禁用压暗，
+          切自定义以当前展示值写卡；描述展示当前生效值）。 */}
+      {samplingRow({
+        title: t('characters.temperature'),
+        value: temperature,
+        globalValue: props.globalTemperature,
+        min: TEMPERATURE_MIN,
+        max: TEMPERATURE_MAX,
+        step: TEMPERATURE_STEP,
+        onChange: props.onTemperatureChange,
+        format: (value) => value.toFixed(1),
+      })}
+      {/* 行 3–5：采样参数三行（2026-09-16）——top_p / 频率惩罚 / 存在惩罚，
+          与温度行同款跟随语义；惩罚仅 OpenAI 兼容协议消费（wire 层取舍）。 */}
+      {samplingRow({
+        title: t('characters.topP'),
+        value: props.modelTopP,
+        globalValue: props.globalTopP,
+        min: TOP_P_MIN,
+        max: TOP_P_MAX,
+        step: TOP_P_STEP,
+        onChange: props.onTopPChange,
+        format: (value) => value.toFixed(2),
+      })}
+      {samplingRow({
+        title: t('characters.frequencyPenalty'),
+        value: props.modelFrequencyPenalty,
+        globalValue: props.globalFrequencyPenalty,
+        min: PENALTY_MIN,
+        max: PENALTY_MAX,
+        step: PENALTY_STEP,
+        onChange: props.onFrequencyPenaltyChange,
+        format: (value) => value.toFixed(1),
+      })}
+      {samplingRow({
+        title: t('characters.presencePenalty'),
+        value: props.modelPresencePenalty,
+        globalValue: props.globalPresencePenalty,
+        min: PENALTY_MIN,
+        max: PENALTY_MAX,
+        step: PENALTY_STEP,
+        onChange: props.onPresencePenaltyChange,
+        format: (value) => value.toFixed(1),
+      })}
     </>
   );
 }

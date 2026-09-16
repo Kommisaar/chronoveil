@@ -100,6 +100,10 @@ async fn stream_request_shape_headers_and_events() {
     assert_eq!(body["store"], false, "ChronoVeil 隐私原则：拒绝服务端留存");
     // 采样温度随 payload 下发（测试夹具走 LlmConfig::default() = 0.7）。
     assert_eq!(body["temperature"], 0.7);
+    // top_p 随 payload 下发；惩罚参数本协议无此概念，不得出现。
+    assert_eq!(body["top_p"], 1.0);
+    assert!(body.get("frequency_penalty").is_none(), "Responses 无频率惩罚参数");
+    assert!(body.get("presence_penalty").is_none(), "Responses 无存在惩罚参数");
     assert_eq!(body["instructions"], "你是助手", "System 提升为顶层 instructions");
     let input = body["input"].as_array().unwrap();
     assert_eq!(input.len(), 1, "system 不进 input");

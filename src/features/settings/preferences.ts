@@ -24,6 +24,16 @@ export const NEAR_SCENES_MAX = 6;
 export const TEMPERATURE_MIN = 0;
 export const TEMPERATURE_MAX = 2;
 
+/** 核采样 top_p 允许范围（0–1，1 = 不截断；与 infra/config.rs TOP_P_MIN/MAX
+ *  互指——同一约束两端，见 config.rs 注）。滑杆已限位。 */
+export const TOP_P_MIN = 0;
+export const TOP_P_MAX = 1;
+
+/** 采样惩罚允许范围（frequency/presence 共用 −2–2；与 infra/config.rs
+ *  PENALTY_MIN/MAX 互指）。滑杆已限位。 */
+export const PENALTY_MIN = -2;
+export const PENALTY_MAX = 2;
+
 const THEME_VALUES: readonly ThemeSetting[] = ['system', 'light', 'dark'];
 const LANGUAGE_VALUES: readonly LanguageSetting[] = ['system', 'zh', 'en'];
 

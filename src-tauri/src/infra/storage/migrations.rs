@@ -61,6 +61,9 @@ pub(crate) const MIGRATIONS: &[(i64, &str)] = &[
     // （恰一，partial unique）+ sessions 裁撤 calendar_config（历法唯一归属移至
     // 世界实例——时间规则是世界的属性，0012 裁撤角色卡历法后的正确归宿）
     (17, include_str!("../../../migrations/0017_world_cards.sql")),
+    // 角色卡采样参数三列（2026-09-16）：top_p / frequency_penalty / presence_penalty
+    // 可空标量，NULL = 跟随全局（0015 模型覆写三列同族）
+    (18, include_str!("../../../migrations/0018_add_character_sampling.sql")),
 ];
 
 /// 把库迁移到最新版本；已应用版本跳过（幂等）。

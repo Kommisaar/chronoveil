@@ -10,7 +10,7 @@
 import { makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
 import type { CSSProperties } from 'react';
 import { CROSSFADE_MS, DECELERATE_CURVE } from '../../components/motion';
-import { SURFACE_RADIUS_PAGE_CARD } from '../../components/surfaceSpec';
+import { SURFACE_RADIUS_PAGE_CARD, THIN_SCROLLBAR } from '../../components/surfaceSpec';
 import { useGhostIconButtonStyles } from '../../components/useGhostIconButtonStyles';
 
 const useChatViewBaseStyles = makeStyles({
@@ -45,13 +45,16 @@ const useChatViewBaseStyles = makeStyles({
     flex: 1,
     minHeight: 0,
     overflowY: 'auto',
+    // 滚动带细滚动条与编辑器同款（规格单一事实源见 surfaceSpec 的
+    // THIN_SCROLLBAR，2026-09-16 用户问询后补齐同款）
+    ...THIN_SCROLLBAR,
     // 15% 百分比边距（2026-09-08 用户指定）：随窗口等比
     padding: '24px 15%',
   },
   streamInner: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '24px',
   },
   // 消息条目卡壳（2026-09-16 用户拍板「角色色轨卡」，取代 2026-09-08 去卡片化
   // 叙事流）：卡壳 / 题头 / 正文样式在 useMessageCardStyles（历史行与流式行
@@ -72,11 +75,6 @@ const useChatViewBaseStyles = makeStyles({
       animationDuration: `${CROSSFADE_MS}ms`,
       animationTimingFunction: DECELERATE_CURVE,
     },
-  },
-  interrupted: {
-    // 卡内收拢贴左（flex column 默认 stretch 会把徽标拉通满卡宽）
-    alignSelf: 'flex-start',
-    fontSize: tokens.fontSizeBase200,
   },
   notice: {
     margin: '0 15%',

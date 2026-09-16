@@ -78,6 +78,8 @@ export const en = {
     you: 'You',
     reasoning: 'Reasoning',
     interrupted: 'Interrupted',
+    // Entry-variant probe scaffold (2026-09-16, six variants) removed:
+    // final form is the "topline card"; switcher keys (chat.probe.*) dropped with it
     activity: {
       recalling: 'Recalling…',
       found: 'Found it.',

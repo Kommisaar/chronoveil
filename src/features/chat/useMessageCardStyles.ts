@@ -1,14 +1,8 @@
 /**
- * 消息卡样式（2026-09-16 用户拍板「角色色轨卡」，取代 2026-09-08 的去卡片化
- * 叙事流）：每条对话条目一张全宽分组卡——说话人以左缘 3px 色轨标识（角色条
- * 取该卡强调色 accentColorOf，用户条中性灰，见 speakerIdentity.ts），卡内题头
- * 行（说话人 + 时间）+ 正文。历史行（ChatView）与流式行（StreamingMessage）
- * 共用本钩子，保证两形态卡壳逐值一致。
- *
- * 档位与规范：圆角走分组卡档 borderRadiusLarge（6px，SettingsCard 同款，
- * surfaceSpec 两档规范中非页面级档）；边框 stroke1、卡面 bg1（分组卡语言）；
- * 色轨以 borderLeft 3px 落地、颜色由调用方经行内 borderLeftColor 注入
- * （动态色进不了 Griffel 类，行内样式覆盖类占位色）。
+ * 流式消息行卡壳（2026-09-16 对话流二次重设计定稿「顶签卡」）：与历史条目
+ * （MessageEntry.entry）同语言——分组卡壳 6px 圆角 + stroke1 边 + bg1 面 +
+ * 顶缘 3px 说话人色签（颜色经行内 borderTopColor 注入）。两处卡壳声明同值
+ * 互指（改值须同步）；正文排版（body）同值互指，HistoryMessageBody 亦消费。
  */
 import { makeStyles, tokens } from '@fluentui/react-components';
 
@@ -20,34 +14,30 @@ export const useMessageCardStyles = makeStyles({
     width: '100%',
     padding: '12px 16px',
     backgroundColor: tokens.colorNeutralBackground1,
-    // 三边 1px + 左缘 3px：色轨即左边框，圆角处由浏览器自然拼接；
-    // 左色是类内占位，运行时必被行内 borderLeftColor 覆写（speakerIdentity）
-    borderTop: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderRight: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke1}`,
-    borderLeft: `3px solid ${tokens.colorNeutralStroke1}`,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
     borderRadius: tokens.borderRadiusLarge,
+    // 顶缘 3px 色签（MessageEntry.entry 同值互指）；颜色行内注入
+    borderTopWidth: '3px',
   },
-  // 题头行：说话人左、时间右（信头式）。基准色 fg3 供时间继承
   header: {
     display: 'flex',
     alignItems: 'baseline',
-    justifyContent: 'space-between',
     gap: tokens.spacingHorizontalS,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorNeutralForeground3,
+    minWidth: '0px',
   },
-  // 说话人名：色轨已承载身份色，名字保持安静（fg2 半粗），不再用品牌色
+  // 说话人名：彩色身份交给顶签，名字保持安静（fg2 半粗小字，MessageEntry 同值）
   speaker: {
     fontWeight: tokens.fontWeightSemibold,
+    fontSize: tokens.fontSizeBase200,
     color: tokens.colorNeutralForeground2,
   },
   body: {
     fontSize: tokens.fontSizeBase300,
     lineHeight: '1.8',
     // 块内单换行随解析器保留上屏（审计问题 3）：解析器的微停规则认 \n，
-    // 缺 pre-wrap 会把刻意保留的换行折叠成空格（流式行同款）。横向溢出不
-    // 依赖 white-space 承担：长词断行由 word-break 负责
+    // 缺 pre-wrap 会把刻意保留的换行折叠成空格（MessageEntry.body 与
+    // HistoryMessageBody 均同值）。横向溢出不依赖 white-space 承担：长词
+    // 断行由 word-break 负责（pre-wrap 只保留空白，不断词）
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   },

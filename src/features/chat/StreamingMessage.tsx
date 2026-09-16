@@ -46,9 +46,9 @@ function isAnimStyleId(id: string): id is AnimStyleId {
 interface StreamingMessageProps {
   state: StreamState;
   speaker: string;
-  /** 色轨颜色（2026-09-16 消息卡「角色色轨卡」）：主 LLM 位实例的角色色，
-   *  ChatView 按与历史行同一解析链（speakerIdentity）算好传入。 */
-  railColor: string;
+  /** 顶签颜色（2026-09-16 消息卡「顶签卡」定稿）：主 LLM 位实例的角色色，
+   *  ChatView 按与历史条目同一解析链（speakerIdentity）算好传入。 */
+  speakerColor: string;
   tuning: RendererTuning;
   /** 终态收尾（done 排空 / error 冻结 / 后台终态重挂）：UI 重拉列表并摘除流状态。 */
   onSettled: () => void;
@@ -56,7 +56,7 @@ interface StreamingMessageProps {
 
 type Phase = 'idle' | 'think' | 'body';
 
-export function StreamingMessage({ state, speaker, railColor, tuning, onSettled }: StreamingMessageProps) {
+export function StreamingMessage({ state, speaker, speakerColor, tuning, onSettled }: StreamingMessageProps) {
   const styles = useMessageCardStyles();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
@@ -222,8 +222,8 @@ export function StreamingMessage({ state, speaker, railColor, tuning, onSettled 
   return (
     <div
       className={styles.card}
-      // 色轨颜色是动态值进不了 Griffel 类，行内覆写类内占位左缘色（同历史行）
-      style={{ borderLeftColor: railColor }}
+      // 顶签颜色是动态值进不了 Griffel 类，行内覆写类内占位顶缘色（同历史条目）
+      style={{ borderTopColor: speakerColor }}
     >
       <div className={styles.header}>
         <Text className={styles.speaker}>{speaker}</Text>

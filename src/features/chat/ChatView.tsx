@@ -1,11 +1,5 @@
 import {
-  Accordion,
-  AccordionHeader,
-  AccordionItem,
-  AccordionPanel,
-  Badge,
   Button,
-  Text,
   Textarea,
   Tooltip,
   mergeClasses,
@@ -36,13 +30,17 @@ import type {
 import { EmptyState } from '../../components/EmptyState';
 import { formatClock } from '../../lib/relativeTime';
 import { useUiStore } from '../../stores/ui';
-import { HistoryMessageBody } from './HistoryMessageBody';
 import { LedgerPanel } from './ledgerPanel';
+import { MessageEntry } from './MessageEntry';
 import { StreamingMessage } from './StreamingMessage';
 import { CANCEL_REASON, streamHub } from './streamHub';
 import { engineThemeVars, useChatViewStyles } from './useChatViewStyles';
-import { useMessageCardStyles } from './useMessageCardStyles';
-import { instanceRailColor, messageRailColor, speakerLabelOf, USER_SPEAKER_RAIL } from './speakerIdentity';
+import {
+  instanceSpeakerColor,
+  messageSpeakerColor,
+  speakerLabelOf,
+  USER_SPEAKER_NEUTRAL,
+} from './speakerIdentity';
 
 // 智能吸底的距底判定阈值（U3，像素）：scrollHeight - scrollTop - clientHeight
 // 小于该值视为用户仍在底部；唯一消费点在下方吸底 effect，测试以同值构造边界
@@ -64,7 +62,6 @@ const STICK_BOTTOM_THRESHOLD_PX = 80;
  */
 export function ChatView() {
   const styles = useChatViewStyles();
-  const cardStyles = useMessageCardStyles();
   const { t, i18n } = useTranslation();
   const activeSessionId = useUiStore((s) => s.activeSessionId);
   // 会话清单单一数据源在 ui store（TASK-007 验收 4）：与 Sidebar 同源，
@@ -305,9 +302,11 @@ export function ChatView() {
     durationMs: primaryCard?.animDurationMs ?? config?.animDurationBase,
   };
   const lastIsAssistant = messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
-  // 流式行色轨与历史行同源：主 LLM 位实例的角色色（无实例位诚实中性灰）
-  const streamRail =
-    primaryLlm !== undefined ? instanceRailColor(primaryLlm, characterCards) : USER_SPEAKER_RAIL;
+  // 流式行顶签与历史条目同源：主 LLM 位实例的角色色（无实例位诚实中性灰）
+  const streamSpeakerColor =
+    primaryLlm !== undefined
+      ? instanceSpeakerColor(primaryLlm, characterCards)
+      : USER_SPEAKER_NEUTRAL;
 
   return (
     <div className={styles.root}>
@@ -338,67 +337,21 @@ export function ChatView() {
           style={engineThemeVars}
         >
           <div className={styles.streamInner}>
-            {messages.map((message) => {
-            const isUser = message.role === 'user';
-            return (
-              <div
+            {messages.map((message) => (
+              <MessageEntry
                 key={message.id}
-                className={cardStyles.card}
-                // 色轨颜色（说话人身份）是动态值进不了 Griffel 类，行内覆写
-                // 类内占位左缘色（见 useMessageCardStyles.card）
-                style={{ borderLeftColor: messageRailColor(message, activeRoster, characterCards) }}
-              >
-                <div className={cardStyles.header}>
-                  <Text className={cardStyles.speaker}>
-                    {speakerLabelOf(message, instanceNames, t('chat.you'))}
-                  </Text>
-                  <span>{formatClock(message.createdAt, i18n.language)}</span>
-                </div>
-                {/* 思考两态切换机制现状（M4 / ADR-011 分工保留）：流式期由引擎
-                    在 StreamingMessage 的容器内渲染 think 胶囊（engine.css 只读），
-                    本处 Accordion 是落库终态形态。收尾瞬间（settleSession）：refresh
-                    的 setMessages(fresh) 与紧随的 streamHub.end() 在同一轮 React
-                    提交生效——历史行（新 key）挂载与流式行卸载同帧完成，是列表
-                    重挂载替换而非同元素两态切换，两形态无共存帧，真正的交叉淡化
-                    （旧淡出叠新淡入）无落点。退而求其次：终态侧 200ms 淡入
-                    （reasoningEnter，档位 motion.ts CROSSFADE_MS）消硬切感；流式
-                    胶囊瞬时移除是已知取舍（淡出需保活流式行，超本任务范围）。
-                    淡入挂在 Accordion 挂载上不区分收尾/载入：会话载入时思考折叠
-                    随页面渐入（page-enter）同语言淡入，无收尾时刻的突兀对应物。 */}
-                {message.reasoning !== null && (
-                  <Accordion
-                    className={mergeClasses(styles.reasoning, styles.reasoningEnter)}
-                    collapsible
-                  >
-                    <AccordionItem value="reasoning">
-                      <AccordionHeader size="small">
-                        {t('chat.reasoning')}
-                        {message.thinkMs !== null && ` · ${(message.thinkMs / 1000).toFixed(1)}s`}
-                      </AccordionHeader>
-                      <AccordionPanel>{message.reasoning}</AccordionPanel>
-                    </AccordionItem>
-                  </Accordion>
-                )}
-                {isUser ? (
-                  // user 行保持纯文本（markdown-lite 是 assistant 叙事语法）
-                  <div className={cardStyles.body}>{message.content}</div>
-                ) : (
-                  <HistoryMessageBody content={message.content} />
-                )}
-                {message.interrupted && (
-                  <Badge className={styles.interrupted} appearance="outline" shape="rounded">
-                    {t('chat.interrupted')}
-                  </Badge>
-                )}
-              </div>
-            );
-            })}
+                message={message}
+                speaker={speakerLabelOf(message, instanceNames, t('chat.you'))}
+                speakerColor={messageSpeakerColor(message, activeRoster, characterCards)}
+                time={formatClock(message.createdAt, i18n.language)}
+              />
+            ))}
             {streamState && (
               <StreamingMessage
                 key={streamState.sessionId}
                 state={streamState}
                 speaker={sessionSpeaker}
-                railColor={streamRail}
+                speakerColor={streamSpeakerColor}
                 tuning={tuning}
                 onSettled={() => void settleSession(streamState.sessionId)}
               />

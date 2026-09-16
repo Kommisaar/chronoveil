@@ -74,6 +74,8 @@ export const zh = {
     you: '你',
     reasoning: '思考过程',
     interrupted: '已中断',
+    // 条目形态比选脚手架（2026-09-16 六形态比选）已拆除：定稿「顶签卡」，
+    // 切换器词条（chat.probe.*）随落选形态一并移除
     activity: {
       recalling: '正在回忆…',
       found: '翻到了。',

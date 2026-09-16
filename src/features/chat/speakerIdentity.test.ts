@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage, CharacterSummary, SessionInstanceDto } from '../../api/types';
 import { gradientPairOf } from '../../components/posterGradient';
-import { USER_SPEAKER_RAIL, instanceRailColor, messageRailColor } from './speakerIdentity';
+import { USER_SPEAKER_NEUTRAL, instanceSpeakerColor, messageSpeakerColor } from './speakerIdentity';
 
 const CARD: CharacterSummary = {
   id: 7,
@@ -44,35 +44,35 @@ function message(partial: Partial<ChatMessage> & { id: number; role: ChatMessage
   };
 }
 
-describe('instanceRailColor（角色条：强调色同源派生）', () => {
+describe('instanceSpeakerColor（角色条：强调色同源派生）', () => {
   it('模板卡显式 accentColor 原色直出', () => {
-    expect(instanceRailColor(instance({ id: 1, characterId: 7 }), [CARD])).toBe('#ff00aa');
+    expect(instanceSpeakerColor(instance({ id: 1, characterId: 7 }), [CARD])).toBe('#ff00aa');
   });
 
   it('卡未设 accentColor → 海报渐变亮端回退（与海报同源）', () => {
     const bare: CharacterSummary = { ...CARD, accentColor: null };
-    expect(instanceRailColor(instance({ id: 1, characterId: 7 }), [bare])).toBe(
+    expect(instanceSpeakerColor(instance({ id: 1, characterId: 7 }), [bare])).toBe(
       gradientPairOf(7)[1],
     );
   });
 
   it('动态造人（characterId None）按实例自身 id 走调色板，不撞色不漂移', () => {
-    expect(instanceRailColor(instance({ id: 5, characterId: null }), [])).toBe(
+    expect(instanceSpeakerColor(instance({ id: 5, characterId: null }), [])).toBe(
       gradientPairOf(5)[1],
     );
   });
 });
 
-describe('messageRailColor（消息条目：身份诚实缺省）', () => {
+describe('messageSpeakerColor（消息条目：身份诚实缺省）', () => {
   it('user 条恒中性灰（带阵容也灰）', () => {
-    expect(messageRailColor(message({ id: 2, role: 'user' }), [instance({ id: 1 })], [CARD])).toBe(
-      USER_SPEAKER_RAIL,
+    expect(messageSpeakerColor(message({ id: 2, role: 'user' }), [instance({ id: 1 })], [CARD])).toBe(
+      USER_SPEAKER_NEUTRAL,
     );
   });
 
   it('assistant 条按说话人实例取角色色', () => {
     expect(
-      messageRailColor(message({ id: 3, role: 'assistant', characterId: 1 }), [
+      messageSpeakerColor(message({ id: 3, role: 'assistant', characterId: 1 }), [
         instance({ id: 1, characterId: 7 }),
       ], [CARD]),
     ).toBe('#ff00aa');
@@ -80,7 +80,7 @@ describe('messageRailColor（消息条目：身份诚实缺省）', () => {
 
   it('assistant 条实例查不到（阵容回显缺失）→ 中性灰，不伪装角色色', () => {
     expect(
-      messageRailColor(message({ id: 4, role: 'assistant', characterId: 99 }), [], [CARD]),
-    ).toBe(USER_SPEAKER_RAIL);
+      messageSpeakerColor(message({ id: 4, role: 'assistant', characterId: 99 }), [], [CARD]),
+    ).toBe(USER_SPEAKER_NEUTRAL);
   });
 });

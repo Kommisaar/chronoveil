@@ -185,10 +185,13 @@ const useStyles = makeStyles({
     minWidth: '0px',
     minHeight: '0px',
   },
+  // 右栏三段（标题/表单/动作）分界线：与角色编辑器同款（非模态面板无自带
+  // 描边，hairline 走 SettingsDivider 同款 stroke2，见彼处注释）
   titleRow: {
     display: 'flex',
     alignItems: 'center',
-    padding: '14px 56px 0px 24px',
+    padding: '14px 56px 12px 24px',
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
   },
   titleAction: {
     position: 'absolute',
@@ -199,7 +202,11 @@ const useStyles = makeStyles({
     flex: 1,
     minHeight: '0px',
     overflowY: 'auto',
-    padding: '12px 24px 0px 24px',
+    // margin 显式归零：Fluent DialogContent 自带 -2px 扩点击区 margin，接管
+    // padding 后不清掉会让滚动内容压过上下分界线（实锤与修法见
+    // CharacterEditorDialog content 注释）
+    margin: '0px',
+    padding: '12px 24px 12px 24px',
     // 溢出滚动的细滚动条（同角色编辑器）：默认粗滚动条在圆角面板右缘太重
     scrollbarWidth: 'thin',
     scrollbarColor: `${tokens.colorNeutralStroke2} transparent`,
@@ -246,11 +253,19 @@ const useStyles = makeStyles({
   },
   actionsRow: {
     padding: '12px 24px 16px 24px',
+    // 表单带的下界（与 titleRow 底边线成对，见上）
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
   },
   // 左钮钉动作行左端（marginRight:auto 把后续钮推到右端）：edit 模式仅删除
   // 钉左、右端留空；create 模式放弃钉左、保存落右端主动作位——同一锚类复用
-  deleteAction: {
+  // 动作行锚钮（marginRight:auto 把后续钮推到右端）：create 模式挂保存
+  //（保存贴左、放弃落最右端）；edit 模式删除单钮挂 pinRight
+  //（marginLeft:auto）钉最右端——两档与角色编辑器同构（2026-09-16 用户拍板）
+  pinLeft: {
     marginRight: 'auto',
+  },
+  pinRight: {
+    marginLeft: 'auto',
   },
 });
 
@@ -473,21 +488,22 @@ export function WorldEditorDialog(props: WorldEditorDialogProps) {
               <DialogActions className={styles.actionsRow}>
                 {mode === 'create' ? (
                   <>
-                    {/* 放弃钉左端（marginRight:auto 把保存推到右端主动作位）：
-                        草稿丢弃不落库，与背板/× 同语义 */}
-                    <Button className={styles.deleteAction} disabled={saving} onClick={requestClose}>
-                      {t('worlds.discard')}
-                    </Button>
+                    {/* 保存贴左端（pinLeft 锚把放弃推到最右端，2026-09-16 用户
+                        拍板）；放弃即丢弃草稿不落库，与背板/× 同语义 */}
                     <Button
+                      className={styles.pinLeft}
                       appearance="primary"
                       disabled={!form.canSave || saving}
                       onClick={handleSave}
                     >
                       {t('worlds.save')}
                     </Button>
+                    <Button disabled={saving} onClick={requestClose}>
+                      {t('worlds.discard')}
+                    </Button>
                   </>
                 ) : (
-                  <Button className={styles.deleteAction} onClick={() => onDelete(world)}>
+                  <Button className={styles.pinRight} onClick={() => onDelete(world)}>
                     {t('worlds.delete')}
                   </Button>
                 )}

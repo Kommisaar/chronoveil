@@ -189,10 +189,15 @@ const useStyles = makeStyles({
     minWidth: '0px',
     minHeight: '0px',
   },
+  // 右栏三段（标题/表单/动作）在非模态面板上没有任何自带描边（无 Smoke
+  // 蒙层、surface padding 0），滚动表单上下与标题/动作区糊成一片——标题
+  // 加底边线、动作行加顶边线框出表单带；用色走 SettingsDivider 同款
+  // stroke2（全仓分隔线单一用色）
   titleRow: {
     display: 'flex',
     alignItems: 'center',
-    padding: '14px 56px 0px 24px',
+    padding: '14px 56px 12px 24px',
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
   },
   titleAction: {
     position: 'absolute',
@@ -203,7 +208,13 @@ const useStyles = makeStyles({
     flex: 1,
     minHeight: '0px',
     overflowY: 'auto',
-    padding: '12px 24px 0px 24px',
+    // Fluent DialogContent 自带 margin -2px（其原生 2px padding + 负 margin
+    // 的扩点击区 trick）；我们的 padding 全量接管后 margin 必须显式归零，
+    // 否则滚动视口上下各多出 2px，内容压过标题底边线/动作行顶边线
+    //（2026-09-16 浏览器实测：视口底缘越过动作行线 2px，滚动到底时线从
+    // 末行控件中间穿过）
+    margin: '0px',
+    padding: '12px 24px 12px 24px',
     // 溢出滚动的细滚动条（WebView2 Chromium 支持）：默认粗滚动条在圆角
     // 亚克力面板右缘太重
     scrollbarWidth: 'thin',
@@ -216,10 +227,12 @@ const useStyles = makeStyles({
   },
   actionsRow: {
     padding: '12px 24px 16px 24px',
+    // 表单带的下界（与 titleRow 底边线成对，见上）
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
   },
-  // 动作行左钮钉左端（marginRight:auto 把后续钮推到右端）：edit 模式是
-  // 删除 + 导出（整组贴左，右端留空）；create 模式放弃贴左、保存落右端
-  //（主动作位）——同一锚类复用
+  // 动作行左钮钉左端（marginRight:auto 把后续钮推到右端）：edit 模式导出贴
+  // 左、删除落最右端；create 模式保存贴左、放弃落最右端（2026-09-16 用户
+  // 拍板）——同一锚类复用
   pinLeft: {
     marginRight: 'auto',
   },
@@ -455,26 +468,28 @@ export function CharacterEditorDialog(props: CharacterEditorDialogProps) {
             <DialogActions className={styles.actionsRow}>
               {mode === 'create' ? (
                 <>
-                  {/* 放弃钉左端（marginRight:auto 把保存推到右端）：草稿丢弃
-                      不落库，与背板/× 同语义 */}
-                  <Button className={styles.pinLeft} disabled={saving} onClick={requestClose}>
-                    {t('characters.discard')}
-                  </Button>
+                  {/* 保存贴左端（marginRight:auto 把放弃推到最右端，2026-09-16
+                      用户拍板）；放弃即丢弃草稿不落库，与背板/× 同语义 */}
                   <Button
+                    className={styles.pinLeft}
                     appearance="primary"
                     disabled={!form.canSave || saving}
                     onClick={handleSave}
                   >
                     {t('characters.save')}
                   </Button>
+                  <Button disabled={saving} onClick={requestClose}>
+                    {t('characters.discard')}
+                  </Button>
                 </>
               ) : (
                 <>
-                  <Button onClick={() => onDelete(character)}>
-                    {t('characters.delete')}
-                  </Button>
+                  {/* 导出贴左端（marginRight:auto 把删除推到最右端），2026-09-16 用户拍板 */}
                   <Button className={styles.pinLeft} onClick={() => onExport(character)}>
                     {t('characters.export')}
+                  </Button>
+                  <Button onClick={() => onDelete(character)}>
+                    {t('characters.delete')}
                   </Button>
                 </>
               )}
